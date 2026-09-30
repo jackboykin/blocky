@@ -15,7 +15,7 @@ import (
 	"github.com/0xERR0R/blocky/util"
 	"github.com/creasty/defaults"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -27,7 +27,7 @@ var _ = Describe("CachingResolver", func() {
 		sutConfig  config.Caching
 		sutDNSSEC  config.DNSSEC
 		m          *mockResolver
-		mockAnswer *dns.Msg
+		mockAnswer *dnsv1.Msg
 		ctx        context.Context
 		cancelFn   context.CancelFunc
 		cacheMock  *cache.MockExpiringCache[[]byte]
@@ -45,7 +45,7 @@ var _ = Describe("CachingResolver", func() {
 		if err := defaults.Set(&sutConfig); err != nil {
 			panic(err)
 		}
-		mockAnswer = new(dns.Msg)
+		mockAnswer = new(dnsv1.Msg)
 	})
 
 	JustBeforeEach(func() {
@@ -139,7 +139,7 @@ var _ = Describe("CachingResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeCACHED),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							BeDNSRecord("example.com.", A, "123.122.121.120"),
 							HaveTTL(BeNumerically("<=", 2)),
 						),
@@ -186,14 +186,14 @@ var _ = Describe("CachingResolver", func() {
 		})
 		When("caching with default values is enabled", func() {
 			BeforeEach(func() {
-				rr1, err := dns.NewRR(fmt.Sprintf("%s\t%d\tIN\t%s\t%s", "example.com.", 600, A, "1.2.3.4"))
+				rr1, err := dnsv1.NewRR(fmt.Sprintf("%s\t%d\tIN\t%s\t%s", "example.com.", 600, A, "1.2.3.4"))
 				Expect(err).Should(Succeed())
 
-				rr2, err := dns.NewRR(fmt.Sprintf("%s\t%d\tIN\t%s\t%s", "example.com.", 950, CNAME, "cname.example.com"))
+				rr2, err := dnsv1.NewRR(fmt.Sprintf("%s\t%d\tIN\t%s\t%s", "example.com.", 950, CNAME, "cname.example.com"))
 				Expect(err).Should(Succeed())
 
-				msg := new(dns.Msg)
-				msg.Answer = []dns.RR{rr1, rr2}
+				msg := new(dnsv1.Msg)
+				msg.Answer = []dnsv1.RR{rr1, rr2}
 				mockAnswer = msg
 			})
 			It("should cache response and use response's TTL for multiple records", func() {
@@ -204,7 +204,7 @@ var _ = Describe("CachingResolver", func() {
 						Should(
 							SatisfyAll(
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dns.RcodeSuccess),
+								HaveReturnCode(dnsv1.RcodeSuccess),
 								WithTransform(ToAnswer, SatisfyAll(
 									HaveLen(2),
 								)),
@@ -224,7 +224,7 @@ var _ = Describe("CachingResolver", func() {
 							Should(
 								SatisfyAll(
 									HaveResponseType(ResponseTypeCACHED),
-									HaveReturnCode(dns.RcodeSuccess),
+									HaveReturnCode(dnsv1.RcodeSuccess),
 									WithTransform(ToAnswer, SatisfyAll(
 										HaveLen(2),
 									))))
@@ -259,7 +259,7 @@ var _ = Describe("CachingResolver", func() {
 							Should(
 								SatisfyAll(
 									HaveResponseType(ResponseTypeRESOLVED),
-									HaveReturnCode(dns.RcodeSuccess),
+									HaveReturnCode(dnsv1.RcodeSuccess),
 									BeDNSRecord("example.com.", A, "123.122.121.120"),
 									HaveTTL(BeNumerically("==", 600))))
 
@@ -274,7 +274,7 @@ var _ = Describe("CachingResolver", func() {
 								Should(
 									SatisfyAll(
 										HaveResponseType(ResponseTypeCACHED),
-										HaveReturnCode(dns.RcodeSuccess),
+										HaveReturnCode(dnsv1.RcodeSuccess),
 										BeDNSRecord("example.com.", A, "123.122.121.120"),
 										// ttl is smaller
 										HaveTTL(BeNumerically("<=", 599))))
@@ -297,7 +297,7 @@ var _ = Describe("CachingResolver", func() {
 								Should(
 									SatisfyAll(
 										HaveResponseType(ResponseTypeRESOLVED),
-										HaveReturnCode(dns.RcodeSuccess),
+										HaveReturnCode(dnsv1.RcodeSuccess),
 										BeDNSRecord("example.com.", A, "123.122.121.120"),
 										HaveTTL(BeNumerically("==", 300))))
 
@@ -311,7 +311,7 @@ var _ = Describe("CachingResolver", func() {
 								Should(
 									SatisfyAll(
 										HaveResponseType(ResponseTypeCACHED),
-										HaveReturnCode(dns.RcodeSuccess),
+										HaveReturnCode(dnsv1.RcodeSuccess),
 										BeDNSRecord("example.com.", A, "123.122.121.120"),
 										// ttl is smaller
 										HaveTTL(BeNumerically("<=", 299))))
@@ -334,7 +334,7 @@ var _ = Describe("CachingResolver", func() {
 								Should(
 									SatisfyAll(
 										HaveResponseType(ResponseTypeRESOLVED),
-										HaveReturnCode(dns.RcodeSuccess),
+										HaveReturnCode(dnsv1.RcodeSuccess),
 										BeDNSRecord("example.com.", AAAA, "2001:db8:85a3:8d3:1319:8a2e:370:7344"),
 										HaveTTL(BeNumerically("==", 300))))
 							Expect(m.Calls).Should(HaveLen(1))
@@ -347,7 +347,7 @@ var _ = Describe("CachingResolver", func() {
 								Should(
 									SatisfyAll(
 										HaveResponseType(ResponseTypeCACHED),
-										HaveReturnCode(dns.RcodeSuccess),
+										HaveReturnCode(dnsv1.RcodeSuccess),
 										BeDNSRecord("example.com.", AAAA, "2001:db8:85a3:8d3:1319:8a2e:370:7344"),
 										// ttl is smaller
 										HaveTTL(BeNumerically("<=", 299))))
@@ -381,7 +381,7 @@ var _ = Describe("CachingResolver", func() {
 							Should(
 								SatisfyAll(
 									HaveResponseType(ResponseTypeRESOLVED),
-									HaveReturnCode(dns.RcodeSuccess),
+									HaveReturnCode(dnsv1.RcodeSuccess),
 									BeDNSRecord("example.com.", AAAA, "2001:db8:85a3:8d3:1319:8a2e:370:7344"),
 									HaveTTL(BeNumerically("==", 1230))))
 						Expect(m.Calls).Should(HaveLen(1))
@@ -394,7 +394,7 @@ var _ = Describe("CachingResolver", func() {
 							Should(
 								SatisfyAll(
 									HaveResponseType(ResponseTypeRESOLVED),
-									HaveReturnCode(dns.RcodeSuccess),
+									HaveReturnCode(dnsv1.RcodeSuccess),
 									BeDNSRecord("example.com.", AAAA, "2001:db8:85a3:8d3:1319:8a2e:370:7344"),
 									// ttl is smaller
 									HaveTTL(BeNumerically("==", 1230))))
@@ -417,7 +417,7 @@ var _ = Describe("CachingResolver", func() {
 							Should(
 								SatisfyAll(
 									HaveResponseType(ResponseTypeRESOLVED),
-									HaveReturnCode(dns.RcodeSuccess),
+									HaveReturnCode(dnsv1.RcodeSuccess),
 									BeDNSRecord("example.com.",
 										AAAA, "2001:db8:85a3:8d3:1319:8a2e:370:7344"),
 									HaveTTL(BeNumerically("==", 240))))
@@ -430,7 +430,7 @@ var _ = Describe("CachingResolver", func() {
 							Should(
 								SatisfyAll(
 									HaveResponseType(ResponseTypeCACHED),
-									HaveReturnCode(dns.RcodeSuccess),
+									HaveReturnCode(dnsv1.RcodeSuccess),
 									BeDNSRecord("example.com.",
 										AAAA, "2001:db8:85a3:8d3:1319:8a2e:370:7344"),
 									// ttl is smaller
@@ -458,7 +458,7 @@ var _ = Describe("CachingResolver", func() {
 							Should(
 								SatisfyAll(
 									HaveResponseType(ResponseTypeRESOLVED),
-									HaveReturnCode(dns.RcodeSuccess),
+									HaveReturnCode(dnsv1.RcodeSuccess),
 									BeDNSRecord("example.com.",
 										A, "1.1.1.1"),
 									HaveTTL(BeNumerically("==", 1))))
@@ -473,7 +473,7 @@ var _ = Describe("CachingResolver", func() {
 							Should(
 								SatisfyAll(
 									HaveResponseType(ResponseTypeCACHED),
-									HaveReturnCode(dns.RcodeSuccess),
+									HaveReturnCode(dnsv1.RcodeSuccess),
 									BeDNSRecord("example.com.",
 										A, "1.1.1.1"),
 									// ttl is 0
@@ -552,7 +552,7 @@ var _ = Describe("CachingResolver", func() {
 		Context("Caching if upstream resolver returns NXDOMAIN", func() {
 			When("Upstream resolver returns NXDOMAIN with caching", func() {
 				BeforeEach(func() {
-					mockAnswer.Rcode = dns.RcodeNameError
+					mockAnswer.Rcode = dnsv1.RcodeNameError
 				})
 
 				It("response should be cached", func() {
@@ -564,7 +564,7 @@ var _ = Describe("CachingResolver", func() {
 						Expect(sut.Resolve(ctx, newRequest("example.com.", AAAA))).
 							Should(SatisfyAll(
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dns.RcodeNameError),
+								HaveReturnCode(dnsv1.RcodeNameError),
 								HaveNoAnswer(),
 							))
 
@@ -578,7 +578,7 @@ var _ = Describe("CachingResolver", func() {
 							Should(SatisfyAll(
 								HaveResponseType(ResponseTypeCACHED),
 								HaveReason("CACHED NEGATIVE"),
-								HaveReturnCode(dns.RcodeNameError),
+								HaveReturnCode(dnsv1.RcodeNameError),
 								HaveNoAnswer(),
 							))
 
@@ -589,7 +589,7 @@ var _ = Describe("CachingResolver", func() {
 			})
 			When("Upstream resolver returns NXDOMAIN without caching", func() {
 				BeforeEach(func() {
-					mockAnswer.Rcode = dns.RcodeNameError
+					mockAnswer.Rcode = dnsv1.RcodeNameError
 					sutConfig = config.Caching{
 						CacheTimeNegative: config.Duration(time.Minute * -1),
 					}
@@ -600,7 +600,7 @@ var _ = Describe("CachingResolver", func() {
 						Expect(sut.Resolve(ctx, newRequest("example.com.", AAAA))).
 							Should(SatisfyAll(
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dns.RcodeNameError),
+								HaveReturnCode(dnsv1.RcodeNameError),
 								HaveNoAnswer(),
 							))
 
@@ -614,7 +614,7 @@ var _ = Describe("CachingResolver", func() {
 							Should(SatisfyAll(
 								HaveResponseType(ResponseTypeRESOLVED),
 								HaveReason(""),
-								HaveReturnCode(dns.RcodeNameError),
+								HaveReturnCode(dnsv1.RcodeNameError),
 								HaveNoAnswer(),
 							))
 
@@ -627,8 +627,8 @@ var _ = Describe("CachingResolver", func() {
 		Context("Caching if upstream resolver returns empty result", func() {
 			When("Upstream resolver returns empty result with caching", func() {
 				BeforeEach(func() {
-					mockAnswer.Rcode = dns.RcodeSuccess
-					mockAnswer.Answer = make([]dns.RR, 0)
+					mockAnswer.Rcode = dnsv1.RcodeSuccess
+					mockAnswer.Answer = make([]dnsv1.RR, 0)
 				})
 
 				It("response should be cached", func() {
@@ -636,7 +636,7 @@ var _ = Describe("CachingResolver", func() {
 						Expect(sut.Resolve(ctx, newRequest("example.com.", AAAA))).
 							Should(SatisfyAll(
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dns.RcodeSuccess),
+								HaveReturnCode(dnsv1.RcodeSuccess),
 								HaveNoAnswer(),
 							))
 
@@ -650,7 +650,7 @@ var _ = Describe("CachingResolver", func() {
 							Should(SatisfyAll(
 								HaveResponseType(ResponseTypeCACHED),
 								HaveReason("CACHED"),
-								HaveReturnCode(dns.RcodeSuccess),
+								HaveReturnCode(dnsv1.RcodeSuccess),
 								HaveNoAnswer(),
 							))
 
@@ -672,7 +672,7 @@ var _ = Describe("CachingResolver", func() {
 					Expect(sut.Resolve(ctx, newRequest("google.de.", MX))).
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							BeDNSRecord("google.de.", MX, "alt1.aspmx.l.google.com."),
 							HaveTTL(BeNumerically("==", 180)),
 						))
@@ -687,7 +687,7 @@ var _ = Describe("CachingResolver", func() {
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeCACHED),
 							HaveReason("CACHED"),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							BeDNSRecord("google.de.", MX, "alt1.aspmx.l.google.com."),
 							HaveTTL(BeNumerically("<=", 179)),
 						))
@@ -710,7 +710,7 @@ var _ = Describe("CachingResolver", func() {
 					Expect(sut.Resolve(ctx, newRequest("google.de.", A))).
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							BeDNSRecord("google.de.", A, "1.1.1.1"),
 							HaveTTL(BeNumerically("==", 180)),
 						))
@@ -722,7 +722,7 @@ var _ = Describe("CachingResolver", func() {
 					Expect(sut.Resolve(ctx, newRequest("google.de.", A))).
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							BeDNSRecord("google.de.", A, "1.1.1.1"),
 							HaveTTL(BeNumerically("==", 180)),
 						))
@@ -744,7 +744,7 @@ var _ = Describe("CachingResolver", func() {
 					Expect(sut.Resolve(ctx, newRequest("google.de.", A))).
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							BeDNSRecord("google.de.", A, "1.1.1.1"),
 							HaveTTL(BeNumerically("==", 180)),
 						))
@@ -756,7 +756,7 @@ var _ = Describe("CachingResolver", func() {
 					Expect(sut.Resolve(ctx, newRequest("google.de.", A))).
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							BeDNSRecord("google.de.", A, "1.1.1.1"),
 							HaveTTL(BeNumerically("==", 180)),
 						))
@@ -771,10 +771,10 @@ var _ = Describe("CachingResolver", func() {
 		When("Some query returns EDNS OPT RRs", func() {
 			BeforeEach(func() {
 				mockAnswer, _ = util.NewMsgWithAnswer("google.de.", 180, A, "1.1.1.1")
-				opt := new(dns.OPT)
+				opt := new(dnsv1.OPT)
 				opt.Hdr.Name = "."
-				opt.Hdr.Rrtype = dns.TypeOPT
-				opt.Option = append(opt.Option, &dns.EDNS0_COOKIE{Code: dns.EDNS0COOKIE, Cookie: "someclientcookie"})
+				opt.Hdr.Rrtype = dnsv1.TypeOPT
+				opt.Option = append(opt.Option, &dnsv1.EDNS0_COOKIE{Code: dnsv1.EDNS0COOKIE, Cookie: "someclientcookie"})
 				mockAnswer.Extra = append(mockAnswer.Extra, opt)
 			})
 			It("Should not be cached", func() {
@@ -782,7 +782,7 @@ var _ = Describe("CachingResolver", func() {
 					Expect(sut.Resolve(ctx, newRequest("google.de.", A))).
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							BeDNSRecord("google.de.", A, "1.1.1.1"),
 							HaveTTL(BeNumerically("==", 180)),
 							// original response has one ENDS0 Opt
@@ -802,7 +802,7 @@ var _ = Describe("CachingResolver", func() {
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeCACHED),
 							HaveReason("CACHED"),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							BeDNSRecord("google.de.", A, "1.1.1.1"),
 							HaveTTL(BeNumerically("<=", 179)),
 							// cached response is without EDNS RRs
@@ -823,16 +823,16 @@ var _ = Describe("CachingResolver", func() {
 		var cacheKey string
 
 		BeforeEach(func() {
-			cacheKey = util.GenerateCacheKey(dns.Type(dns.TypeA), "example.com")
+			cacheKey = util.GenerateCacheKey(dnsv1.Type(dnsv1.TypeA), "example.com")
 		})
 
 		When("the reloaded response contains EDNS0 OPT records", func() {
 			BeforeEach(func() {
 				mockAnswer, _ = util.NewMsgWithAnswer("example.com.", 123, A, "1.2.3.4")
-				opt := new(dns.OPT)
+				opt := new(dnsv1.OPT)
 				opt.Hdr.Name = "."
-				opt.Hdr.Rrtype = dns.TypeOPT
-				opt.Option = append(opt.Option, &dns.EDNS0_COOKIE{Code: dns.EDNS0COOKIE, Cookie: "0102030405060708"})
+				opt.Hdr.Rrtype = dnsv1.TypeOPT
+				opt.Option = append(opt.Option, &dnsv1.EDNS0_COOKIE{Code: dnsv1.EDNS0COOKIE, Cookie: "0102030405060708"})
 				mockAnswer.Extra = append(mockAnswer.Extra, opt)
 			})
 
@@ -841,7 +841,7 @@ var _ = Describe("CachingResolver", func() {
 				Expect(packed).ShouldNot(BeNil())
 				Expect(ttl).Should(BeNumerically(">", 0))
 
-				msg := new(dns.Msg)
+				msg := new(dnsv1.Msg)
 				Expect(msg.Unpack(*packed)).Should(Succeed())
 				Expect(msg.Answer).Should(HaveLen(1))
 				Expect(msg.Extra).Should(BeEmpty())
@@ -858,7 +858,7 @@ var _ = Describe("CachingResolver", func() {
 				Expect(packed).ShouldNot(BeNil())
 				Expect(ttl).Should(BeNumerically(">", 0))
 
-				msg := new(dns.Msg)
+				msg := new(dnsv1.Msg)
 				Expect(msg.Unpack(*packed)).Should(Succeed())
 				Expect(msg.Answer).Should(HaveLen(1))
 			})
@@ -901,7 +901,7 @@ var _ = Describe("CachingResolver", func() {
 				Expect(packed).ShouldNot(BeNil())
 				Expect(ttl).Should(Equal(time.Minute))
 
-				msg := new(dns.Msg)
+				msg := new(dnsv1.Msg)
 				Expect(msg.Unpack(*packed)).Should(Succeed())
 				Expect(msg.Answer).Should(HaveLen(1))
 				// the clamped TTL must be packed, otherwise the stored/Redis-synced
@@ -916,7 +916,7 @@ var _ = Describe("CachingResolver", func() {
 		When("request is not cacheable", func() {
 			BeforeEach(func() {
 				request = newRequest("example.com.", A)
-				e := new(dns.EDNS0_SUBNET)
+				e := new(dnsv1.EDNS0_SUBNET)
 				e.SourceScope = 0
 				e.Address = net.ParseIP("192.168.0.0")
 				e.Family = 1
@@ -932,7 +932,7 @@ var _ = Describe("CachingResolver", func() {
 		When("request is cacheable", func() {
 			BeforeEach(func() {
 				request = newRequest("example.com.", A)
-				e := new(dns.EDNS0_SUBNET)
+				e := new(dnsv1.EDNS0_SUBNET)
 				e.SourceScope = 0
 				e.Address = net.ParseIP("192.168.0.10")
 				e.Family = 1
@@ -1035,12 +1035,12 @@ var _ = Describe("CachingResolver", func() {
 
 		When("a cached NXDOMAIN response is returned", func() {
 			BeforeEach(func() {
-				soa, err := dns.NewRR("example.com. 3600 IN SOA ns.example.com. mail.example.com. 1 2 3 4 5")
+				soa, err := dnsv1.NewRR("example.com. 3600 IN SOA ns.example.com. mail.example.com. 1 2 3 4 5")
 				Expect(err).Should(Succeed())
 
-				mockAnswer = new(dns.Msg)
-				mockAnswer.Rcode = dns.RcodeNameError
-				mockAnswer.Ns = []dns.RR{soa}
+				mockAnswer = new(dnsv1.Msg)
+				mockAnswer.Rcode = dnsv1.RcodeNameError
+				mockAnswer.Ns = []dnsv1.RR{soa}
 			})
 
 			It("should count the SOA TTL down", func() {
@@ -1048,7 +1048,7 @@ var _ = Describe("CachingResolver", func() {
 					Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeNameError),
+							HaveReturnCode(dnsv1.RcodeNameError),
 							WithTransform(authorityTTL, BeNumerically("==", 3600))))
 				})
 
@@ -1061,7 +1061,7 @@ var _ = Describe("CachingResolver", func() {
 						WithArguments(newRequest("example.com.", A)).
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeCACHED),
-							HaveReturnCode(dns.RcodeNameError),
+							HaveReturnCode(dnsv1.RcodeNameError),
 							WithTransform(authorityTTL, BeNumerically("<", 3600))))
 
 					Expect(m.Calls).Should(HaveLen(1))
@@ -1071,15 +1071,15 @@ var _ = Describe("CachingResolver", func() {
 
 		When("a cached NXDOMAIN response carries a CNAME chain", func() {
 			BeforeEach(func() {
-				cname, err := dns.NewRR("example.com. 60 IN CNAME gone.example.net.")
+				cname, err := dnsv1.NewRR("example.com. 60 IN CNAME gone.example.net.")
 				Expect(err).Should(Succeed())
-				soa, err := dns.NewRR("example.net. 3600 IN SOA ns.example.net. mail.example.net. 1 2 3 4 5")
+				soa, err := dnsv1.NewRR("example.net. 3600 IN SOA ns.example.net. mail.example.net. 1 2 3 4 5")
 				Expect(err).Should(Succeed())
 
-				mockAnswer = new(dns.Msg)
-				mockAnswer.Rcode = dns.RcodeNameError
-				mockAnswer.Answer = []dns.RR{cname}
-				mockAnswer.Ns = []dns.RR{soa}
+				mockAnswer = new(dnsv1.Msg)
+				mockAnswer.Rcode = dnsv1.RcodeNameError
+				mockAnswer.Answer = []dnsv1.RR{cname}
+				mockAnswer.Ns = []dnsv1.RR{soa}
 			})
 
 			It("should count the SOA TTL down", func() {
@@ -1087,7 +1087,7 @@ var _ = Describe("CachingResolver", func() {
 					Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeNameError),
+							HaveReturnCode(dnsv1.RcodeNameError),
 							WithTransform(authorityTTL, BeNumerically("==", 3600))))
 				})
 
@@ -1100,7 +1100,7 @@ var _ = Describe("CachingResolver", func() {
 						WithArguments(newRequest("example.com.", A)).
 						Should(SatisfyAll(
 							HaveResponseType(ResponseTypeCACHED),
-							HaveReturnCode(dns.RcodeNameError),
+							HaveReturnCode(dnsv1.RcodeNameError),
 							HaveTTL(BeNumerically("<", 60)),
 							WithTransform(authorityTTL, BeNumerically("<", 3600))))
 
@@ -1113,13 +1113,13 @@ var _ = Describe("CachingResolver", func() {
 			BeforeEach(func() {
 				mockAnswer, _ = util.NewMsgWithAnswer("example.com.", 3600, A, "123.122.121.120")
 
-				ns, err := dns.NewRR("example.com. 3600 IN NS ns.example.com.")
+				ns, err := dnsv1.NewRR("example.com. 3600 IN NS ns.example.com.")
 				Expect(err).Should(Succeed())
-				glue, err := dns.NewRR("ns.example.com. 3600 IN A 123.122.121.1")
+				glue, err := dnsv1.NewRR("ns.example.com. 3600 IN A 123.122.121.1")
 				Expect(err).Should(Succeed())
 
-				mockAnswer.Ns = []dns.RR{ns}
-				mockAnswer.Extra = []dns.RR{glue}
+				mockAnswer.Ns = []dnsv1.RR{ns}
+				mockAnswer.Extra = []dnsv1.RR{glue}
 			})
 
 			It("should count their TTLs down together with the answer", func() {
@@ -1149,20 +1149,20 @@ var _ = Describe("CachingResolver", func() {
 
 		When("a message carries an OPT record", func() {
 			It("should not touch its TTL field", func() {
-				a, err := dns.NewRR("example.com. 3600 IN A 123.122.121.120")
+				a, err := dnsv1.NewRR("example.com. 3600 IN A 123.122.121.120")
 				Expect(err).Should(Succeed())
 
 				// An OPT record stores the extended rcode and flags in the TTL field,
 				// so ageing it like a lifetime would corrupt them.
-				opt := new(dns.OPT)
+				opt := new(dnsv1.OPT)
 				opt.Hdr.Name = "."
-				opt.Hdr.Rrtype = dns.TypeOPT
+				opt.Hdr.Rrtype = dnsv1.TypeOPT
 				opt.SetDo()
 				optHeaderBefore := opt.Hdr.Ttl
 
-				msg := new(dns.Msg)
-				msg.Answer = []dns.RR{a}
-				msg.Extra = []dns.RR{opt}
+				msg := new(dnsv1.Msg)
+				msg.Answer = []dnsv1.RR{a}
+				msg.Extra = []dnsv1.RR{opt}
 
 				sut.setTTLInCachedResponse(msg, 3000*time.Second)
 

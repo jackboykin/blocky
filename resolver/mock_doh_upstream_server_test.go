@@ -14,7 +14,7 @@ import (
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/onsi/ginkgo/v2"
 )
 
@@ -44,7 +44,7 @@ type MockDoHUpstreamServer struct {
 	barrier          atomic.Pointer[chan struct{}]
 	barrierRemaining atomic.Int32
 
-	answerFn func(request *dns.Msg) (response *dns.Msg)
+	answerFn func(request *dnsv1.Msg) (response *dnsv1.Msg)
 
 	// mu guards conns, the set of open connections and whether each is poisoned.
 	mu    sync.Mutex
@@ -172,7 +172,7 @@ func (m *MockDoHUpstreamServer) handle(w http.ResponseWriter, r *http.Request) {
 	m.callCount.Add(1)
 	m.awaitBarrier()
 
-	msg := new(dns.Msg)
+	msg := new(dnsv1.Msg)
 	err = msg.Unpack(body)
 	util.FatalOnError("can't deserialize message: ", err)
 
@@ -233,7 +233,7 @@ type stalePooledConnTransport struct {
 	staleAttempts atomic.Int32
 	calls         atomic.Int32
 
-	answerFn func(request *dns.Msg) (response *dns.Msg)
+	answerFn func(request *dnsv1.Msg) (response *dnsv1.Msg)
 }
 
 func (t *stalePooledConnTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -252,7 +252,7 @@ func (t *stalePooledConnTransport) RoundTrip(req *http.Request) (*http.Response,
 	body, err := io.ReadAll(req.Body)
 	util.FatalOnError("can't read request: ", err)
 
-	msg := new(dns.Msg)
+	msg := new(dnsv1.Msg)
 	util.FatalOnError("can't deserialize message: ", msg.Unpack(body))
 
 	raw, err := mockReply(msg, t.answerFn(msg)).Pack()

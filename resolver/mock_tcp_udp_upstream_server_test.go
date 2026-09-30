@@ -6,14 +6,14 @@ import (
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/onsi/ginkgo/v2"
 )
 
 // answerFn builds the response for a received query. The mock fixes the response ID and the
 // response bit afterwards, so a handler is free to return a mismatched question section or set the
 // TC bit to exercise blocky's fallback logic.
-type answerFn func(request *dns.Msg) *dns.Msg
+type answerFn func(request *dnsv1.Msg) *dnsv1.Msg
 
 // mockTCPUDPUpstreamServer is a test upstream that listens on a single address over BOTH UDP and
 // TCP, with independent handlers and per-protocol call counters. Unlike MockUDPUpstreamServer (UDP
@@ -24,8 +24,8 @@ type mockTCPUDPUpstreamServer struct {
 	tcpAnswer answerFn
 	udpCount  atomic.Int32
 	tcpCount  atomic.Int32
-	udpSrv    *dns.Server
-	tcpSrv    *dns.Server
+	udpSrv    *dnsv1.Server
+	tcpSrv    *dnsv1.Server
 }
 
 func newMockTCPUDPUpstreamServer(udpAnswer, tcpAnswer answerFn) *mockTCPUDPUpstreamServer {
@@ -49,8 +49,8 @@ func (m *mockTCPUDPUpstreamServer) Close() {
 	}
 }
 
-func (m *mockTCPUDPUpstreamServer) handler(counter *atomic.Int32, answer answerFn) dns.HandlerFunc {
-	return func(w dns.ResponseWriter, request *dns.Msg) {
+func (m *mockTCPUDPUpstreamServer) handler(counter *atomic.Int32, answer answerFn) dnsv1.HandlerFunc {
+	return func(w dnsv1.ResponseWriter, request *dnsv1.Msg) {
 		defer ginkgo.GinkgoRecover()
 
 		counter.Add(1)
@@ -101,7 +101,7 @@ func (m *mockTCPUDPUpstreamServer) start(udp, tcp bool) config.Upstream {
 	util.FatalOnError("can't create TCP listener: ", err)
 
 	if udp {
-		m.udpSrv = &dns.Server{PacketConn: udpConn, Handler: m.handler(&m.udpCount, m.udpAnswer)}
+		m.udpSrv = &dnsv1.Server{PacketConn: udpConn, Handler: m.handler(&m.udpCount, m.udpAnswer)}
 
 		go func() {
 			defer ginkgo.GinkgoRecover()
@@ -112,7 +112,7 @@ func (m *mockTCPUDPUpstreamServer) start(udp, tcp bool) config.Upstream {
 	}
 
 	if tcp {
-		m.tcpSrv = &dns.Server{Listener: tcpLn, Handler: m.handler(&m.tcpCount, m.tcpAnswer)}
+		m.tcpSrv = &dnsv1.Server{Listener: tcpLn, Handler: m.handler(&m.tcpCount, m.tcpAnswer)}
 
 		go func() {
 			defer ginkgo.GinkgoRecover()

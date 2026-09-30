@@ -10,7 +10,7 @@ import (
 
 	"github.com/0xERR0R/blocky/log"
 	"github.com/0xERR0R/blocky/model"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -22,7 +22,7 @@ type mockResolver struct {
 	mock.Mock
 
 	ResolveFn  func(ctx context.Context, req *model.Request) (*model.Response, error)
-	ResponseFn func(req *dns.Msg) *dns.Msg
+	ResponseFn func(req *dnsv1.Msg) *dnsv1.Msg
 }
 
 func (m *mockResolver) Resolve(ctx context.Context, req *model.Request) (*model.Response, error) {
@@ -43,31 +43,31 @@ var _ Resolver = (*mockResolver)(nil) // Ensure mockResolver implements Resolver
 // unsignedDSDenial builds a DS response (NODATA) with no DS record and an unsigned
 // NSEC in the authority section - an unauthenticated "this delegation is insecure" proof.
 func unsignedDSDenial(name string) *model.Response {
-	nsec := &dns.NSEC{
-		Hdr: dns.RR_Header{
-			Name:   dns.Fqdn(name),
-			Rrtype: dns.TypeNSEC,
-			Class:  dns.ClassINET,
+	nsec := &dnsv1.NSEC{
+		Hdr: dnsv1.RR_Header{
+			Name:   dnsv1.Fqdn(name),
+			Rrtype: dnsv1.TypeNSEC,
+			Class:  dnsv1.ClassINET,
 			Ttl:    300,
 		},
-		NextDomain: "z." + dns.Fqdn(name),
-		TypeBitMap: []uint16{dns.TypeA, dns.TypeRRSIG, dns.TypeNSEC},
+		NextDomain: "z." + dnsv1.Fqdn(name),
+		TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeRRSIG, dnsv1.TypeNSEC},
 	}
 
-	return &model.Response{Res: &dns.Msg{
-		MsgHdr: dns.MsgHdr{Rcode: dns.RcodeSuccess},
-		Ns:     []dns.RR{nsec},
+	return &model.Response{Res: &dnsv1.Msg{
+		MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeSuccess},
+		Ns:     []dnsv1.RR{nsec},
 	}}
 }
 
 // newSignedZoneKey generates a KSK for zone and returns the key, its private key, and
 // the trust-anchor presentation string.
-func newSignedZoneKey(zone string) (*dns.DNSKEY, *ecdsa.PrivateKey, string) {
-	key := new(dns.DNSKEY)
-	key.Hdr = dns.RR_Header{Name: dns.Fqdn(zone), Rrtype: dns.TypeDNSKEY, Class: dns.ClassINET, Ttl: 3600}
+func newSignedZoneKey(zone string) (*dnsv1.DNSKEY, *ecdsa.PrivateKey, string) {
+	key := new(dnsv1.DNSKEY)
+	key.Hdr = dnsv1.RR_Header{Name: dnsv1.Fqdn(zone), Rrtype: dnsv1.TypeDNSKEY, Class: dnsv1.ClassINET, Ttl: 3600}
 	key.Flags = 257 // KSK / SEP
 	key.Protocol = 3
-	key.Algorithm = dns.ECDSAP256SHA256
+	key.Algorithm = dnsv1.ECDSAP256SHA256
 
 	priv, err := key.Generate(256)
 	Expect(err).Should(Succeed())
@@ -76,18 +76,18 @@ func newSignedZoneKey(zone string) (*dns.DNSKEY, *ecdsa.PrivateKey, string) {
 }
 
 // signRRset signs rrset (record type rtype) with key/priv, asserting on failure.
-func signRRset(rrset []dns.RR, rtype uint16, key *dns.DNSKEY, priv *ecdsa.PrivateKey, signer string) *dns.RRSIG {
+func signRRset(rrset []dnsv1.RR, rtype uint16, key *dnsv1.DNSKEY, priv *ecdsa.PrivateKey, signer string) *dnsv1.RRSIG {
 	owner := rrset[0].Header().Name
-	sig := new(dns.RRSIG)
-	sig.Hdr = dns.RR_Header{Name: owner, Rrtype: dns.TypeRRSIG, Class: dns.ClassINET, Ttl: rrset[0].Header().Ttl}
+	sig := new(dnsv1.RRSIG)
+	sig.Hdr = dnsv1.RR_Header{Name: owner, Rrtype: dnsv1.TypeRRSIG, Class: dnsv1.ClassINET, Ttl: rrset[0].Header().Ttl}
 	sig.TypeCovered = rtype
-	sig.Algorithm = dns.ECDSAP256SHA256
-	sig.Labels = uint8(dns.CountLabel(owner))
+	sig.Algorithm = dnsv1.ECDSAP256SHA256
+	sig.Labels = uint8(dnsv1.CountLabel(owner))
 	sig.OrigTtl = rrset[0].Header().Ttl
 	sig.Expiration = uint32(time.Now().Add(24 * time.Hour).Unix())
 	sig.Inception = uint32(time.Now().Add(-1 * time.Hour).Unix())
 	sig.KeyTag = key.KeyTag()
-	sig.SignerName = dns.Fqdn(signer)
+	sig.SignerName = dnsv1.Fqdn(signer)
 	Expect(sig.Sign(priv, rrset)).Should(Succeed())
 
 	return sig
@@ -102,27 +102,27 @@ func authenticatedInsecureDelegation(
 	parentZone, childName string,
 ) (anchor string, fn func(context.Context, *model.Request) (*model.Response, error)) {
 	key, priv, anchorStr := newSignedZoneKey(parentZone)
-	dnskeySig := signRRset([]dns.RR{key}, dns.TypeDNSKEY, key, priv, parentZone)
+	dnskeySig := signRRset([]dnsv1.RR{key}, dnsv1.TypeDNSKEY, key, priv, parentZone)
 
-	nsec := &dns.NSEC{
-		Hdr:        dns.RR_Header{Name: dns.Fqdn(childName), Rrtype: dns.TypeNSEC, Class: dns.ClassINET, Ttl: 300},
-		NextDomain: "\\000." + dns.Fqdn(childName),
-		TypeBitMap: []uint16{dns.TypeNS, dns.TypeRRSIG, dns.TypeNSEC}, // NS delegation present, DS absent
+	nsec := &dnsv1.NSEC{
+		Hdr:        dnsv1.RR_Header{Name: dnsv1.Fqdn(childName), Rrtype: dnsv1.TypeNSEC, Class: dnsv1.ClassINET, Ttl: 300},
+		NextDomain: "\\000." + dnsv1.Fqdn(childName),
+		TypeBitMap: []uint16{dnsv1.TypeNS, dnsv1.TypeRRSIG, dnsv1.TypeNSEC},
 	}
-	nsecSig := signRRset([]dns.RR{nsec}, dns.TypeNSEC, key, priv, parentZone)
+	nsecSig := signRRset([]dnsv1.RR{nsec}, dnsv1.TypeNSEC, key, priv, parentZone)
 
 	fn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 		q := req.Req.Question[0]
 		switch {
-		case q.Qtype == dns.TypeDS && dns.Fqdn(q.Name) == dns.Fqdn(childName):
-			return &model.Response{Res: &dns.Msg{
-				MsgHdr: dns.MsgHdr{Rcode: dns.RcodeSuccess},
-				Ns:     []dns.RR{nsec, nsecSig},
+		case q.Qtype == dnsv1.TypeDS && dnsv1.Fqdn(q.Name) == dnsv1.Fqdn(childName):
+			return &model.Response{Res: &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeSuccess},
+				Ns:     []dnsv1.RR{nsec, nsecSig},
 			}}, nil
-		case q.Qtype == dns.TypeDNSKEY && dns.Fqdn(q.Name) == dns.Fqdn(parentZone):
-			return &model.Response{Res: &dns.Msg{Answer: []dns.RR{key, dnskeySig}}}, nil
+		case q.Qtype == dnsv1.TypeDNSKEY && dnsv1.Fqdn(q.Name) == dnsv1.Fqdn(parentZone):
+			return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{key, dnskeySig}}}, nil
 		default:
-			return &model.Response{Res: &dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeSuccess}}}, nil
+			return &model.Response{Res: &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeSuccess}}}, nil
 		}
 	}
 
@@ -140,37 +140,37 @@ func authenticatedOptOutDelegation(
 	parentZone, childName string,
 ) (anchor string, fn func(context.Context, *model.Request) (*model.Response, error)) {
 	key, priv, anchorStr := newSignedZoneKey(parentZone)
-	dnskeySig := signRRset([]dns.RR{key}, dns.TypeDNSKEY, key, priv, parentZone)
+	dnskeySig := signRRset([]dnsv1.RR{key}, dnsv1.TypeDNSKEY, key, priv, parentZone)
 
 	// An opt-out NSEC3 whose owner hash == next hash spans the whole hash range (wraparound),
 	// so it covers childName's hash without us having to compute it. The all-zero hash is the
 	// minimum, so any real (non-zero) child hash falls inside the (owner, next] opt-out span.
 	const fullRangeHash = "00000000000000000000000000000000" // base32hex of 20 zero bytes
-	nsec3 := &dns.NSEC3{
-		Hdr:        dns.RR_Header{Name: fullRangeHash + "." + dns.Fqdn(parentZone), Rrtype: dns.TypeNSEC3, Class: dns.ClassINET, Ttl: 300},
-		Hash:       dns.SHA1,
+	nsec3 := &dnsv1.NSEC3{
+		Hdr:        dnsv1.RR_Header{Name: fullRangeHash + "." + dnsv1.Fqdn(parentZone), Rrtype: dnsv1.TypeNSEC3, Class: dnsv1.ClassINET, Ttl: 300},
+		Hash:       dnsv1.SHA1,
 		Flags:      0x01, // Opt-Out
 		Iterations: 0,
 		SaltLength: 0,
 		Salt:       "",
 		HashLength: 20,
 		NextDomain: fullRangeHash,
-		TypeBitMap: []uint16{dns.TypeNS, dns.TypeRRSIG}, // NS delegation present, DS absent
+		TypeBitMap: []uint16{dnsv1.TypeNS, dnsv1.TypeRRSIG},
 	}
-	nsec3Sig := signRRset([]dns.RR{nsec3}, dns.TypeNSEC3, key, priv, parentZone)
+	nsec3Sig := signRRset([]dnsv1.RR{nsec3}, dnsv1.TypeNSEC3, key, priv, parentZone)
 
 	fn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 		q := req.Req.Question[0]
 		switch {
-		case q.Qtype == dns.TypeDS && dns.Fqdn(q.Name) == dns.Fqdn(childName):
-			return &model.Response{Res: &dns.Msg{
-				MsgHdr: dns.MsgHdr{Rcode: dns.RcodeSuccess},
-				Ns:     []dns.RR{nsec3, nsec3Sig},
+		case q.Qtype == dnsv1.TypeDS && dnsv1.Fqdn(q.Name) == dnsv1.Fqdn(childName):
+			return &model.Response{Res: &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeSuccess},
+				Ns:     []dnsv1.RR{nsec3, nsec3Sig},
 			}}, nil
-		case q.Qtype == dns.TypeDNSKEY && dns.Fqdn(q.Name) == dns.Fqdn(parentZone):
-			return &model.Response{Res: &dns.Msg{Answer: []dns.RR{key, dnskeySig}}}, nil
+		case q.Qtype == dnsv1.TypeDNSKEY && dnsv1.Fqdn(q.Name) == dnsv1.Fqdn(parentZone):
+			return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{key, dnskeySig}}}, nil
 		default:
-			return &model.Response{Res: &dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeSuccess}}}, nil
+			return &model.Response{Res: &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeSuccess}}}, nil
 		}
 	}
 
@@ -190,7 +190,7 @@ func dummyAnchorStore() *TrustAnchorStore {
 // benignEmptyResolve is a ResolveFn that returns an empty NOERROR for any query, so the
 // validator's sub-queries do not panic an unconfigured testify mock.
 func benignEmptyResolve(_ context.Context, _ *model.Request) (*model.Response, error) {
-	return &model.Response{Res: &dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeSuccess}}}, nil
+	return &model.Response{Res: &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeSuccess}}}, nil
 }
 
 var _ = Describe("DNSSECValidator", func() {
@@ -251,9 +251,9 @@ var _ = Describe("DNSSECValidator", func() {
 			mockUpstream.ResolveFn = benignEmptyResolve
 			v := NewValidator(ctx, store, logger, mockUpstream, 1, 10, 150, 30, 3600)
 
-			question := dns.Question{Name: "cloudflare.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
-			response := &dns.Msg{Answer: []dns.RR{&dns.A{
-				Hdr: dns.RR_Header{Name: "cloudflare.com.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
+			question := dnsv1.Question{Name: "cloudflare.com.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET}
+			response := &dnsv1.Msg{Answer: []dnsv1.RR{&dnsv1.A{
+				Hdr: dnsv1.RR_Header{Name: "cloudflare.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
 				A:   net.ParseIP("203.0.113.77"),
 			}}}
 
@@ -283,7 +283,7 @@ var _ = Describe("DNSSECValidator", func() {
 			budgetCtx := context.WithValue(ctx, queryBudgetKey{}, 30)
 
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDS {
+				if req.Req.Question[0].Qtype == dnsv1.TypeDS {
 					return unsignedDSDenial(victim), nil
 				}
 
@@ -303,7 +303,7 @@ var _ = Describe("DNSSECValidator", func() {
 
 			// First lookup is answered with the unauthenticated insecure proof.
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDS {
+				if req.Req.Question[0].Qtype == dnsv1.TypeDS {
 					return unsignedDSDenial(victim), nil
 				}
 
@@ -312,21 +312,21 @@ var _ = Describe("DNSSECValidator", func() {
 			_ = sut.checkZoneSecurityStatus(budgetCtx, victim)
 
 			// The upstream now reports a legitimate, signed DS for the same name.
-			realDS := &dns.DS{
-				Hdr: dns.RR_Header{
+			realDS := &dnsv1.DS{
+				Hdr: dnsv1.RR_Header{
 					Name:   victim,
-					Rrtype: dns.TypeDS,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDS,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				KeyTag:     12345,
-				Algorithm:  dns.ECDSAP256SHA256,
-				DigestType: dns.SHA256,
+				Algorithm:  dnsv1.ECDSAP256SHA256,
+				DigestType: dnsv1.SHA256,
 				Digest:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			}
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDS {
-					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{realDS}}}, nil
+				if req.Req.Question[0].Qtype == dnsv1.TypeDS {
+					return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{realDS}}}, nil
 				}
 
 				return nil, errors.New("unexpected query type")
@@ -367,19 +367,19 @@ var _ = Describe("DNSSECValidator", func() {
 			// stopped the Indeterminate verdict from being *cached*; within a single request the
 			// same chain-of-trust gap was still funnelled to Bogus.
 			key, priv, _ := newSignedZoneKey("signed.example.")
-			a := &dns.A{
-				Hdr: dns.RR_Header{Name: "host.signed.example.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
+			a := &dnsv1.A{
+				Hdr: dnsv1.RR_Header{Name: "host.signed.example.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
 				A:   net.ParseIP("192.0.2.1"),
 			}
-			sig := signRRset([]dns.RR{a}, dns.TypeA, key, priv, "signed.example.")
-			response := &dns.Msg{Answer: []dns.RR{a, sig}}
+			sig := signRRset([]dnsv1.RR{a}, dnsv1.TypeA, key, priv, "signed.example.")
+			response := &dnsv1.Msg{Answer: []dnsv1.RR{a, sig}}
 
 			// Upstream is momentarily unreachable: every DS/DNSKEY sub-query fails.
 			mockUpstream.ResolveFn = func(_ context.Context, _ *model.Request) (*model.Response, error) {
 				return nil, errors.New("i/o timeout")
 			}
 
-			question := dns.Question{Name: "host.signed.example.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
+			question := dnsv1.Question{Name: "host.signed.example.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET}
 			Expect(sut.ValidateResponse(ctx, response, question)).
 				Should(Equal(ValidationResultIndeterminate),
 					"a transient chain-of-trust failure for a signed answer was reported as Bogus (SERVFAIL) instead of Indeterminate")
@@ -391,29 +391,29 @@ var _ = Describe("DNSSECValidator", func() {
 			// #2127 left open: a valid signed answer on a long CNAME chain SERVFAILed whenever one
 			// intermediate zone's DS/DNSKEY momentarily flaked (e.g. outlook.office365.com).
 			parentKey, parentPriv, anchor := newSignedZoneKey("example.")
-			parentDNSKEYSig := signRRset([]dns.RR{parentKey}, dns.TypeDNSKEY, parentKey, parentPriv, "example.")
+			parentDNSKEYSig := signRRset([]dnsv1.RR{parentKey}, dnsv1.TypeDNSKEY, parentKey, parentPriv, "example.")
 
 			childKey, childPriv, _ := newSignedZoneKey("signed.example.")
-			childDNSKEYSig := signRRset([]dns.RR{childKey}, dns.TypeDNSKEY, childKey, childPriv, "signed.example.")
+			childDNSKEYSig := signRRset([]dnsv1.RR{childKey}, dnsv1.TypeDNSKEY, childKey, childPriv, "signed.example.")
 
-			a := &dns.A{
-				Hdr: dns.RR_Header{Name: "host.signed.example.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
+			a := &dnsv1.A{
+				Hdr: dnsv1.RR_Header{Name: "host.signed.example.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
 				A:   net.ParseIP("192.0.2.1"),
 			}
-			aSig := signRRset([]dns.RR{a}, dns.TypeA, childKey, childPriv, "signed.example.")
-			response := &dns.Msg{Answer: []dns.RR{a, aSig}}
+			aSig := signRRset([]dnsv1.RR{a}, dnsv1.TypeA, childKey, childPriv, "signed.example.")
+			response := &dnsv1.Msg{Answer: []dnsv1.RR{a, aSig}}
 
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 				q := req.Req.Question[0]
 				switch {
-				case q.Qtype == dns.TypeDS && dns.Fqdn(q.Name) == "signed.example.":
+				case q.Qtype == dnsv1.TypeDS && dnsv1.Fqdn(q.Name) == "signed.example.":
 					return nil, errors.New("i/o timeout") // the transient blip on one ancestor sub-query
-				case q.Qtype == dns.TypeDNSKEY && dns.Fqdn(q.Name) == "example.":
-					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{parentKey, parentDNSKEYSig}}}, nil
-				case q.Qtype == dns.TypeDNSKEY && dns.Fqdn(q.Name) == "signed.example.":
-					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{childKey, childDNSKEYSig}}}, nil
+				case q.Qtype == dnsv1.TypeDNSKEY && dnsv1.Fqdn(q.Name) == "example.":
+					return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{parentKey, parentDNSKEYSig}}}, nil
+				case q.Qtype == dnsv1.TypeDNSKEY && dnsv1.Fqdn(q.Name) == "signed.example.":
+					return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{childKey, childDNSKEYSig}}}, nil
 				default:
-					return &model.Response{Res: &dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeSuccess}}}, nil
+					return &model.Response{Res: &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeSuccess}}}, nil
 				}
 			}
 
@@ -421,7 +421,7 @@ var _ = Describe("DNSSECValidator", func() {
 			Expect(err).Should(Succeed())
 			v := NewValidator(ctx, store, logger, mockUpstream, 1, 10, 150, 30, 3600)
 
-			question := dns.Question{Name: "host.signed.example.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
+			question := dnsv1.Question{Name: "host.signed.example.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET}
 			Expect(v.ValidateResponse(ctx, response, question)).
 				Should(Equal(ValidationResultIndeterminate),
 					"an unreachable ancestor DS sub-query (Indeterminate chain) was reported as Bogus (SERVFAIL)")
@@ -432,32 +432,32 @@ var _ = Describe("DNSSECValidator", func() {
 			// genuine cryptographic failure: with every DS/DNSKEY reachable and the chain Secure, a
 			// signature that does NOT verify must stay Bogus (GHSA-x845 fail-closed preserved).
 			parentKey, parentPriv, anchor := newSignedZoneKey("example.")
-			parentDNSKEYSig := signRRset([]dns.RR{parentKey}, dns.TypeDNSKEY, parentKey, parentPriv, "example.")
+			parentDNSKEYSig := signRRset([]dnsv1.RR{parentKey}, dnsv1.TypeDNSKEY, parentKey, parentPriv, "example.")
 
 			childKey, childPriv, _ := newSignedZoneKey("signed.example.")
-			childDNSKEYSig := signRRset([]dns.RR{childKey}, dns.TypeDNSKEY, childKey, childPriv, "signed.example.")
-			childDS := childKey.ToDS(dns.SHA256)
-			childDSSig := signRRset([]dns.RR{childDS}, dns.TypeDS, parentKey, parentPriv, "example.")
+			childDNSKEYSig := signRRset([]dnsv1.RR{childKey}, dnsv1.TypeDNSKEY, childKey, childPriv, "signed.example.")
+			childDS := childKey.ToDS(dnsv1.SHA256)
+			childDSSig := signRRset([]dnsv1.RR{childDS}, dnsv1.TypeDS, parentKey, parentPriv, "example.")
 
-			a := &dns.A{
-				Hdr: dns.RR_Header{Name: "host.signed.example.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
+			a := &dnsv1.A{
+				Hdr: dnsv1.RR_Header{Name: "host.signed.example.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
 				A:   net.ParseIP("192.0.2.1"),
 			}
-			sig := signRRset([]dns.RR{a}, dns.TypeA, childKey, childPriv, "signed.example.")
+			sig := signRRset([]dnsv1.RR{a}, dnsv1.TypeA, childKey, childPriv, "signed.example.")
 			a.A = net.ParseIP("203.0.113.66") // tamper AFTER signing -> signature no longer verifies
-			response := &dns.Msg{Answer: []dns.RR{a, sig}}
+			response := &dnsv1.Msg{Answer: []dnsv1.RR{a, sig}}
 
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 				q := req.Req.Question[0]
 				switch {
-				case q.Qtype == dns.TypeDNSKEY && dns.Fqdn(q.Name) == "example.":
-					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{parentKey, parentDNSKEYSig}}}, nil
-				case q.Qtype == dns.TypeDNSKEY && dns.Fqdn(q.Name) == "signed.example.":
-					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{childKey, childDNSKEYSig}}}, nil
-				case q.Qtype == dns.TypeDS && dns.Fqdn(q.Name) == "signed.example.":
-					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{childDS, childDSSig}}}, nil
+				case q.Qtype == dnsv1.TypeDNSKEY && dnsv1.Fqdn(q.Name) == "example.":
+					return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{parentKey, parentDNSKEYSig}}}, nil
+				case q.Qtype == dnsv1.TypeDNSKEY && dnsv1.Fqdn(q.Name) == "signed.example.":
+					return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{childKey, childDNSKEYSig}}}, nil
+				case q.Qtype == dnsv1.TypeDS && dnsv1.Fqdn(q.Name) == "signed.example.":
+					return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{childDS, childDSSig}}}, nil
 				default:
-					return &model.Response{Res: &dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeSuccess}}}, nil
+					return &model.Response{Res: &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeSuccess}}}, nil
 				}
 			}
 
@@ -465,7 +465,7 @@ var _ = Describe("DNSSECValidator", func() {
 			Expect(err).Should(Succeed())
 			v := NewValidator(ctx, store, logger, mockUpstream, 1, 10, 150, 30, 3600)
 
-			question := dns.Question{Name: "host.signed.example.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
+			question := dnsv1.Question{Name: "host.signed.example.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET}
 			Expect(v.ValidateResponse(ctx, response, question)).
 				Should(Equal(ValidationResultBogus),
 					"a forged signature with a reachable chain must remain Bogus, not be relaxed to Indeterminate")
@@ -477,32 +477,32 @@ var _ = Describe("DNSSECValidator", func() {
 			// succeeds, the answer must be Bogus - the Indeterminate relaxation must never swallow a
 			// real chain failure (errBogusChain dominates within the RRset, GHSA-x845 preserved).
 			parentKey, parentPriv, anchor := newSignedZoneKey("example.")
-			parentDNSKEYSig := signRRset([]dns.RR{parentKey}, dns.TypeDNSKEY, parentKey, parentPriv, "example.")
+			parentDNSKEYSig := signRRset([]dnsv1.RR{parentKey}, dnsv1.TypeDNSKEY, parentKey, parentPriv, "example.")
 
 			childKey, childPriv, _ := newSignedZoneKey("signed.example.")
-			childDNSKEYSig := signRRset([]dns.RR{childKey}, dns.TypeDNSKEY, childKey, childPriv, "signed.example.")
-			childDS := childKey.ToDS(dns.SHA256)
+			childDNSKEYSig := signRRset([]dnsv1.RR{childKey}, dnsv1.TypeDNSKEY, childKey, childPriv, "signed.example.")
+			childDS := childKey.ToDS(dnsv1.SHA256)
 			childDS.Digest = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff" // wrong digest
-			childDSSig := signRRset([]dns.RR{childDS}, dns.TypeDS, parentKey, parentPriv, "example.")
+			childDSSig := signRRset([]dnsv1.RR{childDS}, dnsv1.TypeDS, parentKey, parentPriv, "example.")
 
-			a := &dns.A{
-				Hdr: dns.RR_Header{Name: "host.signed.example.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
+			a := &dnsv1.A{
+				Hdr: dnsv1.RR_Header{Name: "host.signed.example.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
 				A:   net.ParseIP("192.0.2.1"),
 			}
-			aSig := signRRset([]dns.RR{a}, dns.TypeA, childKey, childPriv, "signed.example.")
-			response := &dns.Msg{Answer: []dns.RR{a, aSig}}
+			aSig := signRRset([]dnsv1.RR{a}, dnsv1.TypeA, childKey, childPriv, "signed.example.")
+			response := &dnsv1.Msg{Answer: []dnsv1.RR{a, aSig}}
 
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 				q := req.Req.Question[0]
 				switch {
-				case q.Qtype == dns.TypeDNSKEY && dns.Fqdn(q.Name) == "example.":
-					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{parentKey, parentDNSKEYSig}}}, nil
-				case q.Qtype == dns.TypeDNSKEY && dns.Fqdn(q.Name) == "signed.example.":
-					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{childKey, childDNSKEYSig}}}, nil
-				case q.Qtype == dns.TypeDS && dns.Fqdn(q.Name) == "signed.example.":
-					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{childDS, childDSSig}}}, nil
+				case q.Qtype == dnsv1.TypeDNSKEY && dnsv1.Fqdn(q.Name) == "example.":
+					return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{parentKey, parentDNSKEYSig}}}, nil
+				case q.Qtype == dnsv1.TypeDNSKEY && dnsv1.Fqdn(q.Name) == "signed.example.":
+					return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{childKey, childDNSKEYSig}}}, nil
+				case q.Qtype == dnsv1.TypeDS && dnsv1.Fqdn(q.Name) == "signed.example.":
+					return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{childDS, childDSSig}}}, nil
 				default:
-					return &model.Response{Res: &dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeSuccess}}}, nil
+					return &model.Response{Res: &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeSuccess}}}, nil
 				}
 			}
 
@@ -510,7 +510,7 @@ var _ = Describe("DNSSECValidator", func() {
 			Expect(err).Should(Succeed())
 			v := NewValidator(ctx, store, logger, mockUpstream, 1, 10, 150, 30, 3600)
 
-			question := dns.Question{Name: "host.signed.example.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
+			question := dnsv1.Question{Name: "host.signed.example.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET}
 			Expect(v.ValidateResponse(ctx, response, question)).
 				Should(Equal(ValidationResultBogus),
 					"a DS digest mismatch (provably bogus chain) must be Bogus, not Indeterminate")
@@ -523,10 +523,10 @@ var _ = Describe("DNSSECValidator", func() {
 
 			var captured *model.Request
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDNSKEY {
+				if req.Req.Question[0].Qtype == dnsv1.TypeDNSKEY {
 					captured = req
 
-					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{}}}, nil
+					return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{}}}, nil
 				}
 
 				return nil, errors.New("unexpected query type")
@@ -556,17 +556,17 @@ var _ = Describe("DNSSECValidator", func() {
 			var capturedDNSKEY, capturedDS *model.Request
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 				switch req.Req.Question[0].Qtype {
-				case dns.TypeDNSKEY:
+				case dnsv1.TypeDNSKEY:
 					capturedDNSKEY = req
-				case dns.TypeDS:
+				case dnsv1.TypeDS:
 					capturedDS = req
 				}
 
-				return &model.Response{Res: &dns.Msg{Answer: []dns.RR{}}}, nil
+				return &model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{}}}, nil
 			}
 
 			_, _, _ = sut.queryDNSKEY(budgetCtx, "signed.example.")
-			_, _, _ = sut.queryRecords(budgetCtx, "signed.example.", dns.TypeDS)
+			_, _, _ = sut.queryRecords(budgetCtx, "signed.example.", dnsv1.TypeDS)
 
 			Expect(capturedDNSKEY).ShouldNot(BeNil(), "no DNSKEY sub-query was issued")
 			Expect(capturedDNSKEY.Req.CheckingDisabled).Should(BeTrue(),
@@ -582,12 +582,12 @@ var _ = Describe("DNSSECValidator", func() {
 			// and DS bits clear (RFC 6840 §4.4). For an ordinary in-zone name in a signed zone the
 			// NS bit is clear, so this NSEC must NOT be accepted as a DS-absence proof; otherwise a
 			// forged unsigned answer for e.g. www.example.com could be downgraded to insecure.
-			inZoneNSEC := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "www.example.com.", Rrtype: dns.TypeNSEC, Class: dns.ClassINET, Ttl: 300},
+			inZoneNSEC := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "www.example.com.", Rrtype: dnsv1.TypeNSEC, Class: dnsv1.ClassINET, Ttl: 300},
 				NextDomain: "\\000.www.example.com.",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeRRSIG, dns.TypeNSEC}, // in-zone name: NS bit absent
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeRRSIG, dnsv1.TypeNSEC},
 			}
-			resp := &dns.Msg{Ns: []dns.RR{inZoneNSEC}}
+			resp := &dnsv1.Msg{Ns: []dnsv1.RR{inZoneNSEC}}
 
 			Expect(sut.validateDSAbsenceProof("www.example.com.", resp, true)).
 				ShouldNot(Equal(ValidationResultSecure),
@@ -598,12 +598,12 @@ var _ = Describe("DNSSECValidator", func() {
 			// The NS-bit check above must not over-reject genuine insecure delegations: an NSEC
 			// with the NS bit set and the SOA/DS bits clear is a valid proof of an unsigned
 			// delegation and must still validate as a DS-absence proof.
-			delegationNSEC := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "unsigned.example.com.", Rrtype: dns.TypeNSEC, Class: dns.ClassINET, Ttl: 300},
+			delegationNSEC := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "unsigned.example.com.", Rrtype: dnsv1.TypeNSEC, Class: dnsv1.ClassINET, Ttl: 300},
 				NextDomain: "\\000.unsigned.example.com.",
-				TypeBitMap: []uint16{dns.TypeNS, dns.TypeRRSIG, dns.TypeNSEC}, // delegation present, DS absent
+				TypeBitMap: []uint16{dnsv1.TypeNS, dnsv1.TypeRRSIG, dnsv1.TypeNSEC},
 			}
-			resp := &dns.Msg{Ns: []dns.RR{delegationNSEC}}
+			resp := &dnsv1.Msg{Ns: []dnsv1.RR{delegationNSEC}}
 
 			Expect(sut.validateDSAbsenceProof("unsigned.example.com.", resp, true)).
 				Should(Equal(ValidationResultSecure),
@@ -641,27 +641,27 @@ var _ = Describe("DNSSECValidator", func() {
 
 	Describe("ValidateResponse", func() {
 		var (
-			response *dns.Msg
-			question dns.Question
+			response *dnsv1.Msg
+			question dnsv1.Question
 		)
 
 		BeforeEach(func() {
-			question = dns.Question{
+			question = dnsv1.Question{
 				Name:   "example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 		})
 
 		When("response has no DNSSEC records", func() {
 			BeforeEach(func() {
-				response = &dns.Msg{
-					Answer: []dns.RR{
-						&dns.A{
-							Hdr: dns.RR_Header{
+				response = &dnsv1.Msg{
+					Answer: []dnsv1.RR{
+						&dnsv1.A{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeA,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeA,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 							A: []byte{192, 0, 2, 1},
@@ -687,25 +687,25 @@ var _ = Describe("DNSSECValidator", func() {
 
 		When("response has RRSIG but validation cannot complete", func() {
 			BeforeEach(func() {
-				response = &dns.Msg{
-					Answer: []dns.RR{
-						&dns.A{
-							Hdr: dns.RR_Header{
+				response = &dnsv1.Msg{
+					Answer: []dnsv1.RR{
+						&dnsv1.A{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeA,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeA,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 							A: []byte{192, 0, 2, 1},
 						},
-						&dns.RRSIG{
-							Hdr: dns.RR_Header{
+						&dnsv1.RRSIG{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeRRSIG,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeRRSIG,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
-							TypeCovered: dns.TypeA,
+							TypeCovered: dnsv1.TypeA,
 							Algorithm:   8,
 							Labels:      2,
 							OrigTtl:     300,
@@ -719,8 +719,8 @@ var _ = Describe("DNSSECValidator", func() {
 				}
 
 				// Mock the DNSKEY query to return empty (no keys available)
-				dnskeyResp := new(dns.Msg)
-				dnskeyResp.SetRcode(&dns.Msg{}, dns.RcodeSuccess)
+				dnskeyResp := new(dnsv1.Msg)
+				dnskeyResp.SetRcode(&dnsv1.Msg{}, dnsv1.RcodeSuccess)
 				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil)
 			})
 
@@ -734,25 +734,25 @@ var _ = Describe("DNSSECValidator", func() {
 
 		When("response RRSIG signature is expired", func() {
 			BeforeEach(func() {
-				response = &dns.Msg{
-					Answer: []dns.RR{
-						&dns.A{
-							Hdr: dns.RR_Header{
+				response = &dnsv1.Msg{
+					Answer: []dnsv1.RR{
+						&dnsv1.A{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeA,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeA,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 							A: []byte{192, 0, 2, 1},
 						},
-						&dns.RRSIG{
-							Hdr: dns.RR_Header{
+						&dnsv1.RRSIG{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeRRSIG,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeRRSIG,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
-							TypeCovered: dns.TypeA,
+							TypeCovered: dnsv1.TypeA,
 							Algorithm:   8,
 							Labels:      2,
 							OrigTtl:     300,
@@ -766,8 +766,8 @@ var _ = Describe("DNSSECValidator", func() {
 				}
 
 				// Mock upstream to return empty DNSKEY response
-				dnskeyResp := new(dns.Msg)
-				dnskeyResp.SetRcode(&dns.Msg{}, dns.RcodeSuccess)
+				dnskeyResp := new(dnsv1.Msg)
+				dnskeyResp.SetRcode(&dnsv1.Msg{}, dnsv1.RcodeSuccess)
 				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil)
 			})
 
@@ -781,25 +781,25 @@ var _ = Describe("DNSSECValidator", func() {
 
 		When("response RRSIG signature is not yet valid", func() {
 			BeforeEach(func() {
-				response = &dns.Msg{
-					Answer: []dns.RR{
-						&dns.A{
-							Hdr: dns.RR_Header{
+				response = &dnsv1.Msg{
+					Answer: []dnsv1.RR{
+						&dnsv1.A{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeA,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeA,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 							A: []byte{192, 0, 2, 1},
 						},
-						&dns.RRSIG{
-							Hdr: dns.RR_Header{
+						&dnsv1.RRSIG{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeRRSIG,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeRRSIG,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
-							TypeCovered: dns.TypeA,
+							TypeCovered: dnsv1.TypeA,
 							Algorithm:   8,
 							Labels:      2,
 							OrigTtl:     300,
@@ -813,8 +813,8 @@ var _ = Describe("DNSSECValidator", func() {
 				}
 
 				// Mock upstream to return empty DNSKEY response
-				dnskeyResp := new(dns.Msg)
-				dnskeyResp.SetRcode(&dns.Msg{}, dns.RcodeSuccess)
+				dnskeyResp := new(dnsv1.Msg)
+				dnskeyResp.SetRcode(&dnsv1.Msg{}, dnsv1.RcodeSuccess)
 				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil)
 			})
 
@@ -829,20 +829,20 @@ var _ = Describe("DNSSECValidator", func() {
 
 	Describe("verifyRRSIG", func() {
 		It("should reject signature with wrong time window", func() {
-			rrset := []dns.RR{
-				&dns.A{
-					Hdr: dns.RR_Header{
+			rrset := []dnsv1.RR{
+				&dnsv1.A{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeA,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					A: []byte{192, 0, 2, 1},
 				},
 			}
 
-			rrsig := &dns.RRSIG{
-				TypeCovered: dns.TypeA,
+			rrsig := &dnsv1.RRSIG{
+				TypeCovered: dnsv1.TypeA,
 				Algorithm:   8,
 				Labels:      2,
 				OrigTtl:     300,
@@ -853,11 +853,11 @@ var _ = Describe("DNSSECValidator", func() {
 			}
 
 			// Create a dummy DNSKEY
-			dnskey := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			dnskey := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 				},
 				Flags:     257,
 				Protocol:  3,
@@ -871,27 +871,27 @@ var _ = Describe("DNSSECValidator", func() {
 	})
 
 	Describe("Signature timing edge cases", func() {
-		var rrset []dns.RR
-		var dnskey *dns.DNSKEY
+		var rrset []dnsv1.RR
+		var dnskey *dnsv1.DNSKEY
 
 		BeforeEach(func() {
-			rrset = []dns.RR{
-				&dns.A{
-					Hdr: dns.RR_Header{
+			rrset = []dnsv1.RR{
+				&dnsv1.A{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeA,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					A: []byte{192, 0, 2, 1},
 				},
 			}
 
-			dnskey = &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			dnskey = &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 				},
 				Flags:     257,
 				Protocol:  3,
@@ -902,8 +902,8 @@ var _ = Describe("DNSSECValidator", func() {
 		It("should reject signature 1 second after expiration", func() {
 			now := time.Now().Unix()
 
-			rrsig := &dns.RRSIG{
-				TypeCovered: dns.TypeA,
+			rrsig := &dnsv1.RRSIG{
+				TypeCovered: dnsv1.TypeA,
 				Algorithm:   8,
 				Labels:      2,
 				OrigTtl:     300,
@@ -922,8 +922,8 @@ var _ = Describe("DNSSECValidator", func() {
 		It("should accept signature at exact inception time", func() {
 			now := time.Now().Unix()
 
-			rrsig := &dns.RRSIG{
-				TypeCovered: dns.TypeA,
+			rrsig := &dnsv1.RRSIG{
+				TypeCovered: dnsv1.TypeA,
 				Algorithm:   8,
 				Labels:      2,
 				OrigTtl:     300,
@@ -945,8 +945,8 @@ var _ = Describe("DNSSECValidator", func() {
 		It("should reject signature 1 second before inception", func() {
 			now := time.Now().Unix()
 
-			rrsig := &dns.RRSIG{
-				TypeCovered: dns.TypeA,
+			rrsig := &dnsv1.RRSIG{
+				TypeCovered: dnsv1.TypeA,
 				Algorithm:   8,
 				Labels:      2,
 				OrigTtl:     300,
@@ -964,8 +964,8 @@ var _ = Describe("DNSSECValidator", func() {
 		It("should accept signature 1 second before expiration", func() {
 			now := time.Now().Unix()
 
-			rrsig := &dns.RRSIG{
-				TypeCovered: dns.TypeA,
+			rrsig := &dnsv1.RRSIG{
+				TypeCovered: dnsv1.TypeA,
 				Algorithm:   8,
 				Labels:      2,
 				OrigTtl:     300,
@@ -986,8 +986,8 @@ var _ = Describe("DNSSECValidator", func() {
 		It("should handle inception after expiration (invalid signature)", func() {
 			now := time.Now().Unix()
 
-			rrsig := &dns.RRSIG{
-				TypeCovered: dns.TypeA,
+			rrsig := &dnsv1.RRSIG{
+				TypeCovered: dnsv1.TypeA,
 				Algorithm:   8,
 				Labels:      2,
 				OrigTtl:     300,
@@ -1041,11 +1041,11 @@ var _ = Describe("DNSSECValidator", func() {
 	Describe("validateDNSKEY", func() {
 		It("should validate DNSKEY against matching DS record", func() {
 			// Create a DNSKEY record
-			dnskey := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			dnskey := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				Flags:     257, // KSK
@@ -1055,7 +1055,7 @@ var _ = Describe("DNSSECValidator", func() {
 			}
 
 			// Create DS record from DNSKEY
-			ds := dnskey.ToDS(dns.SHA256)
+			ds := dnskey.ToDS(dnsv1.SHA256)
 
 			// Validate - should succeed
 			err := sut.validateDNSKEY(dnskey, ds)
@@ -1064,11 +1064,11 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should reject DNSKEY with non-matching DS record", func() {
 			// Create a DNSKEY record
-			dnskey := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			dnskey := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				Flags:     257,
@@ -1078,16 +1078,16 @@ var _ = Describe("DNSSECValidator", func() {
 			}
 
 			// Create a different DS record that won't match
-			ds := &dns.DS{
-				Hdr: dns.RR_Header{
+			ds := &dnsv1.DS{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDS,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDS,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				KeyTag:     12345,
 				Algorithm:  8,
-				DigestType: dns.SHA256,
+				DigestType: dnsv1.SHA256,
 				Digest:     "00112233445566778899aabbccddeeff",
 			}
 
@@ -1100,30 +1100,30 @@ var _ = Describe("DNSSECValidator", func() {
 	Describe("NSEC3 Validation", func() {
 		It("should reject NSEC3 with iteration count exceeding limit", func() {
 			// Create NSEC3 record with excessive iterations
-			nsec3 := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3 := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "abc123.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0,
 				Iterations: 200, // Exceeds default limit of 150
 				Salt:       "AABBCCDD",
 				NextDomain: "def456",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{Rcode: dns.RcodeNameError},
-				Ns:     []dns.RR{nsec3},
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeNameError},
+				Ns:     []dnsv1.RR{nsec3},
 			}
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "nonexistent.example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
@@ -1132,45 +1132,45 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should reject NSEC3 records with inconsistent parameters", func() {
 			// Create two NSEC3 records with different salts
-			nsec3a := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3a := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "abc123.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0,
 				Iterations: 10,
 				Salt:       "AABBCCDD",
 				NextDomain: "def456",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
-			nsec3b := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3b := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "def456.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0,
 				Iterations: 10,
 				Salt:       "11223344", // Different salt
 				NextDomain: "ghi789",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{Rcode: dns.RcodeNameError},
-				Ns:     []dns.RR{nsec3a, nsec3b},
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeNameError},
+				Ns:     []dnsv1.RR{nsec3a, nsec3b},
 			}
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "nonexistent.example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
@@ -1179,11 +1179,11 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should reject unsupported NSEC3 hash algorithm", func() {
 			// Create NSEC3 record with unsupported algorithm
-			nsec3 := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3 := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "abc123.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				Hash:       2, // Unsupported (only SHA-1 = 1 is standardized)
@@ -1191,18 +1191,18 @@ var _ = Describe("DNSSECValidator", func() {
 				Iterations: 10,
 				Salt:       "AABBCCDD",
 				NextDomain: "def456",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{Rcode: dns.RcodeNameError},
-				Ns:     []dns.RR{nsec3},
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeNameError},
+				Ns:     []dnsv1.RR{nsec3},
 			}
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "nonexistent.example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
@@ -1210,15 +1210,15 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should return Insecure when no NSEC3 records present", func() {
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{Rcode: dns.RcodeNameError},
-				Ns:     []dns.RR{},
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeNameError},
+				Ns:     []dnsv1.RR{},
 			}
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "nonexistent.example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
@@ -1230,30 +1230,30 @@ var _ = Describe("DNSSECValidator", func() {
 		It("should detect Opt-Out flag in NSEC3 records", func() {
 			// Simple test to verify Opt-Out flag detection
 			// This tests that the validation code detects the Opt-Out flag
-			nsec3 := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3 := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "abc123.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0x01, // Opt-Out flag set
 				Iterations: 10,
 				Salt:       "",
 				NextDomain: "zzz999",
-				TypeBitMap: []uint16{dns.TypeNS, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{Rcode: dns.RcodeNameError},
-				Ns:     []dns.RR{nsec3},
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeNameError},
+				Ns:     []dnsv1.RR{nsec3},
 			}
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "unsigned.example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			// Call the validation function - it should at least detect the Opt-Out flag
@@ -1266,83 +1266,83 @@ var _ = Describe("DNSSECValidator", func() {
 		It("should correctly identify Opt-Out span coverage", func() {
 			// Create NSEC3 record with Opt-Out flag
 			// Base32hex alphabet: 0-9, A-V (uppercase only)
-			nsec3 := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3 := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "AAA11111111111111111111111.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0x01, // Opt-Out flag set
 				Iterations: 0,
 				Salt:       "",
 				NextDomain: "UUU99999999999999999999999", // Wide range
-				TypeBitMap: []uint16{dns.TypeNS, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
 			// Test hash that should fall in the range
 			testHash := "BBB22222222222222222222222"
-			result := sut.nsec3CoversWithOptOut([]*dns.NSEC3{nsec3}, testHash)
+			result := sut.nsec3CoversWithOptOut([]*dnsv1.NSEC3{nsec3}, testHash)
 			Expect(result).Should(BeTrue())
 		})
 
 		It("should not identify coverage when Opt-Out flag is not set", func() {
 			// Create NSEC3 record without Opt-Out flag
-			nsec3 := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3 := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "AAA11111111111111111111111.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0x00, // Opt-Out flag NOT set
 				Iterations: 0,
 				Salt:       "",
 				NextDomain: "UUU99999999999999999999999",
-				TypeBitMap: []uint16{dns.TypeNS, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
 			// Same hash should NOT be covered when Opt-Out is not set
 			testHash := "BBB22222222222222222222222"
-			result := sut.nsec3CoversWithOptOut([]*dns.NSEC3{nsec3}, testHash)
+			result := sut.nsec3CoversWithOptOut([]*dnsv1.NSEC3{nsec3}, testHash)
 			Expect(result).Should(BeFalse())
 		})
 
 		It("should handle mixed NSEC3 records with and without Opt-Out", func() {
 			// Create two NSEC3 records: one with Opt-Out, one without
-			nsec3WithOptOut := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3WithOptOut := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "AAA11111111111111111111111.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0x01, // Opt-Out flag set
 				Iterations: 0,
 				Salt:       "",
 				NextDomain: "MMM55555555555555555555555",
-				TypeBitMap: []uint16{dns.TypeNS, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
-			nsec3WithoutOptOut := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3WithoutOptOut := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "MMM55555555555555555555555.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0x00, // Opt-Out flag NOT set
 				Iterations: 0,
 				Salt:       "",
 				NextDomain: "UUU99999999999999999999999",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeRRSIG},
 			}
 
-			records := []*dns.NSEC3{nsec3WithOptOut, nsec3WithoutOptOut}
+			records := []*dnsv1.NSEC3{nsec3WithOptOut, nsec3WithoutOptOut}
 
 			// Hash in first span (with Opt-Out) should be covered
 			hash1 := "BBB22222222222222222222222"
@@ -1357,30 +1357,30 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should log Opt-Out flag detection", func() {
 			// Create NSEC3 record with Opt-Out flag
-			nsec3 := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3 := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "abc123.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0x01, // Opt-Out flag set
 				Iterations: 10,
 				Salt:       "",
 				NextDomain: "def456",
-				TypeBitMap: []uint16{dns.TypeNS, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{Rcode: dns.RcodeNameError},
-				Ns:     []dns.RR{nsec3},
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeNameError},
+				Ns:     []dnsv1.RR{nsec3},
 			}
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "test.example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			// Call should detect and log the Opt-Out flag
@@ -1394,36 +1394,36 @@ var _ = Describe("DNSSECValidator", func() {
 		It("should compute NSEC3 hash for domain name", func() {
 			// Test with known values
 			// This uses the miekg/dns library's HashName function
-			hash, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
+			hash, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(hash).ShouldNot(BeEmpty())
 		})
 
 		It("should produce different hashes for different domain names", func() {
-			hash1, err1 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
+			hash1, err1 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
 			Expect(err1).ShouldNot(HaveOccurred())
 
-			hash2, err2 := sut.computeNSEC3Hash("different.com.", dns.SHA1, "", 0)
+			hash2, err2 := sut.computeNSEC3Hash("different.com.", dnsv1.SHA1, "", 0)
 			Expect(err2).ShouldNot(HaveOccurred())
 
 			Expect(hash1).ShouldNot(Equal(hash2))
 		})
 
 		It("should produce different hashes with different salts", func() {
-			hash1, err1 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "AABBCCDD", 0)
+			hash1, err1 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "AABBCCDD", 0)
 			Expect(err1).ShouldNot(HaveOccurred())
 
-			hash2, err2 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "11223344", 0)
+			hash2, err2 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "11223344", 0)
 			Expect(err2).ShouldNot(HaveOccurred())
 
 			Expect(hash1).ShouldNot(Equal(hash2))
 		})
 
 		It("should produce different hashes with different iterations", func() {
-			hash1, err1 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
+			hash1, err1 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
 			Expect(err1).ShouldNot(HaveOccurred())
 
-			hash2, err2 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 10)
+			hash2, err2 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 10)
 			Expect(err2).ShouldNot(HaveOccurred())
 
 			Expect(hash1).ShouldNot(Equal(hash2))
@@ -1437,11 +1437,11 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should cache hash results", func() {
 			// First call - computes hash
-			hash1, err1 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
+			hash1, err1 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
 			Expect(err1).ShouldNot(HaveOccurred())
 
 			// Second call - should return cached value
-			hash2, err2 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
+			hash2, err2 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
 			Expect(err2).ShouldNot(HaveOccurred())
 
 			// Should be identical (same hash)
@@ -1452,30 +1452,30 @@ var _ = Describe("DNSSECValidator", func() {
 	Describe("Multiple RRsets validation", func() {
 		It("should group multiple RRsets correctly", func() {
 			// Response with both A and AAAA records, each with their own RRSIG
-			rrsets := []dns.RR{
-				&dns.A{
-					Hdr: dns.RR_Header{
+			rrsets := []dnsv1.RR{
+				&dnsv1.A{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeA,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					A: []byte{192, 0, 2, 1},
 				},
-				&dns.A{
-					Hdr: dns.RR_Header{
+				&dnsv1.A{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeA,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					A: []byte{192, 0, 2, 2},
 				},
-				&dns.AAAA{
-					Hdr: dns.RR_Header{
+				&dnsv1.AAAA{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeAAAA,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeAAAA,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					AAAA: []byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
@@ -1487,8 +1487,8 @@ var _ = Describe("DNSSECValidator", func() {
 
 			// Should have 2 groups (example.com. A and example.com. AAAA)
 			Expect(grouped).Should(HaveLen(2))
-			Expect(grouped[rrsetKey{name: "example.com.", rrType: dns.TypeA}]).Should(HaveLen(2))
-			Expect(grouped[rrsetKey{name: "example.com.", rrType: dns.TypeAAAA}]).Should(HaveLen(1))
+			Expect(grouped[rrsetKey{name: "example.com.", rrType: dnsv1.TypeA}]).Should(HaveLen(2))
+			Expect(grouped[rrsetKey{name: "example.com.", rrType: dnsv1.TypeAAAA}]).Should(HaveLen(1))
 		})
 	})
 
@@ -1547,8 +1547,8 @@ var _ = Describe("DNSSECValidator", func() {
 
 			// Mock upstream
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{
-				Res: &dns.Msg{
-					Answer: []dns.RR{},
+				Res: &dnsv1.Msg{
+					Answer: []dnsv1.RR{},
 				},
 			}, nil)
 
@@ -1574,11 +1574,11 @@ var _ = Describe("DNSSECValidator", func() {
 	Describe("DS query NODATA handling", func() {
 		It("should detect NODATA response correctly", func() {
 			// Test NODATA detection (Success + empty answer)
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{
-					Rcode: dns.RcodeSuccess,
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{
+					Rcode: dnsv1.RcodeSuccess,
 				},
-				Answer: []dns.RR{}, // No records in answer
+				Answer: []dnsv1.RR{},
 			}
 
 			// Should be detected as negative response
@@ -1590,17 +1590,17 @@ var _ = Describe("DNSSECValidator", func() {
 	Describe("Algorithm selection", func() {
 		It("should prefer stronger algorithms over weaker ones", func() {
 			// Create RRSIGs with different algorithm strengths
-			rrsigs := []*dns.RRSIG{
+			rrsigs := []*dnsv1.RRSIG{
 				{
-					Algorithm: dns.RSASHA1, // Weak
+					Algorithm: dnsv1.RSASHA1,
 					KeyTag:    1,
 				},
 				{
-					Algorithm: dns.ED25519, // Strong
+					Algorithm: dnsv1.ED25519,
 					KeyTag:    2,
 				},
 				{
-					Algorithm: dns.RSASHA256, // Moderate
+					Algorithm: dnsv1.RSASHA256,
 					KeyTag:    3,
 				},
 			}
@@ -1608,14 +1608,14 @@ var _ = Describe("DNSSECValidator", func() {
 			best := sut.selectBestRRSIG(rrsigs)
 
 			// Should select ED25519 (strongest)
-			Expect(best.Algorithm).Should(Equal(dns.ED25519))
+			Expect(best.Algorithm).Should(Equal(dnsv1.ED25519))
 			Expect(best.KeyTag).Should(Equal(uint16(2)))
 		})
 
 		It("should return first RRSIG if only one present", func() {
-			rrsigs := []*dns.RRSIG{
+			rrsigs := []*dnsv1.RRSIG{
 				{
-					Algorithm: dns.RSASHA256,
+					Algorithm: dnsv1.RSASHA256,
 					KeyTag:    42,
 				},
 			}
@@ -1626,7 +1626,7 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should return nil for empty list", func() {
-			var rrsigs []*dns.RRSIG
+			var rrsigs []*dnsv1.RRSIG
 
 			best := sut.selectBestRRSIG(rrsigs)
 
@@ -1637,10 +1637,10 @@ var _ = Describe("DNSSECValidator", func() {
 			// Simulate algorithm downgrade attack scenario per RFC 6840 §5.11
 			// Attacker provides multiple RRSIGs: both strong (ED25519) and weak (RSASHA1)
 			// System should use strongest algorithm, not accept weaker one
-			rrsigs := []*dns.RRSIG{
+			rrsigs := []*dnsv1.RRSIG{
 				{
-					TypeCovered: dns.TypeA,
-					Algorithm:   dns.RSASHA1, // Attacker wants us to use this (weak)
+					TypeCovered: dnsv1.TypeA,
+					Algorithm:   dnsv1.RSASHA1,
 					Labels:      2,
 					OrigTtl:     300,
 					Expiration:  uint32(time.Now().Add(24 * time.Hour).Unix()),
@@ -1650,8 +1650,8 @@ var _ = Describe("DNSSECValidator", func() {
 					Signature:   "fake-weak-signature",
 				},
 				{
-					TypeCovered: dns.TypeA,
-					Algorithm:   dns.ED25519, // Legitimate strong signature
+					TypeCovered: dnsv1.TypeA,
+					Algorithm:   dnsv1.ED25519,
 					Labels:      2,
 					OrigTtl:     300,
 					Expiration:  uint32(time.Now().Add(24 * time.Hour).Unix()),
@@ -1661,8 +1661,8 @@ var _ = Describe("DNSSECValidator", func() {
 					Signature:   "fake-strong-signature",
 				},
 				{
-					TypeCovered: dns.TypeA,
-					Algorithm:   dns.RSASHA256, // Moderate
+					TypeCovered: dnsv1.TypeA,
+					Algorithm:   dnsv1.RSASHA256,
 					Labels:      2,
 					OrigTtl:     300,
 					Expiration:  uint32(time.Now().Add(24 * time.Hour).Unix()),
@@ -1676,18 +1676,18 @@ var _ = Describe("DNSSECValidator", func() {
 			best := sut.selectBestRRSIG(rrsigs)
 
 			// MUST select ED25519, not RSASHA1 or RSASHA256
-			Expect(best.Algorithm).Should(Equal(dns.ED25519))
+			Expect(best.Algorithm).Should(Equal(dnsv1.ED25519))
 			Expect(best.KeyTag).Should(Equal(uint16(22222)))
 		})
 
 		It("should prefer ED448 over ED25519 (algorithm strength ordering)", func() {
-			rrsigs := []*dns.RRSIG{
+			rrsigs := []*dnsv1.RRSIG{
 				{
-					Algorithm: dns.ED25519, // Strong
+					Algorithm: dnsv1.ED25519,
 					KeyTag:    1,
 				},
 				{
-					Algorithm: dns.ED448, // Stronger
+					Algorithm: dnsv1.ED448,
 					KeyTag:    2,
 				},
 			}
@@ -1695,18 +1695,18 @@ var _ = Describe("DNSSECValidator", func() {
 			best := sut.selectBestRRSIG(rrsigs)
 
 			// ED448 is stronger than ED25519
-			Expect(best.Algorithm).Should(Equal(dns.ED448))
+			Expect(best.Algorithm).Should(Equal(dnsv1.ED448))
 			Expect(best.KeyTag).Should(Equal(uint16(2)))
 		})
 
 		It("should prefer ECDSA over RSA", func() {
-			rrsigs := []*dns.RRSIG{
+			rrsigs := []*dnsv1.RRSIG{
 				{
-					Algorithm: dns.RSASHA512, // RSA (weaker)
+					Algorithm: dnsv1.RSASHA512,
 					KeyTag:    1,
 				},
 				{
-					Algorithm: dns.ECDSAP256SHA256, // ECDSA (stronger)
+					Algorithm: dnsv1.ECDSAP256SHA256,
 					KeyTag:    2,
 				},
 			}
@@ -1714,7 +1714,7 @@ var _ = Describe("DNSSECValidator", func() {
 			best := sut.selectBestRRSIG(rrsigs)
 
 			// ECDSA is stronger than RSA
-			Expect(best.Algorithm).Should(Equal(dns.ECDSAP256SHA256))
+			Expect(best.Algorithm).Should(Equal(dnsv1.ECDSAP256SHA256))
 			Expect(best.KeyTag).Should(Equal(uint16(2)))
 		})
 	})
@@ -1724,47 +1724,47 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should skip revoked DNSKEY and use non-revoked key", func() {
 			// Create two DNSKEYs: one revoked, one valid
-			revokedKey := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			revokedKey := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
-				Flags:     dns.ZONE | REVOKE, // Zone key with REVOKE flag
+				Flags:     dnsv1.ZONE | REVOKE, // Zone key with REVOKE flag
 				Protocol:  3,
-				Algorithm: dns.RSASHA256,
+				Algorithm: dnsv1.RSASHA256,
 				PublicKey: "AwEAAaetidLzsKWUt4swWR8yu0wPHPiUi8LU",
 			}
 
-			validKey := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			validKey := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
-				Flags:     dns.ZONE, // Zone key without REVOKE
+				Flags:     dnsv1.ZONE,
 				Protocol:  3,
-				Algorithm: dns.RSASHA256,
+				Algorithm: dnsv1.RSASHA256,
 				PublicKey: "AwEAAa8hbmFrZXB1YmxpY2tleQ==",
 			}
 
 			// Create matching DS record for the valid key
-			ds := &dns.DS{
-				Hdr: dns.RR_Header{
+			ds := &dnsv1.DS{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDS,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDS,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
 				KeyTag:     validKey.KeyTag(),
-				Algorithm:  dns.RSASHA256,
-				DigestType: dns.SHA256,
-				Digest:     dns.HashName(validKey.ToDS(dns.SHA256).Digest, dns.SHA1, 0, ""),
+				Algorithm:  dnsv1.RSASHA256,
+				DigestType: dnsv1.SHA256,
+				Digest:     dnsv1.HashName(validKey.ToDS(dnsv1.SHA256).Digest, dnsv1.SHA1, 0, ""),
 			}
 
-			result := sut.validateAnyDNSKEY([]*dns.DNSKEY{revokedKey, validKey}, []*dns.DS{ds}, "example.com.")
+			result := sut.validateAnyDNSKEY([]*dnsv1.DNSKEY{revokedKey, validKey}, []*dnsv1.DS{ds}, "example.com.")
 
 			// Should succeed because valid key matches DS
 			// (In reality this test will fail because we're not doing full crypto validation,
@@ -1774,46 +1774,46 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should reject when all DNSKEYs are revoked", func() {
 			// Create only revoked keys
-			revokedKey1 := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			revokedKey1 := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
-				Flags:     dns.ZONE | REVOKE,
+				Flags:     dnsv1.ZONE | REVOKE,
 				Protocol:  3,
-				Algorithm: dns.RSASHA256,
+				Algorithm: dnsv1.RSASHA256,
 				PublicKey: "AwEAAaetidLzsKWUt4swWR8yu0wPHPiUi8LU",
 			}
 
-			revokedKey2 := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			revokedKey2 := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
-				Flags:     dns.ZONE | REVOKE,
+				Flags:     dnsv1.ZONE | REVOKE,
 				Protocol:  3,
-				Algorithm: dns.ED25519,
+				Algorithm: dnsv1.ED25519,
 				PublicKey: "AwEAAa8hbmFrZXB1YmxpY2tleQ==",
 			}
 
-			ds := &dns.DS{
-				Hdr: dns.RR_Header{
+			ds := &dnsv1.DS{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDS,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDS,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
 				KeyTag:     revokedKey1.KeyTag(),
-				Algorithm:  dns.RSASHA256,
-				DigestType: dns.SHA256,
+				Algorithm:  dnsv1.RSASHA256,
+				DigestType: dnsv1.SHA256,
 				Digest:     "ABCDEF123456",
 			}
 
-			result := sut.validateAnyDNSKEY([]*dns.DNSKEY{revokedKey1, revokedKey2}, []*dns.DS{ds}, "example.com.")
+			result := sut.validateAnyDNSKEY([]*dnsv1.DNSKEY{revokedKey1, revokedKey2}, []*dnsv1.DS{ds}, "example.com.")
 
 			// Should fail because all keys are revoked
 			Expect(result).Should(BeFalse())
@@ -1821,7 +1821,7 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should skip revoked keys when they have correct REVOKE flag", func() {
 			// Test that the REVOKE flag value is correct (0x0080 = bit 8)
-			key := &dns.DNSKEY{
+			key := &dnsv1.DNSKEY{
 				Flags: REVOKE,
 			}
 
@@ -1832,10 +1832,10 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should not confuse revoked keys with other flag combinations", func() {
 			// Test various flag combinations
-			zoneKey := &dns.DNSKEY{Flags: dns.ZONE}                 // 0x0100
-			secureEntryPoint := &dns.DNSKEY{Flags: dns.SEP}         // 0x0001
-			revokedZoneKey := &dns.DNSKEY{Flags: dns.ZONE | REVOKE} // 0x0180
-			revokedSEP := &dns.DNSKEY{Flags: dns.SEP | REVOKE}      // 0x0081
+			zoneKey := &dnsv1.DNSKEY{Flags: dnsv1.ZONE}                 // 0x0100
+			secureEntryPoint := &dnsv1.DNSKEY{Flags: dnsv1.SEP}         // 0x0001
+			revokedZoneKey := &dnsv1.DNSKEY{Flags: dnsv1.ZONE | REVOKE} // 0x0180
+			revokedSEP := &dnsv1.DNSKEY{Flags: dnsv1.SEP | REVOKE}      // 0x0081
 
 			Expect(zoneKey.Flags & REVOKE).Should(BeZero())
 			Expect(secureEntryPoint.Flags & REVOKE).Should(BeZero())
@@ -1853,20 +1853,20 @@ var _ = Describe("DNSSECValidator", func() {
 			validator := NewValidator(ctx, dummyAnchorStore(), logger, mockUpstream, 1, 10, 150, 5, 3600)
 
 			// Start validation - this initializes budget in context
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			// Create unsigned response (to avoid complex mock setup)
-			response := &dns.Msg{
-				Answer: []dns.RR{
-					&dns.A{
-						Hdr: dns.RR_Header{
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{
+					&dnsv1.A{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeA,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeA,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						A: []byte{192, 0, 2, 1},
@@ -1887,34 +1887,34 @@ var _ = Describe("DNSSECValidator", func() {
 			// Mock upstream to return signed responses that will trigger chain building
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(
 				&model.Response{
-					Res: &dns.Msg{
-						MsgHdr: dns.MsgHdr{
-							Rcode: dns.RcodeServerFailure,
+					Res: &dnsv1.Msg{
+						MsgHdr: dnsv1.MsgHdr{
+							Rcode: dnsv1.RcodeServerFailure,
 						},
 					},
 				}, nil)
 
 			// Create a response that has RRSIG (will trigger validation chain)
-			response := &dns.Msg{
-				Answer: []dns.RR{
-					&dns.A{
-						Hdr: dns.RR_Header{
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{
+					&dnsv1.A{
+						Hdr: dnsv1.RR_Header{
 							Name:   "deep.chain.example.com.",
-							Rrtype: dns.TypeA,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeA,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						A: []byte{192, 0, 2, 1},
 					},
-					&dns.RRSIG{
-						Hdr: dns.RR_Header{
+					&dnsv1.RRSIG{
+						Hdr: dnsv1.RR_Header{
 							Name:   "deep.chain.example.com.",
-							Rrtype: dns.TypeRRSIG,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeRRSIG,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
-						TypeCovered: dns.TypeA,
-						Algorithm:   dns.RSASHA256,
+						TypeCovered: dnsv1.TypeA,
+						Algorithm:   dnsv1.RSASHA256,
 						Labels:      4,
 						OrigTtl:     300,
 						Expiration:  uint32(time.Now().Add(24 * time.Hour).Unix()),
@@ -1926,10 +1926,10 @@ var _ = Describe("DNSSECValidator", func() {
 				},
 			}
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "deep.chain.example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			result := validator.ValidateResponse(ctx, response, question)
@@ -1963,20 +1963,20 @@ var _ = Describe("DNSSECValidator", func() {
 			validator := NewValidator(ctx, dummyAnchorStore(), logger, mockUpstream, 1, 10, 150, 30, 3600)
 
 			// Create domain with 5 labels (within limit)
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "one.two.three.four.five.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			// Create unsigned response
-			response := &dns.Msg{
-				Answer: []dns.RR{
-					&dns.A{
-						Hdr: dns.RR_Header{
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{
+					&dnsv1.A{
+						Hdr: dnsv1.RR_Header{
 							Name:   "one.two.three.four.five.",
-							Rrtype: dns.TypeA,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeA,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						A: []byte{192, 0, 2, 1},
@@ -1997,41 +1997,41 @@ var _ = Describe("DNSSECValidator", func() {
 			// Mock upstream to avoid actual queries
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(
 				&model.Response{
-					Res: &dns.Msg{
-						MsgHdr: dns.MsgHdr{
-							Rcode: dns.RcodeServerFailure,
+					Res: &dnsv1.Msg{
+						MsgHdr: dnsv1.MsgHdr{
+							Rcode: dnsv1.RcodeServerFailure,
 						},
 					},
 				}, nil)
 
 			// Create domain with 8 labels (exceeds limit of 5)
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "a.b.c.d.e.f.g.h.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			// Create response with RRSIG to trigger validation
-			response := &dns.Msg{
-				Answer: []dns.RR{
-					&dns.A{
-						Hdr: dns.RR_Header{
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{
+					&dnsv1.A{
+						Hdr: dnsv1.RR_Header{
 							Name:   "a.b.c.d.e.f.g.h.",
-							Rrtype: dns.TypeA,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeA,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						A: []byte{192, 0, 2, 1},
 					},
-					&dns.RRSIG{
-						Hdr: dns.RR_Header{
+					&dnsv1.RRSIG{
+						Hdr: dnsv1.RR_Header{
 							Name:   "a.b.c.d.e.f.g.h.",
-							Rrtype: dns.TypeRRSIG,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeRRSIG,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
-						TypeCovered: dns.TypeA,
-						Algorithm:   dns.RSASHA256,
+						TypeCovered: dnsv1.TypeA,
+						Algorithm:   dnsv1.RSASHA256,
 						Labels:      8,
 						OrigTtl:     300,
 						Expiration:  uint32(time.Now().Add(24 * time.Hour).Unix()),
@@ -2056,20 +2056,20 @@ var _ = Describe("DNSSECValidator", func() {
 			validator := NewValidator(ctx, dummyAnchorStore(), logger, mockUpstream, 1, 6, 150, 30, 3600)
 
 			// Create domain with exactly 6 labels (at limit)
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "a.b.c.d.e.f.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			// Create unsigned response
-			response := &dns.Msg{
-				Answer: []dns.RR{
-					&dns.A{
-						Hdr: dns.RR_Header{
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{
+					&dnsv1.A{
+						Hdr: dnsv1.RR_Header{
 							Name:   "a.b.c.d.e.f.",
-							Rrtype: dns.TypeA,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeA,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						A: []byte{192, 0, 2, 1},
@@ -2101,56 +2101,56 @@ var _ = Describe("DNSSECValidator", func() {
 			// Create NSEC3 record with owner > next (wraparound case)
 			// This covers from owner="TTTT..." to beginning next="1111..."
 			// Note: Base32hex alphabet is 0-9, A-V
-			nsec3 := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3 := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "TTTTTTTTTTTTTTTTTTTTTTTT.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0,
 				Iterations: 10,
 				Salt:       "",
 				NextDomain: "11111111111111111111111", // Wraparound: next < owner
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
 			// Test hash at end of space (should be covered) - hash > owner
-			result := sut.nsec3Covers([]*dns.NSEC3{nsec3}, "UUUUUUUUUUUUUUUUUUUUUUUU")
+			result := sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "UUUUUUUUUUUUUUUUUUUUUUUU")
 			Expect(result).Should(BeTrue(), "hash near end of space should be covered")
 
 			// Test hash at beginning of space (should be covered due to wraparound)
-			result = sut.nsec3Covers([]*dns.NSEC3{nsec3}, "11111111111111111111111")
+			result = sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "11111111111111111111111")
 			Expect(result).Should(BeTrue(), "hash at beginning of space should be covered due to wraparound")
 
 			// Test hash in middle (should NOT be covered)
-			result = sut.nsec3Covers([]*dns.NSEC3{nsec3}, "GGGGGGGGGGGGGGGGGGGGGGGG")
+			result = sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "GGGGGGGGGGGGGGGGGGGGGGGG")
 			Expect(result).Should(BeFalse(), "hash in middle should not be covered")
 		})
 
 		It("should correctly handle boundary conditions for wraparound", func() {
-			nsec3 := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3 := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "PPPPPPPPPPPPPPPPPPPPPP.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0,
 				Iterations: 0,
 				Salt:       "",
 				NextDomain: "DDDDDDDDDDDDDDDDDDDDDD", // Wraparound
-				TypeBitMap: []uint16{dns.TypeA},
+				TypeBitMap: []uint16{dnsv1.TypeA},
 			}
 
 			// Test owner hash exactly (should NOT be covered - exclusive on left)
-			result := sut.nsec3Covers([]*dns.NSEC3{nsec3}, "PPPPPPPPPPPPPPPPPPPPPP")
+			result := sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "PPPPPPPPPPPPPPPPPPPPPP")
 			Expect(result).Should(BeFalse(), "owner hash exactly should not be covered")
 
 			// Test next hash exactly (should be covered - inclusive on right)
-			result = sut.nsec3Covers([]*dns.NSEC3{nsec3}, "DDDDDDDDDDDDDDDDDDDDDD")
+			result = sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "DDDDDDDDDDDDDDDDDDDDDD")
 			Expect(result).Should(BeTrue(), "next hash exactly should be covered")
 		})
 	})
@@ -2245,31 +2245,31 @@ var _ = Describe("DNSSECValidator", func() {
 		It("should maintain RFC 5155 semantics in existing tests", func() {
 			// Verify that the change doesn't break existing wraparound tests
 			// This uses valid base32hex characters
-			nsec3 := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3 := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   "UVUVUVUVUVUVUVUVUVUVUV.example.com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0,
 				Iterations: 0,
 				Salt:       "",
 				NextDomain: "0A0A0A0A0A0A0A0A0A0A0A", // Wraparound: next < owner
-				TypeBitMap: []uint16{dns.TypeA},
+				TypeBitMap: []uint16{dnsv1.TypeA},
 			}
 
 			// Should cover hash at end of space
-			result := sut.nsec3Covers([]*dns.NSEC3{nsec3}, "UVUVUVUVUVUVUVUVUVUVUVU")
+			result := sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "UVUVUVUVUVUVUVUVUVUVUVU")
 			Expect(result).Should(BeTrue(), "hash > owner should be covered in wraparound")
 
 			// Should cover hash at beginning of space (wraparound)
-			result = sut.nsec3Covers([]*dns.NSEC3{nsec3}, "0A0A0A0A0A0A0A0A0A0A0A")
+			result = sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "0A0A0A0A0A0A0A0A0A0A0A")
 			Expect(result).Should(BeTrue(), "hash <= next should be covered in wraparound")
 
 			// Should NOT cover hash in middle
-			result = sut.nsec3Covers([]*dns.NSEC3{nsec3}, "GGGGGGGGGGGGGGGGGGGGGG")
+			result = sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "GGGGGGGGGGGGGGGGGGGGGG")
 			Expect(result).Should(BeFalse(), "hash in middle should not be covered in wraparound")
 		})
 	})
@@ -2277,20 +2277,20 @@ var _ = Describe("DNSSECValidator", func() {
 	Describe("DS absence validation", func() {
 		It("should accept valid NSEC proof of DS absence", func() {
 			// Create NSEC record proving DS doesn't exist at example.com
-			nsec := &dns.NSEC{
-				Hdr: dns.RR_Header{
+			nsec := &dnsv1.NSEC{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeNSEC,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				NextDomain: "z.example.com.",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeRRSIG, dns.TypeNSEC}, // No DS
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeRRSIG, dnsv1.TypeNSEC},
 			}
 
-			response := &dns.Msg{
-				Answer: []dns.RR{}, // No DS records
-				Ns:     []dns.RR{nsec},
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{},
+				Ns:     []dnsv1.RR{nsec},
 			}
 
 			dsRecords, result := sut.extractAndValidateDSRecords(ctx, "example.com.", "com.", response)
@@ -2302,26 +2302,26 @@ var _ = Describe("DNSSECValidator", func() {
 		It("should accept valid NSEC3 proof of DS absence", func() {
 			// Create NSEC3 record for NODATA proof
 			// Hash of "example.com." with empty salt and 10 iterations
-			hash := dns.HashName("example.com.", dns.SHA1, 10, "")
+			hash := dnsv1.HashName("example.com.", dnsv1.SHA1, 10, "")
 
-			nsec3 := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3 := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   hash + ".com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0,
 				Iterations: 10,
 				Salt:       "",
 				NextDomain: "ZZZZZZZZZZZZZZZZZZZZZZZZ",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeRRSIG}, // No DS
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
-			response := &dns.Msg{
-				Answer: []dns.RR{}, // No DS records
-				Ns:     []dns.RR{nsec3},
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{},
+				Ns:     []dnsv1.RR{nsec3},
 			}
 
 			dsRecords, result := sut.extractAndValidateDSRecords(ctx, "example.com.", "com.", response)
@@ -2332,20 +2332,20 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should reject invalid NSEC proof of DS absence", func() {
 			// Create NSEC record that doesn't match the queried name
-			nsec := &dns.NSEC{
-				Hdr: dns.RR_Header{
+			nsec := &dnsv1.NSEC{
+				Hdr: dnsv1.RR_Header{
 					Name:   "other.com.", // Wrong name
-					Rrtype: dns.TypeNSEC,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				NextDomain: "z.other.com.",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeRRSIG, dns.TypeNSEC},
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeRRSIG, dnsv1.TypeNSEC},
 			}
 
-			response := &dns.Msg{
-				Answer: []dns.RR{}, // No DS records
-				Ns:     []dns.RR{nsec},
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{},
+				Ns:     []dnsv1.RR{nsec},
 			}
 
 			dsRecords, result := sut.extractAndValidateDSRecords(ctx, "example.com.", "com.", response)
@@ -2356,20 +2356,20 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should reject NSEC record that claims DS exists", func() {
 			// Create NSEC record that includes DS in type bitmap
-			nsec := &dns.NSEC{
-				Hdr: dns.RR_Header{
+			nsec := &dnsv1.NSEC{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeNSEC,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				NextDomain: "z.example.com.",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeDS, dns.TypeRRSIG, dns.TypeNSEC}, // DS present!
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeDS, dnsv1.TypeRRSIG, dnsv1.TypeNSEC},
 			}
 
-			response := &dns.Msg{
-				Answer: []dns.RR{}, // No DS records
-				Ns:     []dns.RR{nsec},
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{},
+				Ns:     []dnsv1.RR{nsec},
 			}
 
 			dsRecords, result := sut.extractAndValidateDSRecords(ctx, "example.com.", "com.", response)
@@ -2379,9 +2379,9 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should return indeterminate when no DS and no NSEC/NSEC3 proof", func() {
-			response := &dns.Msg{
-				Answer: []dns.RR{}, // No DS records
-				Ns:     []dns.RR{}, // No NSEC/NSEC3 proof
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{},
+				Ns:     []dnsv1.RR{},
 			}
 
 			dsRecords, result := sut.extractAndValidateDSRecords(ctx, "example.com.", "com.", response)
@@ -2392,26 +2392,26 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should reject NSEC3 with excessive iterations in DS absence proof", func() {
 			// Create NSEC3 with iterations exceeding limit
-			hash := dns.HashName("example.com.", dns.SHA1, 200, "")
+			hash := dnsv1.HashName("example.com.", dnsv1.SHA1, 200, "")
 
-			nsec3 := &dns.NSEC3{
-				Hdr: dns.RR_Header{
+			nsec3 := &dnsv1.NSEC3{
+				Hdr: dnsv1.RR_Header{
 					Name:   hash + ".com.",
-					Rrtype: dns.TypeNSEC3,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC3,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
-				Hash:       dns.SHA1,
+				Hash:       dnsv1.SHA1,
 				Flags:      0,
 				Iterations: 200, // Exceeds limit of 150
 				Salt:       "",
 				NextDomain: "ZZZZZZZZZZZZZZZZZZZZZZZZ",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeRRSIG},
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeRRSIG},
 			}
 
-			response := &dns.Msg{
-				Answer: []dns.RR{}, // No DS records
-				Ns:     []dns.RR{nsec3},
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{},
+				Ns:     []dnsv1.RR{nsec3},
 			}
 
 			dsRecords, result := sut.extractAndValidateDSRecords(ctx, "example.com.", "com.", response)
@@ -2508,22 +2508,22 @@ var _ = Describe("DNSSECValidator", func() {
 	Describe("DS digest type support", func() {
 		It("should support SHA-256 DS digest (digest type 2)", func() {
 			// Create DNSKEY
-			dnskey := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			dnskey := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
 				Flags:     257, // KSK
 				Protocol:  3,
-				Algorithm: dns.RSASHA256,
+				Algorithm: dnsv1.RSASHA256,
 				PublicKey: "AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTO",
 			}
 
 			// Create DS record with SHA-256 digest
-			ds := dnskey.ToDS(dns.SHA256)
-			Expect(ds.DigestType).Should(Equal(dns.SHA256))
+			ds := dnskey.ToDS(dnsv1.SHA256)
+			Expect(ds.DigestType).Should(Equal(dnsv1.SHA256))
 
 			// Validate - should succeed
 			err := sut.validateDNSKEY(dnskey, ds)
@@ -2532,22 +2532,22 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should support SHA-384 DS digest (digest type 4)", func() {
 			// Create DNSKEY
-			dnskey := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			dnskey := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
 				Flags:     257, // KSK
 				Protocol:  3,
-				Algorithm: dns.ECDSAP256SHA256,
+				Algorithm: dnsv1.ECDSAP256SHA256,
 				PublicKey: "AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTO",
 			}
 
 			// Create DS record with SHA-384 digest
-			ds := dnskey.ToDS(dns.SHA384)
-			Expect(ds.DigestType).Should(Equal(dns.SHA384))
+			ds := dnskey.ToDS(dnsv1.SHA384)
+			Expect(ds.DigestType).Should(Equal(dnsv1.SHA384))
 
 			// Validate - should succeed
 			err := sut.validateDNSKEY(dnskey, ds)
@@ -2556,22 +2556,22 @@ var _ = Describe("DNSSECValidator", func() {
 
 		It("should support SHA-1 DS digest (digest type 1) for backwards compatibility", func() {
 			// Create DNSKEY
-			dnskey := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			dnskey := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.RSASHA1,
+				Algorithm: dnsv1.RSASHA1,
 				PublicKey: "AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTO",
 			}
 
 			// Create DS record with SHA-1 digest (legacy)
-			ds := dnskey.ToDS(dns.SHA1)
-			Expect(ds.DigestType).Should(Equal(dns.SHA1))
+			ds := dnskey.ToDS(dnsv1.SHA1)
+			Expect(ds.DigestType).Should(Equal(dnsv1.SHA1))
 
 			// Should still validate (for backwards compatibility)
 			err := sut.validateDNSKEY(dnskey, ds)
@@ -2582,33 +2582,33 @@ var _ = Describe("DNSSECValidator", func() {
 	Describe("Time-based replay attacks", func() {
 		It("should reject replayed responses with expired signatures", func() {
 			// Simulate replayed response from cache/attacker with old signature
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			// Response with signature that expired 1 week ago
-			response := &dns.Msg{
-				Answer: []dns.RR{
-					&dns.A{
-						Hdr: dns.RR_Header{
+			response := &dnsv1.Msg{
+				Answer: []dnsv1.RR{
+					&dnsv1.A{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeA,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeA,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						A: []byte{192, 0, 2, 1},
 					},
-					&dns.RRSIG{
-						Hdr: dns.RR_Header{
+					&dnsv1.RRSIG{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeRRSIG,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeRRSIG,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
-						TypeCovered: dns.TypeA,
-						Algorithm:   dns.RSASHA256,
+						TypeCovered: dnsv1.TypeA,
+						Algorithm:   dnsv1.RSASHA256,
 						Labels:      2,
 						OrigTtl:     300,
 						Expiration:  uint32(time.Now().Add(-7 * 24 * time.Hour).Unix()), // Expired 1 week ago
@@ -2623,8 +2623,8 @@ var _ = Describe("DNSSECValidator", func() {
 			// Mock upstream to return no DNSKEY (simplify test)
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(
 				&model.Response{
-					Res: &dns.Msg{
-						MsgHdr: dns.MsgHdr{Rcode: dns.RcodeSuccess},
+					Res: &dnsv1.Msg{
+						MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeSuccess},
 					},
 				}, nil)
 
@@ -2661,18 +2661,18 @@ var _ = Describe("DNSSECValidator", func() {
 			inception := now + 7200   // 2 hours in future
 			expiration := now + 10800 // 3 hours in future
 
-			dnskey := &dns.DNSKEY{
-				Hdr:       dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeDNSKEY, Class: dns.ClassINET, Ttl: 3600},
+			dnskey := &dnsv1.DNSKEY{
+				Hdr:       dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeDNSKEY, Class: dnsv1.ClassINET, Ttl: 3600},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.RSASHA256,
+				Algorithm: dnsv1.RSASHA256,
 			}
 			dnskey.PublicKey = "AwEAAa..."
 
-			rrsig := &dns.RRSIG{
-				Hdr:         dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeRRSIG, Class: dns.ClassINET},
-				TypeCovered: dns.TypeDNSKEY,
-				Algorithm:   dns.RSASHA256,
+			rrsig := &dnsv1.RRSIG{
+				Hdr:         dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeRRSIG, Class: dnsv1.ClassINET},
+				TypeCovered: dnsv1.TypeDNSKEY,
+				Algorithm:   dnsv1.RSASHA256,
 				Labels:      2,
 				OrigTtl:     3600,
 				Expiration:  expiration,
@@ -2681,13 +2681,13 @@ var _ = Describe("DNSSECValidator", func() {
 				SignerName:  "example.com.",
 			}
 
-			rrset := []dns.RR{dnskey}
+			rrset := []dnsv1.RR{dnskey}
 
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(
-				&model.Response{Res: &dns.Msg{Answer: []dns.RR{}}}, nil,
+				&model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{}}}, nil,
 			)
 
-			err := validator.verifyRRSIG(rrset, rrsig, dnskey, []dns.RR{}, "example.com.")
+			err := validator.verifyRRSIG(rrset, rrsig, dnskey, []dnsv1.RR{}, "example.com.")
 
 			Expect(err).Should(HaveOccurred())
 			Expect(err.Error()).Should(ContainSubstring("signature not yet valid"))
@@ -2702,18 +2702,18 @@ var _ = Describe("DNSSECValidator", func() {
 			inception := now - 10800 // 3 hours ago
 			expiration := now - 7200 // 2 hours ago (expired beyond tolerance)
 
-			dnskey := &dns.DNSKEY{
-				Hdr:       dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeDNSKEY, Class: dns.ClassINET, Ttl: 3600},
+			dnskey := &dnsv1.DNSKEY{
+				Hdr:       dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeDNSKEY, Class: dnsv1.ClassINET, Ttl: 3600},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.RSASHA256,
+				Algorithm: dnsv1.RSASHA256,
 			}
 			dnskey.PublicKey = "AwEAAa..."
 
-			rrsig := &dns.RRSIG{
-				Hdr:         dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeRRSIG, Class: dns.ClassINET},
-				TypeCovered: dns.TypeDNSKEY,
-				Algorithm:   dns.RSASHA256,
+			rrsig := &dnsv1.RRSIG{
+				Hdr:         dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeRRSIG, Class: dnsv1.ClassINET},
+				TypeCovered: dnsv1.TypeDNSKEY,
+				Algorithm:   dnsv1.RSASHA256,
 				Labels:      2,
 				OrigTtl:     3600,
 				Expiration:  expiration,
@@ -2722,13 +2722,13 @@ var _ = Describe("DNSSECValidator", func() {
 				SignerName:  "example.com.",
 			}
 
-			rrset := []dns.RR{dnskey}
+			rrset := []dnsv1.RR{dnskey}
 
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(
-				&model.Response{Res: &dns.Msg{Answer: []dns.RR{}}}, nil,
+				&model.Response{Res: &dnsv1.Msg{Answer: []dnsv1.RR{}}}, nil,
 			)
 
-			err := validator.verifyRRSIG(rrset, rrsig, dnskey, []dns.RR{}, "example.com.")
+			err := validator.verifyRRSIG(rrset, rrsig, dnskey, []dnsv1.RR{}, "example.com.")
 
 			Expect(err).Should(HaveOccurred())
 			Expect(err.Error()).Should(ContainSubstring("signature expired"))
@@ -2738,7 +2738,7 @@ var _ = Describe("DNSSECValidator", func() {
 	Describe("Wildcard Expansion", func() {
 		It("should accept valid wildcard expansion with NSEC proof", func() {
 			// RRSIG for *.example.com. covering test.example.com.
-			rrsig := &dns.RRSIG{
+			rrsig := &dnsv1.RRSIG{
 				SignerName: "example.com.",
 				Labels:     2, // example.com. has 2 labels, so *.example.com. would have been 2 in original form
 			}
@@ -2747,15 +2747,15 @@ var _ = Describe("DNSSECValidator", func() {
 
 			// NSEC record proving test.example.com doesn't exist
 			// but is covered by the wildcard.
-			nsec := &dns.NSEC{
-				Hdr: dns.RR_Header{
+			nsec := &dnsv1.NSEC{
+				Hdr: dnsv1.RR_Header{
 					Name:   "a.example.com.",
-					Rrtype: dns.TypeNSEC,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC,
+					Class:  dnsv1.ClassINET,
 				},
 				NextDomain: "z.example.com.",
 			}
-			nsRecords := []dns.RR{nsec}
+			nsRecords := []dnsv1.RR{nsec}
 
 			err := sut.validateWildcardExpansion(rrsetName, rrsig, nsRecords, qname)
 			Expect(err).ShouldNot(HaveOccurred())
@@ -2765,7 +2765,7 @@ var _ = Describe("DNSSECValidator", func() {
 			// RRSIG for *.example.com. (2 labels: wildcard, example, com)
 			// Actual RRset is test.example.com. (3 labels)
 			// So this IS a wildcard expansion (3 > 2)
-			rrsig := &dns.RRSIG{
+			rrsig := &dnsv1.RRSIG{
 				SignerName: "example.com.",
 				Labels:     2,
 			}
@@ -2774,29 +2774,29 @@ var _ = Describe("DNSSECValidator", func() {
 
 			// NSEC record that covers test.example.com. to prove it doesn't exist
 			// This proves the wildcard was used because the actual name doesn't exist
-			nsec := &dns.NSEC{
-				Hdr: dns.RR_Header{
+			nsec := &dnsv1.NSEC{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeNSEC,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeNSEC,
+					Class:  dnsv1.ClassINET,
 				},
 				NextDomain: "z.example.com.",
 			}
 
-			nsRecords := []dns.RR{nsec}
+			nsRecords := []dnsv1.RR{nsec}
 
 			err := sut.validateWildcardExpansion(rrsetName, rrsig, nsRecords, qname)
 			Expect(err).ShouldNot(HaveOccurred())
 		})
 
 		It("should accept wildcard expansion without NSEC/NSEC3 proof (positive response)", func() {
-			rrsig := &dns.RRSIG{
+			rrsig := &dnsv1.RRSIG{
 				SignerName: "example.com.",
 				Labels:     2,
 			}
 			rrsetName := "test.example.com."
 			qname := "test.example.com."
-			nsRecords := []dns.RR{} // No NSEC/NSEC3 proof
+			nsRecords := []dnsv1.RR{} // No NSEC/NSEC3 proof
 
 			// Per RFC 4035 §5.3.4, for positive responses the cryptographic signature
 			// is sufficient proof. NSEC/NSEC3 is primarily for negative responses.
@@ -2805,13 +2805,13 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should reject wildcard if signer is not parent of wildcard name", func() {
-			rrsig := &dns.RRSIG{
+			rrsig := &dnsv1.RRSIG{
 				SignerName: "another.com.", // Signer not a parent
 				Labels:     2,
 			}
 			rrsetName := "test.example.com."
 			qname := "test.example.com."
-			nsRecords := []dns.RR{}
+			nsRecords := []dnsv1.RR{}
 
 			err := sut.validateWildcardExpansion(rrsetName, rrsig, nsRecords, qname)
 			Expect(err).Should(HaveOccurred())
@@ -2821,13 +2821,13 @@ var _ = Describe("DNSSECValidator", func() {
 		It("should not error when RRset has fewer labels than RRSIG (not a wildcard)", func() {
 			// When rrsetLabels <= rrsigLabels, it's NOT a wildcard expansion
 			// so validateWildcardExpansion returns nil immediately
-			rrsig := &dns.RRSIG{
+			rrsig := &dnsv1.RRSIG{
 				SignerName: "example.com.",
 				Labels:     3, // Same or more than RRset
 			}
 			rrsetName := "test.example.com." // 3 labels
 			qname := "test.example.com."
-			nsRecords := []dns.RR{}
+			nsRecords := []dnsv1.RR{}
 
 			err := sut.validateWildcardExpansion(rrsetName, rrsig, nsRecords, qname)
 			// Should NOT error - this is not a wildcard expansion
@@ -2836,41 +2836,41 @@ var _ = Describe("DNSSECValidator", func() {
 	})
 
 	Describe("validateNegativeResponse", func() {
-		var question dns.Question
+		var question dnsv1.Question
 
 		BeforeEach(func() {
-			question = dns.Question{
+			question = dnsv1.Question{
 				Name:   "nonexistent.example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 		})
 
 		When("response is NXDOMAIN with NSEC records", func() {
 			It("should validate denial of existence", func() {
-				response := &dns.Msg{
-					MsgHdr: dns.MsgHdr{
-						Rcode: dns.RcodeNameError,
+				response := &dnsv1.Msg{
+					MsgHdr: dnsv1.MsgHdr{
+						Rcode: dnsv1.RcodeNameError,
 					},
-					Ns: []dns.RR{
-						&dns.NSEC{
-							Hdr: dns.RR_Header{
+					Ns: []dnsv1.RR{
+						&dnsv1.NSEC{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeNSEC,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeNSEC,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 							NextDomain: "z.example.com.",
-							TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeSOA},
+							TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeSOA},
 						},
-						&dns.RRSIG{
-							Hdr: dns.RR_Header{
+						&dnsv1.RRSIG{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeRRSIG,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeRRSIG,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
-							TypeCovered: dns.TypeNSEC,
+							TypeCovered: dnsv1.TypeNSEC,
 							Algorithm:   8,
 							Labels:      2,
 							OrigTtl:     300,
@@ -2883,13 +2883,13 @@ var _ = Describe("DNSSECValidator", func() {
 				}
 
 				// Mock DNSKEY query
-				dnskeyResp := new(dns.Msg)
-				dnskeyResp.Answer = []dns.RR{
-					&dns.DNSKEY{
-						Hdr: dns.RR_Header{
+				dnskeyResp := new(dnsv1.Msg)
+				dnskeyResp.Answer = []dnsv1.RR{
+					&dnsv1.DNSKEY{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeDNSKEY,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeDNSKEY,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						Flags:     257,
@@ -2909,16 +2909,16 @@ var _ = Describe("DNSSECValidator", func() {
 
 		When("response is NXDOMAIN without signatures", func() {
 			It("should return Insecure", func() {
-				response := &dns.Msg{
-					MsgHdr: dns.MsgHdr{
-						Rcode: dns.RcodeNameError,
+				response := &dnsv1.Msg{
+					MsgHdr: dnsv1.MsgHdr{
+						Rcode: dnsv1.RcodeNameError,
 					},
-					Ns: []dns.RR{
-						&dns.SOA{
-							Hdr: dns.RR_Header{
+					Ns: []dnsv1.RR{
+						&dnsv1.SOA{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeSOA,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeSOA,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 							Ns:      "ns1.example.com.",
@@ -2939,31 +2939,31 @@ var _ = Describe("DNSSECValidator", func() {
 
 		When("response is NODATA with NSEC records", func() {
 			It("should validate denial of type existence", func() {
-				question.Qtype = dns.TypeAAAA
-				response := &dns.Msg{
-					MsgHdr: dns.MsgHdr{
-						Rcode: dns.RcodeSuccess,
+				question.Qtype = dnsv1.TypeAAAA
+				response := &dnsv1.Msg{
+					MsgHdr: dnsv1.MsgHdr{
+						Rcode: dnsv1.RcodeSuccess,
 					},
-					Question: []dns.Question{question},
-					Ns: []dns.RR{
-						&dns.NSEC{
-							Hdr: dns.RR_Header{
+					Question: []dnsv1.Question{question},
+					Ns: []dnsv1.RR{
+						&dnsv1.NSEC{
+							Hdr: dnsv1.RR_Header{
 								Name:   "nonexistent.example.com.",
-								Rrtype: dns.TypeNSEC,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeNSEC,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 							NextDomain: "z.example.com.",
-							TypeBitMap: []uint16{dns.TypeA}, // Has A but not AAAA
+							TypeBitMap: []uint16{dnsv1.TypeA},
 						},
-						&dns.RRSIG{
-							Hdr: dns.RR_Header{
+						&dnsv1.RRSIG{
+							Hdr: dnsv1.RR_Header{
 								Name:   "nonexistent.example.com.",
-								Rrtype: dns.TypeRRSIG,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeRRSIG,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
-							TypeCovered: dns.TypeNSEC,
+							TypeCovered: dnsv1.TypeNSEC,
 							Algorithm:   8,
 							Labels:      3,
 							OrigTtl:     300,
@@ -2976,13 +2976,13 @@ var _ = Describe("DNSSECValidator", func() {
 				}
 
 				// Mock DNSKEY query
-				dnskeyResp := new(dns.Msg)
-				dnskeyResp.Answer = []dns.RR{
-					&dns.DNSKEY{
-						Hdr: dns.RR_Header{
+				dnskeyResp := new(dnsv1.Msg)
+				dnskeyResp.Answer = []dnsv1.RR{
+					&dnsv1.DNSKEY{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeDNSKEY,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeDNSKEY,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						Flags:     257,
@@ -3000,41 +3000,41 @@ var _ = Describe("DNSSECValidator", func() {
 	})
 
 	Describe("validateDenialOfExistence", func() {
-		var question dns.Question
+		var question dnsv1.Question
 
 		BeforeEach(func() {
-			question = dns.Question{
+			question = dnsv1.Question{
 				Name:   "nonexistent.example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 		})
 
 		When("NSEC records prove NXDOMAIN", func() {
 			It("should return Secure when properly validated", func() {
-				response := &dns.Msg{
-					MsgHdr: dns.MsgHdr{
-						Rcode: dns.RcodeNameError,
+				response := &dnsv1.Msg{
+					MsgHdr: dnsv1.MsgHdr{
+						Rcode: dnsv1.RcodeNameError,
 					},
-					Ns: []dns.RR{
-						&dns.NSEC{
-							Hdr: dns.RR_Header{
+					Ns: []dnsv1.RR{
+						&dnsv1.NSEC{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeNSEC,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeNSEC,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 							NextDomain: "z.example.com.",
-							TypeBitMap: []uint16{dns.TypeSOA, dns.TypeNS},
+							TypeBitMap: []uint16{dnsv1.TypeSOA, dnsv1.TypeNS},
 						},
-						&dns.RRSIG{
-							Hdr: dns.RR_Header{
+						&dnsv1.RRSIG{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeRRSIG,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeRRSIG,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
-							TypeCovered: dns.TypeNSEC,
+							TypeCovered: dnsv1.TypeNSEC,
 							Algorithm:   8,
 							Labels:      2,
 							OrigTtl:     300,
@@ -3047,13 +3047,13 @@ var _ = Describe("DNSSECValidator", func() {
 				}
 
 				// Mock DNSKEY query
-				dnskeyResp := new(dns.Msg)
-				dnskeyResp.Answer = []dns.RR{
-					&dns.DNSKEY{
-						Hdr: dns.RR_Header{
+				dnskeyResp := new(dnsv1.Msg)
+				dnskeyResp.Answer = []dnsv1.RR{
+					&dnsv1.DNSKEY{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeDNSKEY,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeDNSKEY,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						Flags:     257,
@@ -3071,16 +3071,16 @@ var _ = Describe("DNSSECValidator", func() {
 
 		When("no NSEC/NSEC3 records present", func() {
 			It("should return Insecure", func() {
-				response := &dns.Msg{
-					MsgHdr: dns.MsgHdr{
-						Rcode: dns.RcodeNameError,
+				response := &dnsv1.Msg{
+					MsgHdr: dnsv1.MsgHdr{
+						Rcode: dnsv1.RcodeNameError,
 					},
-					Ns: []dns.RR{
-						&dns.SOA{
-							Hdr: dns.RR_Header{
+					Ns: []dnsv1.RR{
+						&dnsv1.SOA{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeSOA,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeSOA,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 						},
@@ -3095,16 +3095,16 @@ var _ = Describe("DNSSECValidator", func() {
 
 	Describe("hasAuthorityOrAdditional", func() {
 		It("should return true when authority section has RRSIGs", func() {
-			response := &dns.Msg{
-				Ns: []dns.RR{
-					&dns.RRSIG{
-						Hdr: dns.RR_Header{
+			response := &dnsv1.Msg{
+				Ns: []dnsv1.RR{
+					&dnsv1.RRSIG{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeRRSIG,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeRRSIG,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
-						TypeCovered: dns.TypeA,
+						TypeCovered: dnsv1.TypeA,
 						Algorithm:   8,
 					},
 				},
@@ -3115,16 +3115,16 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should return true when additional section has RRSIGs", func() {
-			response := &dns.Msg{
-				Extra: []dns.RR{
-					&dns.RRSIG{
-						Hdr: dns.RR_Header{
+			response := &dnsv1.Msg{
+				Extra: []dnsv1.RR{
+					&dnsv1.RRSIG{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeRRSIG,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeRRSIG,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
-						TypeCovered: dns.TypeA,
+						TypeCovered: dnsv1.TypeA,
 						Algorithm:   8,
 					},
 				},
@@ -3135,13 +3135,13 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should return false when no RRSIGs present", func() {
-			response := &dns.Msg{
-				Ns: []dns.RR{
-					&dns.NS{
-						Hdr: dns.RR_Header{
+			response := &dnsv1.Msg{
+				Ns: []dnsv1.RR{
+					&dnsv1.NS{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeNS,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeNS,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						Ns: "ns1.example.com.",
@@ -3155,37 +3155,37 @@ var _ = Describe("DNSSECValidator", func() {
 	})
 
 	Describe("validateAuthorityOrAdditional", func() {
-		var question dns.Question
+		var question dnsv1.Question
 
 		BeforeEach(func() {
-			question = dns.Question{
+			question = dnsv1.Question{
 				Name:   "example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 		})
 
 		When("authority section has signed records", func() {
 			It("should validate the authority section", func() {
-				response := &dns.Msg{
-					Ns: []dns.RR{
-						&dns.NS{
-							Hdr: dns.RR_Header{
+				response := &dnsv1.Msg{
+					Ns: []dnsv1.RR{
+						&dnsv1.NS{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeNS,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeNS,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 							Ns: "ns1.example.com.",
 						},
-						&dns.RRSIG{
-							Hdr: dns.RR_Header{
+						&dnsv1.RRSIG{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeRRSIG,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeRRSIG,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
-							TypeCovered: dns.TypeNS,
+							TypeCovered: dnsv1.TypeNS,
 							Algorithm:   8,
 							Labels:      2,
 							OrigTtl:     300,
@@ -3198,13 +3198,13 @@ var _ = Describe("DNSSECValidator", func() {
 				}
 
 				// Mock DNSKEY query
-				dnskeyResp := new(dns.Msg)
-				dnskeyResp.Answer = []dns.RR{
-					&dns.DNSKEY{
-						Hdr: dns.RR_Header{
+				dnskeyResp := new(dnsv1.Msg)
+				dnskeyResp.Answer = []dnsv1.RR{
+					&dnsv1.DNSKEY{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeDNSKEY,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeDNSKEY,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						Flags:     257,
@@ -3222,7 +3222,7 @@ var _ = Describe("DNSSECValidator", func() {
 
 		When("no authority or additional records", func() {
 			It("should return Insecure", func() {
-				response := &dns.Msg{}
+				response := &dnsv1.Msg{}
 
 				result := sut.validateAuthorityOrAdditional(ctx, response, question)
 				Expect(result).Should(Equal(ValidationResultInsecure))
@@ -3232,12 +3232,12 @@ var _ = Describe("DNSSECValidator", func() {
 
 	Describe("findMatchingDNSKEY", func() {
 		It("should find DNSKEY with matching key tag", func() {
-			keys := []*dns.DNSKEY{
+			keys := []*dnsv1.DNSKEY{
 				{
-					Hdr: dns.RR_Header{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeDNSKEY,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeDNSKEY,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					Flags:     257,
@@ -3246,10 +3246,10 @@ var _ = Describe("DNSSECValidator", func() {
 					PublicKey: "test1",
 				},
 				{
-					Hdr: dns.RR_Header{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeDNSKEY,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeDNSKEY,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					Flags:     256,
@@ -3269,12 +3269,12 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should return nil when no matching key tag found", func() {
-			keys := []*dns.DNSKEY{
+			keys := []*dnsv1.DNSKEY{
 				{
-					Hdr: dns.RR_Header{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeDNSKEY,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeDNSKEY,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					Flags:     257,
@@ -3289,7 +3289,7 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should return nil for empty key list", func() {
-			result := findMatchingDNSKEY([]*dns.DNSKEY{}, 12345, 8)
+			result := findMatchingDNSKEY([]*dnsv1.DNSKEY{}, 12345, 8)
 			Expect(result).Should(BeNil())
 		})
 	})
@@ -3297,64 +3297,64 @@ var _ = Describe("DNSSECValidator", func() {
 	Describe("DS record validation functions", func() {
 		Describe("convertDSToRRset", func() {
 			It("should convert DS records to RR slice", func() {
-				dsRecords := []*dns.DS{
+				dsRecords := []*dnsv1.DS{
 					{
-						Hdr: dns.RR_Header{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeDS,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeDS,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						KeyTag:     12345,
 						Algorithm:  8,
-						DigestType: dns.SHA256,
+						DigestType: dnsv1.SHA256,
 						Digest:     "abc123",
 					},
 					{
-						Hdr: dns.RR_Header{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeDS,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeDS,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						KeyTag:     54321,
 						Algorithm:  8,
-						DigestType: dns.SHA256,
+						DigestType: dnsv1.SHA256,
 						Digest:     "def456",
 					},
 				}
 
 				result := convertDSToRRset(dsRecords)
 				Expect(result).Should(HaveLen(2))
-				Expect(result[0].Header().Rrtype).Should(Equal(dns.TypeDS))
+				Expect(result[0].Header().Rrtype).Should(Equal(dnsv1.TypeDS))
 			})
 
 			It("should handle empty DS list", func() {
-				result := convertDSToRRset([]*dns.DS{})
+				result := convertDSToRRset([]*dnsv1.DS{})
 				Expect(result).Should(BeEmpty())
 			})
 		})
 
 		Describe("findDSRRSIG", func() {
 			It("should find RRSIG for DS records in answer section", func() {
-				response := &dns.Msg{
-					Answer: []dns.RR{
-						&dns.DS{
-							Hdr: dns.RR_Header{
+				response := &dnsv1.Msg{
+					Answer: []dnsv1.RR{
+						&dnsv1.DS{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeDS,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeDS,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 						},
-						&dns.RRSIG{
-							Hdr: dns.RR_Header{
+						&dnsv1.RRSIG{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeRRSIG,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeRRSIG,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
-							TypeCovered: dns.TypeDS,
+							TypeCovered: dnsv1.TypeDS,
 							Algorithm:   8,
 						},
 					},
@@ -3362,28 +3362,28 @@ var _ = Describe("DNSSECValidator", func() {
 
 				result := sut.findDSRRSIG(response, "example.com.")
 				Expect(result).ShouldNot(BeNil())
-				Expect(result.TypeCovered).Should(Equal(dns.TypeDS))
+				Expect(result.TypeCovered).Should(Equal(dnsv1.TypeDS))
 			})
 
 			It("should find RRSIG for DS records in authority section", func() {
-				response := &dns.Msg{
-					Ns: []dns.RR{
-						&dns.DS{
-							Hdr: dns.RR_Header{
+				response := &dnsv1.Msg{
+					Ns: []dnsv1.RR{
+						&dnsv1.DS{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeDS,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeDS,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
 						},
-						&dns.RRSIG{
-							Hdr: dns.RR_Header{
+						&dnsv1.RRSIG{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeRRSIG,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeRRSIG,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
-							TypeCovered: dns.TypeDS,
+							TypeCovered: dnsv1.TypeDS,
 							Algorithm:   8,
 						},
 					},
@@ -3391,20 +3391,20 @@ var _ = Describe("DNSSECValidator", func() {
 
 				result := sut.findDSRRSIG(response, "example.com.")
 				Expect(result).ShouldNot(BeNil())
-				Expect(result.TypeCovered).Should(Equal(dns.TypeDS))
+				Expect(result.TypeCovered).Should(Equal(dnsv1.TypeDS))
 			})
 
 			It("should return nil when no DS RRSIG found", func() {
-				response := &dns.Msg{
-					Answer: []dns.RR{
-						&dns.RRSIG{
-							Hdr: dns.RR_Header{
+				response := &dnsv1.Msg{
+					Answer: []dnsv1.RR{
+						&dnsv1.RRSIG{
+							Hdr: dnsv1.RR_Header{
 								Name:   "example.com.",
-								Rrtype: dns.TypeRRSIG,
-								Class:  dns.ClassINET,
+								Rrtype: dnsv1.TypeRRSIG,
+								Class:  dnsv1.ClassINET,
 								Ttl:    300,
 							},
-							TypeCovered: dns.TypeA, // Not DS
+							TypeCovered: dnsv1.TypeA,
 							Algorithm:   8,
 						},
 					},
@@ -3420,13 +3420,13 @@ var _ = Describe("DNSSECValidator", func() {
 		When("no trust anchor configured", func() {
 			It("should return Indeterminate", func() {
 				// Mock the DNSKEY query to succeed
-				dnskeyResp := new(dns.Msg)
-				dnskeyResp.Answer = []dns.RR{
-					&dns.DNSKEY{
-						Hdr: dns.RR_Header{
+				dnskeyResp := new(dnsv1.Msg)
+				dnskeyResp.Answer = []dnsv1.RR{
+					&dnsv1.DNSKEY{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeDNSKEY,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeDNSKEY,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						Flags:     257,
@@ -3466,12 +3466,12 @@ var _ = Describe("DNSSECValidator", func() {
 				Expect(err).ShouldNot(HaveOccurred())
 
 				// Parse the same key for the mock response
-				rr, _ := dns.NewRR(trustAnchorStr)
-				dnskey := rr.(*dns.DNSKEY)
+				rr, _ := dnsv1.NewRR(trustAnchorStr)
+				dnskey := rr.(*dnsv1.DNSKEY)
 
 				// Mock the DNSKEY query to return a key
-				dnskeyResp := new(dns.Msg)
-				dnskeyResp.Answer = []dns.RR{dnskey}
+				dnskeyResp := new(dnsv1.Msg)
+				dnskeyResp.Answer = []dnsv1.RR{dnskey}
 				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil).Once()
 
 				result := sut.verifyDomainAgainstTrustAnchor(ctx, "example.com.")
@@ -3520,9 +3520,9 @@ var _ = Describe("DNSSECValidator", func() {
 
 	Describe("isNegativeResponse", func() {
 		It("should return true for NXDOMAIN", func() {
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{
-					Rcode: dns.RcodeNameError,
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{
+					Rcode: dnsv1.RcodeNameError,
 				},
 			}
 
@@ -3531,11 +3531,11 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should return true for NODATA (success with no answer)", func() {
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{
-					Rcode: dns.RcodeSuccess,
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{
+					Rcode: dnsv1.RcodeSuccess,
 				},
-				Answer: []dns.RR{}, // Empty answer
+				Answer: []dnsv1.RR{},
 			}
 
 			result := sut.isNegativeResponse(response)
@@ -3543,16 +3543,16 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should return false for successful response with answer", func() {
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{
-					Rcode: dns.RcodeSuccess,
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{
+					Rcode: dnsv1.RcodeSuccess,
 				},
-				Answer: []dns.RR{
-					&dns.A{
-						Hdr: dns.RR_Header{
+				Answer: []dnsv1.RR{
+					&dnsv1.A{
+						Hdr: dnsv1.RR_Header{
 							Name:   "example.com.",
-							Rrtype: dns.TypeA,
-							Class:  dns.ClassINET,
+							Rrtype: dnsv1.TypeA,
+							Class:  dnsv1.ClassINET,
 							Ttl:    300,
 						},
 						A: []byte{192, 0, 2, 1},
@@ -3565,9 +3565,9 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should return false for SERVFAIL", func() {
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{
-					Rcode: dns.RcodeServerFailure,
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{
+					Rcode: dnsv1.RcodeServerFailure,
 				},
 			}
 
@@ -3601,37 +3601,37 @@ var _ = Describe("Additional Validator Coverage", func() {
 
 	Describe("validateSingleRRset DNSKEY validation", func() {
 		It("should reject DNSKEY when signer doesn't match owner", func() {
-			dnskey := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			dnskey := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.RSASHA256,
+				Algorithm: dnsv1.RSASHA256,
 				PublicKey: "test",
 			}
 
-			rrsig := &dns.RRSIG{
-				Hdr: dns.RR_Header{
+			rrsig := &dnsv1.RRSIG{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeRRSIG,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeRRSIG,
+					Class:  dnsv1.ClassINET,
 				},
-				TypeCovered: dns.TypeDNSKEY,
+				TypeCovered: dnsv1.TypeDNSKEY,
 				SignerName:  "parent.com.", // Different from owner
 				KeyTag:      12345,
 			}
 
 			result := sut.validateSingleRRset(
 				ctx,
-				dns.TypeDNSKEY,
-				[]dns.RR{dnskey},
-				[]*dns.RRSIG{rrsig},
+				dnsv1.TypeDNSKEY,
+				[]dnsv1.RR{dnskey},
+				[]*dnsv1.RRSIG{rrsig},
 				"example.com.",
-				[]dns.RR{},
+				[]dnsv1.RR{},
 				"example.com.",
 			)
 
@@ -3649,34 +3649,34 @@ var _ = Describe("Additional Validator Coverage", func() {
 			signedZone := NewValidator(ctx, store, testLogger, mockUpstream, 1, 10, 150, 30, 3600)
 			mockUpstream.ResolveFn = benignEmptyResolve
 
-			a := &dns.A{
-				Hdr: dns.RR_Header{
+			a := &dnsv1.A{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeA,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeA,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				A: []byte{192, 0, 2, 1},
 			}
 
 			// RRSIG for different type
-			rrsig := &dns.RRSIG{
-				Hdr: dns.RR_Header{
+			rrsig := &dnsv1.RRSIG{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeRRSIG,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeRRSIG,
+					Class:  dnsv1.ClassINET,
 				},
-				TypeCovered: dns.TypeAAAA,
+				TypeCovered: dnsv1.TypeAAAA,
 				SignerName:  "example.com.",
 			}
 
 			result := signedZone.validateSingleRRset(
 				ctx,
-				dns.TypeA,
-				[]dns.RR{a},
-				[]*dns.RRSIG{rrsig},
+				dnsv1.TypeA,
+				[]dnsv1.RR{a},
+				[]*dnsv1.RRSIG{rrsig},
 				"example.com.",
-				[]dns.RR{},
+				[]dnsv1.RR{},
 				"example.com.",
 			)
 
@@ -3708,34 +3708,34 @@ var _ = Describe("Additional Validator Coverage", func() {
 		It("should validate response with CNAME chain", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: &dns.Msg{
-						Answer: []dns.RR{},
+					Res: &dnsv1.Msg{
+						Answer: []dnsv1.RR{},
 					},
 				}, nil
 			}
 
-			cname := &dns.CNAME{
-				Hdr: dns.RR_Header{
+			cname := &dnsv1.CNAME{
+				Hdr: dnsv1.RR_Header{
 					Name:   "www.example.com.",
-					Rrtype: dns.TypeCNAME,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeCNAME,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				Target: "target.example.com.",
 			}
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "www.example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{
-					Rcode: dns.RcodeSuccess,
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{
+					Rcode: dnsv1.RcodeSuccess,
 				},
-				Question: []dns.Question{question},
-				Answer:   []dns.RR{cname},
+				Question: []dnsv1.Question{question},
+				Answer:   []dnsv1.RR{cname},
 			}
 
 			result := sut.ValidateResponse(ctx, response, question)
@@ -3761,38 +3761,38 @@ var _ = Describe("Additional Validator Coverage", func() {
 			validator := NewValidator(ctx, store, testLogger, mockUpstream, 1, 10, 150, 30, 3600)
 
 			// Create response with CNAME and A records, both without RRSIG (unsigned)
-			cname := &dns.CNAME{
-				Hdr: dns.RR_Header{
+			cname := &dnsv1.CNAME{
+				Hdr: dnsv1.RR_Header{
 					Name:   "www.unsigned.net.",
-					Rrtype: dns.TypeCNAME,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeCNAME,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				Target: "target.unsigned.net.",
 			}
 
-			a := &dns.A{
-				Hdr: dns.RR_Header{
+			a := &dnsv1.A{
+				Hdr: dnsv1.RR_Header{
 					Name:   "target.unsigned.net.",
-					Rrtype: dns.TypeA,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeA,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				A: []byte{192, 0, 2, 1},
 			}
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "www.unsigned.net.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{
-					Rcode: dns.RcodeSuccess,
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{
+					Rcode: dnsv1.RcodeSuccess,
 				},
-				Question: []dns.Question{question},
-				Answer:   []dns.RR{cname, a},
+				Question: []dnsv1.Question{question},
+				Answer:   []dnsv1.RR{cname, a},
 			}
 
 			// This test checks that when a response contains only unsigned CNAME and A records (no RRSIGs)
@@ -3809,41 +3809,41 @@ var _ = Describe("Additional Validator Coverage", func() {
 		It("should validate multiple different types in answer", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: &dns.Msg{
-						Answer: []dns.RR{},
+					Res: &dnsv1.Msg{
+						Answer: []dnsv1.RR{},
 					},
 				}, nil
 			}
 
-			a1 := &dns.A{
-				Hdr: dns.RR_Header{
+			a1 := &dnsv1.A{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeA,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeA,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				A: []byte{192, 0, 2, 1},
 			}
 
-			a2 := &dns.A{
-				Hdr: dns.RR_Header{
+			a2 := &dnsv1.A{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeA,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeA,
+					Class:  dnsv1.ClassINET,
 					Ttl:    300,
 				},
 				A: []byte{192, 0, 2, 2},
 			}
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
-			response := &dns.Msg{
-				Question: []dns.Question{question},
-				Answer:   []dns.RR{a1, a2},
+			response := &dnsv1.Msg{
+				Question: []dnsv1.Question{question},
+				Answer:   []dnsv1.RR{a1, a2},
 			}
 
 			result := sut.validateAnswer(ctx, response, question)
@@ -3855,33 +3855,33 @@ var _ = Describe("Additional Validator Coverage", func() {
 		It("should handle NXDOMAIN with SOA in authority", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: &dns.Msg{
-						Answer: []dns.RR{},
+					Res: &dnsv1.Msg{
+						Answer: []dnsv1.RR{},
 					},
 				}, nil
 			}
 
-			soa := &dns.SOA{
-				Hdr: dns.RR_Header{
+			soa := &dnsv1.SOA{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeSOA,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeSOA,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
 			}
 
-			response := &dns.Msg{
-				MsgHdr: dns.MsgHdr{
-					Rcode: dns.RcodeNameError,
+			response := &dnsv1.Msg{
+				MsgHdr: dnsv1.MsgHdr{
+					Rcode: dnsv1.RcodeNameError,
 				},
-				Question: []dns.Question{
+				Question: []dnsv1.Question{
 					{
 						Name:   "nonexistent.example.com.",
-						Qtype:  dns.TypeA,
-						Qclass: dns.ClassINET,
+						Qtype:  dnsv1.TypeA,
+						Qclass: dnsv1.ClassINET,
 					},
 				},
-				Ns: []dns.RR{soa},
+				Ns: []dnsv1.RR{soa},
 			}
 
 			result := sut.validateNegativeResponse(ctx, response, response.Question[0])

@@ -10,7 +10,7 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -94,8 +94,8 @@ func (r *DNS64Resolver) Resolve(ctx context.Context, request *model.Request) (*m
 	ctx, logger := r.log(ctx)
 
 	// Only process AAAA queries for IN class
-	if len(request.Req.Question) == 0 || request.Req.Question[0].Qtype != dns.TypeAAAA ||
-		request.Req.Question[0].Qclass != dns.ClassINET {
+	if len(request.Req.Question) == 0 || request.Req.Question[0].Qtype != dnsv1.TypeAAAA ||
+		request.Req.Question[0].Qclass != dnsv1.ClassINET {
 		return r.next.Resolve(ctx, request)
 	}
 
@@ -123,7 +123,7 @@ func (r *DNS64Resolver) Resolve(ctx context.Context, request *model.Request) (*m
 
 // hasValidAAAARecords checks if response has any AAAA records not in exclusion set
 func (r *DNS64Resolver) hasValidAAAARecords(response *model.Response, logger *logrus.Entry) bool {
-	aaaaRecords := util.ExtractRecords[*dns.AAAA](response.Res)
+	aaaaRecords := util.ExtractRecords[*dnsv1.AAAA](response.Res)
 	if len(aaaaRecords) == 0 {
 		logger.Debug("no AAAA records in response")
 
@@ -191,7 +191,7 @@ func (r *DNS64Resolver) synthesizeFromA(
 	logger *logrus.Entry,
 ) (*model.Response, error) {
 	// Create new A query for same name
-	aReq := util.NewMsgWithQuestion(originalRequest.Req.Question[0].Name, dns.Type(dns.TypeA))
+	aReq := util.NewMsgWithQuestion(originalRequest.Req.Question[0].Name, dnsv1.Type(dnsv1.TypeA))
 
 	// Copy DNSSEC flags from original AAAA query
 	if originalRequest.Req.IsEdns0() != nil {
@@ -217,14 +217,14 @@ func (r *DNS64Resolver) synthesizeFromA(
 	}
 
 	// Handle RCODE
-	if aResponse.Res.Rcode == dns.RcodeNameError {
+	if aResponse.Res.Rcode == dnsv1.RcodeNameError {
 		// NXDOMAIN: return NXDOMAIN with original AAAA query in Question section
 		logger.Debug("A query returned NXDOMAIN, no synthesis")
 
 		// Build a synthetic NXDOMAIN response with the original AAAA query in the Question section
-		nxdomainResponse := new(dns.Msg)
+		nxdomainResponse := new(dnsv1.Msg)
 		nxdomainResponse.SetReply(originalRequest.Req)
-		nxdomainResponse.Rcode = dns.RcodeNameError
+		nxdomainResponse.Rcode = dnsv1.RcodeNameError
 		// Copy authority section from A response (contains SOA record with TTL)
 		if len(aResponse.Res.Ns) > 0 {
 			nxdomainResponse.Ns = aResponse.Res.Ns
@@ -237,7 +237,7 @@ func (r *DNS64Resolver) synthesizeFromA(
 		}, nil
 	}
 
-	if aResponse.Res.Rcode != dns.RcodeSuccess {
+	if aResponse.Res.Rcode != dnsv1.RcodeSuccess {
 		// Other RCODEs: treat as empty response (alternative behavior from RFC 6147 Section 5.1.2)
 		logger.Debugf("A query returned RCODE %d, treating as empty", aResponse.Res.Rcode)
 
@@ -245,7 +245,7 @@ func (r *DNS64Resolver) synthesizeFromA(
 	}
 
 	// Extract A records from response
-	aRecords := util.ExtractRecords[*dns.A](aResponse.Res)
+	aRecords := util.ExtractRecords[*dnsv1.A](aResponse.Res)
 	if len(aRecords) == 0 {
 		logger.Debug("no A records found, returning empty AAAA response")
 
@@ -255,8 +255,8 @@ func (r *DNS64Resolver) synthesizeFromA(
 	logger.Debugf("found %d A record(s) for synthesis", len(aRecords))
 
 	// Extract CNAME and DNAME records for TTL calculation
-	cnameRecords := util.ExtractRecords[*dns.CNAME](aResponse.Res)
-	dnameRecords := util.ExtractRecords[*dns.DNAME](aResponse.Res)
+	cnameRecords := util.ExtractRecords[*dnsv1.CNAME](aResponse.Res)
+	dnameRecords := util.ExtractRecords[*dnsv1.DNAME](aResponse.Res)
 
 	if len(cnameRecords) > 0 {
 		logger.Debugf("found %d CNAME record(s) in resolution chain", len(cnameRecords))
@@ -270,7 +270,7 @@ func (r *DNS64Resolver) synthesizeFromA(
 	synthesizedAAAA := r.synthesizeAAAARecords(aRecords, cnameRecords, dnameRecords, logger)
 
 	// Build response
-	syntheticResponse := new(dns.Msg)
+	syntheticResponse := new(dnsv1.Msg)
 	syntheticResponse.SetReply(originalRequest.Req)
 	syntheticResponse.Authoritative = aResponse.Res.Authoritative
 	syntheticResponse.RecursionAvailable = aResponse.Res.RecursionAvailable
@@ -301,9 +301,9 @@ func (r *DNS64Resolver) synthesizeFromA(
 
 // calculateMinimumTTL calculates the minimum TTL across all records in the resolution chain
 func calculateMinimumTTL(
-	aRecords []*dns.A,
-	cnameRecords []*dns.CNAME,
-	dnameRecords []*dns.DNAME,
+	aRecords []*dnsv1.A,
+	cnameRecords []*dnsv1.CNAME,
+	dnameRecords []*dnsv1.DNAME,
 	logger *logrus.Entry,
 ) uint32 {
 	minTTL := uint32(math.MaxUint32)
@@ -342,16 +342,16 @@ func calculateMinimumTTL(
 
 // synthesizeAAAARecords creates AAAA records from A records using configured prefixes
 func (r *DNS64Resolver) synthesizeAAAARecords(
-	aRecords []*dns.A,
-	cnameRecords []*dns.CNAME,
-	dnameRecords []*dns.DNAME,
+	aRecords []*dnsv1.A,
+	cnameRecords []*dnsv1.CNAME,
+	dnameRecords []*dnsv1.DNAME,
 	logger *logrus.Entry,
-) []*dns.AAAA {
+) []*dnsv1.AAAA {
 	// Calculate minimum TTL across ALL records in the resolution chain for cache coherency
 	minTTL := calculateMinimumTTL(aRecords, cnameRecords, dnameRecords, logger)
 
 	// Synthesize AAAA records
-	var aaaaRecords []*dns.AAAA
+	var aaaaRecords []*dnsv1.AAAA
 
 	logger.Debugf("synthesizing with %d prefix(es): %v", len(r.prefixes), r.prefixes)
 
@@ -364,11 +364,11 @@ func (r *DNS64Resolver) synthesizeAAAARecords(
 				continue
 			}
 
-			aaaa := &dns.AAAA{
-				Hdr: dns.RR_Header{
+			aaaa := &dnsv1.AAAA{
+				Hdr: dnsv1.RR_Header{
 					Name:   aRecord.Hdr.Name,
-					Rrtype: dns.TypeAAAA,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeAAAA,
+					Class:  dnsv1.ClassINET,
 					Ttl:    minTTL,
 				},
 				AAAA: ipv6,

@@ -11,18 +11,18 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
-type createAnswerFunc func(question dns.Question, ip netip.Addr, ttl uint32) (dns.RR, error)
+type createAnswerFunc func(question dnsv1.Question, ip netip.Addr, ttl uint32) (dnsv1.RR, error)
 
 // extractIPFromRecord extracts the IP address from A or AAAA records, returns the zero Addr for other types
-func extractIPFromRecord(entry dns.RR) netip.Addr {
+func extractIPFromRecord(entry dnsv1.RR) netip.Addr {
 	switch v := entry.(type) {
-	case *dns.A:
+	case *dnsv1.A:
 		return util.AddrFromIP(v.A)
-	case *dns.AAAA:
+	case *dnsv1.AAAA:
 		return util.AddrFromIP(v.AAAA)
 	}
 
@@ -63,7 +63,7 @@ func NewCustomDNSResolver(cfg config.CustomDNS) *CustomDNSResolver {
 	for url, entries := range dnsRecords {
 		for _, entry := range entries {
 			if ip := extractIPFromRecord(entry); ip.IsValid() {
-				r, _ := dns.ReverseAddr(ip.String())
+				r, _ := dnsv1.ReverseAddr(ip.String())
 				reverse[r] = append(reverse[r], url)
 			}
 		}
@@ -79,15 +79,15 @@ func NewCustomDNSResolver(cfg config.CustomDNS) *CustomDNSResolver {
 	}
 }
 
-func isSupportedType(ip netip.Addr, question dns.Question) bool {
-	return (ip.Is4() && question.Qtype == dns.TypeA) ||
-		(ip.Is6() && question.Qtype == dns.TypeAAAA)
+func isSupportedType(ip netip.Addr, question dnsv1.Question) bool {
+	return (ip.Is4() && question.Qtype == dnsv1.TypeA) ||
+		(ip.Is6() && question.Qtype == dnsv1.TypeAAAA)
 }
 
 // LookupReverse returns the domain names mapped to the given IP by the custom DNS
 // configuration, consulting only in-memory data (no network I/O). Returns nil if there is no match.
 func (r *CustomDNSResolver) LookupReverse(ip netip.Addr) []string {
-	arpa, err := dns.ReverseAddr(ip.String())
+	arpa, err := dnsv1.ReverseAddr(ip.String())
 	if err != nil {
 		return nil
 	}
@@ -106,16 +106,16 @@ func (r *CustomDNSResolver) LookupReverse(ip netip.Addr) []string {
 
 func (r *CustomDNSResolver) handleReverseDNS(request *model.Request) *model.Response {
 	question := request.Req.Question[0]
-	if question.Qtype == dns.TypePTR {
+	if question.Qtype == dnsv1.TypePTR {
 		// reverseAddresses is keyed by dns.ReverseAddr output, which is lower case:
 		// DNS names are case insensitive, so normalize before looking up.
 		urls, found := r.reverseAddresses[strings.ToLower(question.Name)]
 		if found {
-			answers := make([]dns.RR, 0, len(urls))
+			answers := make([]dnsv1.RR, 0, len(urls))
 			for _, url := range urls {
 				h := util.CreateHeader(question, r.cfg.CustomTTL.SecondsU32())
-				ptr := new(dns.PTR)
-				ptr.Ptr = dns.Fqdn(url)
+				ptr := new(dnsv1.PTR)
+				ptr.Ptr = dnsv1.Fqdn(url)
 				ptr.Hdr = h
 				answers = append(answers, ptr)
 			}
@@ -139,7 +139,7 @@ func (r *CustomDNSResolver) processRequest(
 ) (handled bool, response *model.Response, err error) {
 	question := request.Req.Question[0]
 	domain := util.ExtractDomain(question)
-	var answers []dns.RR
+	var answers []dnsv1.RR
 
 	for len(domain) > 0 {
 		if err := ctx.Err(); err != nil {
@@ -177,7 +177,7 @@ func (r *CustomDNSResolver) processRequest(
 			// so caching resolvers know how long to cache the negative result
 			nodata := model.NewResponseWithReason(request, model.ResponseTypeCUSTOMDNS, "CUSTOM DNS")
 			soa := util.CreateSOAForNegativeResponse(question, r.cfg.CustomTTL.SecondsU32())
-			nodata.Res.Ns = []dns.RR{soa}
+			nodata.Res.Ns = []dnsv1.RR{soa}
 
 			return true, nodata, nil
 		}
@@ -197,19 +197,19 @@ func (r *CustomDNSResolver) processDNSEntry(
 	logger *logrus.Entry,
 	request *model.Request,
 	resolvedCnames []string,
-	question dns.Question,
-	entry dns.RR,
-) ([]dns.RR, error) {
+	question dnsv1.Question,
+	entry dnsv1.RR,
+) ([]dnsv1.RR, error) {
 	switch v := entry.(type) {
-	case *dns.A:
+	case *dnsv1.A:
 		return r.processIP(util.AddrFromIP(v.A), question, v.Header().Ttl)
-	case *dns.AAAA:
+	case *dnsv1.AAAA:
 		return r.processIP(util.AddrFromIP(v.AAAA), question, v.Header().Ttl)
-	case *dns.TXT:
+	case *dnsv1.TXT:
 		return r.processTXT(v.Txt, question, v.Header().Ttl)
-	case *dns.SRV:
+	case *dnsv1.SRV:
 		return r.processSRV(*v, question, v.Header().Ttl)
-	case *dns.CNAME:
+	case *dnsv1.CNAME:
 		return r.processCNAME(ctx, logger, request, *v, resolvedCnames, question, v.Header().Ttl)
 	}
 
@@ -264,8 +264,10 @@ func (r *CustomDNSResolver) Resolve(ctx context.Context, request *model.Request)
 	return response, nil
 }
 
-func (r *CustomDNSResolver) processIP(ip netip.Addr, question dns.Question, ttl uint32) (result []dns.RR, err error) {
-	result = make([]dns.RR, 0)
+func (r *CustomDNSResolver) processIP(
+	ip netip.Addr, question dnsv1.Question, ttl uint32,
+) (result []dnsv1.RR, err error) {
+	result = make([]dnsv1.RR, 0)
 
 	if isSupportedType(ip, question) {
 		rr, err := r.createAnswerFromQuestion(question, ip, ttl)
@@ -279,10 +281,12 @@ func (r *CustomDNSResolver) processIP(ip netip.Addr, question dns.Question, ttl 
 	return result, nil
 }
 
-func (r *CustomDNSResolver) processTXT(value []string, question dns.Question, ttl uint32) (result []dns.RR, err error) {
-	if question.Qtype == dns.TypeTXT {
-		txt := new(dns.TXT)
-		txt.Hdr = dns.RR_Header{Class: dns.ClassINET, Ttl: ttl, Rrtype: dns.TypeTXT, Name: question.Name}
+func (r *CustomDNSResolver) processTXT(
+	value []string, question dnsv1.Question, ttl uint32,
+) (result []dnsv1.RR, err error) {
+	if question.Qtype == dnsv1.TypeTXT {
+		txt := new(dnsv1.TXT)
+		txt.Hdr = dnsv1.RR_Header{Class: dnsv1.ClassINET, Ttl: ttl, Rrtype: dnsv1.TypeTXT, Name: question.Name}
 		txt.Txt = value
 		result = append(result, txt)
 	}
@@ -291,13 +295,13 @@ func (r *CustomDNSResolver) processTXT(value []string, question dns.Question, tt
 }
 
 func (r *CustomDNSResolver) processSRV(
-	targetSRV dns.SRV,
-	question dns.Question,
+	targetSRV dnsv1.SRV,
+	question dnsv1.Question,
 	ttl uint32,
-) (result []dns.RR, err error) {
-	if question.Qtype == dns.TypeSRV {
-		srv := new(dns.SRV)
-		srv.Hdr = dns.RR_Header{Class: dns.ClassINET, Ttl: ttl, Rrtype: dns.TypeSRV, Name: question.Name}
+) (result []dnsv1.RR, err error) {
+	if question.Qtype == dnsv1.TypeSRV {
+		srv := new(dnsv1.SRV)
+		srv.Hdr = dnsv1.RR_Header{Class: dnsv1.ClassINET, Ttl: ttl, Rrtype: dnsv1.TypeSRV, Name: question.Name}
 		srv.Priority = targetSRV.Priority
 		srv.Weight = targetSRV.Weight
 		srv.Port = targetSRV.Port
@@ -312,17 +316,17 @@ func (r *CustomDNSResolver) processCNAME(
 	ctx context.Context,
 	logger *logrus.Entry,
 	request *model.Request,
-	targetCname dns.CNAME,
+	targetCname dnsv1.CNAME,
 	resolvedCnames []string,
-	question dns.Question,
+	question dnsv1.Question,
 	ttl uint32,
-) (result []dns.RR, err error) {
-	cname := new(dns.CNAME)
-	cname.Hdr = dns.RR_Header{Class: dns.ClassINET, Ttl: ttl, Rrtype: dns.TypeCNAME, Name: question.Name}
-	cname.Target = dns.Fqdn(targetCname.Target)
+) (result []dnsv1.RR, err error) {
+	cname := new(dnsv1.CNAME)
+	cname.Hdr = dnsv1.RR_Header{Class: dnsv1.ClassINET, Ttl: ttl, Rrtype: dnsv1.TypeCNAME, Name: question.Name}
+	cname.Target = dnsv1.Fqdn(targetCname.Target)
 	result = append(result, cname)
 
-	if question.Qtype == dns.TypeCNAME {
+	if question.Qtype == dnsv1.TypeCNAME {
 		return result, nil
 	}
 
@@ -337,7 +341,7 @@ func (r *CustomDNSResolver) processCNAME(
 
 	clientIP := request.ClientIP.String()
 	clientID := request.RequestClientID
-	targetRequest := newRequestWithClientID(targetWithoutDot, dns.Type(question.Qtype), clientIP, clientID)
+	targetRequest := newRequestWithClientID(targetWithoutDot, dnsv1.Type(question.Qtype), clientIP, clientID)
 
 	// resolve the target recursively
 	handled, targetResp, err := r.processRequest(ctx, logger, targetRequest, cnames)

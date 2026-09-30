@@ -26,7 +26,7 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -458,7 +458,7 @@ func determineAllowlistOnlyGroups(cfg *config.Blocking) (result map[string]bool)
 
 // sets answer and/or return code for DNS response, if request should be blocked
 func (r *BlockingResolver) handleBlocked(logger *logrus.Entry,
-	request *model.Request, question dns.Question, reason, reasonLabel string,
+	request *model.Request, question dnsv1.Question, reason, reasonLabel string,
 ) (*model.Response, error) {
 	modelResp := model.NewResponseWithReason(request, model.ResponseTypeBLOCKED, reason)
 	modelResp.ReasonLabel = reasonLabel
@@ -562,16 +562,16 @@ func (r *BlockingResolver) Resolve(ctx context.Context, request *model.Request) 
 	return respFromNext, err
 }
 
-func extractEntryToCheckFromResponse(rr dns.RR) (entryToCheck, tName string) {
+func extractEntryToCheckFromResponse(rr dnsv1.RR) (entryToCheck, tName string) {
 	switch v := rr.(type) {
-	case *dns.A:
+	case *dnsv1.A:
 		entryToCheck = v.A.String()
 		tName = "IP"
-	case *dns.AAAA:
+	case *dnsv1.AAAA:
 		// net.IP.String already emits lower-case hex, so no ToLower is needed.
 		entryToCheck = v.AAAA.String()
 		tName = "IP"
-	case *dns.CNAME:
+	case *dnsv1.CNAME:
 		entryToCheck = util.ExtractDomainOnly(v.Target)
 		tName = "CNAME"
 	}
@@ -753,7 +753,7 @@ func renderBlockReason(matches map[string]string, typeName string, includeRules 
 }
 
 type blockHandler interface {
-	handleBlock(question dns.Question, response *dns.Msg)
+	handleBlock(question dnsv1.Question, response *dnsv1.Msg)
 }
 
 type zeroIPBlockHandler struct {
@@ -772,16 +772,16 @@ type ipBlockHandler struct {
 	BlockTimeSec    uint32
 }
 
-func (b zeroIPBlockHandler) handleBlock(question dns.Question, response *dns.Msg) {
+func (b zeroIPBlockHandler) handleBlock(question dnsv1.Question, response *dnsv1.Msg) {
 	var zeroIP netip.Addr
 
 	switch question.Qtype {
-	case dns.TypeAAAA:
+	case dnsv1.TypeAAAA:
 		zeroIP = netip.IPv6Unspecified()
-	case dns.TypeA:
+	case dnsv1.TypeA:
 		zeroIP = netip.IPv4Unspecified()
 	default:
-		response.Rcode = dns.RcodeNameError
+		response.Rcode = dnsv1.RcodeNameError
 
 		return
 	}
@@ -791,23 +791,23 @@ func (b zeroIPBlockHandler) handleBlock(question dns.Question, response *dns.Msg
 	response.Answer = append(response.Answer, rr)
 }
 
-func (b nxDomainBlockHandler) handleBlock(question dns.Question, response *dns.Msg) {
-	response.Rcode = dns.RcodeNameError
+func (b nxDomainBlockHandler) handleBlock(question dnsv1.Question, response *dnsv1.Msg) {
+	response.Rcode = dnsv1.RcodeNameError
 
 	// Add SOA to authority section per RFC 2308
 	soa := util.CreateSOAForNegativeResponse(question, b.BlockTimeSec)
-	response.Ns = []dns.RR{soa}
+	response.Ns = []dnsv1.RR{soa}
 }
 
-func (b refusedBlockHandler) handleBlock(_ dns.Question, response *dns.Msg) {
-	response.Rcode = dns.RcodeRefused
+func (b refusedBlockHandler) handleBlock(_ dnsv1.Question, response *dnsv1.Msg) {
+	response.Rcode = dnsv1.RcodeRefused
 }
 
-func (b ipBlockHandler) handleBlock(question dns.Question, response *dns.Msg) {
+func (b ipBlockHandler) handleBlock(question dnsv1.Question, response *dnsv1.Msg) {
 	for _, ip := range b.destinations {
 		answer, _ := util.CreateAnswerFromQuestion(question, ip, b.BlockTimeSec)
 
-		if (question.Qtype == dns.TypeAAAA && ip.Is6()) || (question.Qtype == dns.TypeA && ip.Is4()) {
+		if (question.Qtype == dnsv1.TypeAAAA && ip.Is6()) || (question.Qtype == dnsv1.TypeA && ip.Is4()) {
 			response.Answer = append(response.Answer, answer)
 		}
 	}
@@ -829,19 +829,19 @@ func (r *BlockingResolver) queryForFQIdentifierIPs(
 
 	var ttl time.Duration
 
-	for _, qType := range []uint16{dns.TypeA, dns.TypeAAAA} {
+	for _, qType := range []uint16{dnsv1.TypeA, dnsv1.TypeAAAA} {
 		resp, err := r.next.Resolve(ctx, &model.Request{
-			Req: util.NewMsgWithQuestion(identifier, dns.Type(qType)),
+			Req: util.NewMsgWithQuestion(identifier, dnsv1.Type(qType)),
 		})
 
-		if err == nil && resp.Res.Rcode == dns.RcodeSuccess {
+		if err == nil && resp.Res.Rcode == dnsv1.RcodeSuccess {
 			for _, rr := range resp.Res.Answer {
 				ttl = time.Duration(atomic.LoadUint32(&rr.Header().Ttl)) * time.Second
 
 				switch v := rr.(type) {
-				case *dns.A:
+				case *dnsv1.A:
 					result = append(result, util.AddrFromIP(v.A))
-				case *dns.AAAA:
+				case *dnsv1.AAAA:
 					result = append(result, util.AddrFromIP(v.AAAA))
 				}
 			}

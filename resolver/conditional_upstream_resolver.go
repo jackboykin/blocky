@@ -9,7 +9,7 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -134,7 +134,7 @@ func (r *ConditionalUpstreamResolver) internalResolve(ctx context.Context, reso 
 	// internal request resolution
 	ctx, logger := r.log(ctx)
 
-	req.Req.Question[0].Name = dns.Fqdn(doFQ)
+	req.Req.Question[0].Name = dnsv1.Fqdn(doFQ)
 	response, err := reso.Resolve(ctx, req)
 
 	if err == nil {

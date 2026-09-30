@@ -9,7 +9,7 @@ import (
 	"net/netip"
 
 	"github.com/0xERR0R/blocky/model"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // queryBudgetKey is the context key for tracking upstream query budget
@@ -71,7 +71,7 @@ func (v *Validator) decrementQueryBudget(ctx context.Context) context.Context {
 // Returns (response, newContext, error) where newContext has decremented budget
 func (v *Validator) queryRecords(
 	ctx context.Context, domain string, qtype uint16,
-) (context.Context, *dns.Msg, error) {
+) (context.Context, *dnsv1.Msg, error) {
 	// Check query budget (DoS protection)
 	if err := v.consumeQueryBudget(ctx); err != nil {
 		v.logger.Warnf("Query budget exhausted while querying %s (type %d): %v", domain, qtype, err)
@@ -79,10 +79,10 @@ func (v *Validator) queryRecords(
 		return ctx, nil, err
 	}
 
-	domain = dns.Fqdn(domain)
+	domain = dnsv1.Fqdn(domain)
 
 	// Create DNS query
-	msg := new(dns.Msg)
+	msg := new(dnsv1.Msg)
 	msg.SetQuestion(domain, qtype)
 	msg.SetEdns0(ednsUDPSize, true) // Set DO bit for DNSSEC
 	// Set the CD (Checking Disabled) bit so a validating upstream does not pre-filter these
@@ -118,8 +118,8 @@ func (v *Validator) queryRecords(
 
 // queryDNSKEY queries upstream for DNSKEY records
 // Returns (newContext, dnskeys, error) where newContext has decremented budget
-func (v *Validator) queryDNSKEY(ctx context.Context, domain string) (context.Context, []*dns.DNSKEY, error) {
-	ctx, response, err := v.queryRecords(ctx, domain, dns.TypeDNSKEY)
+func (v *Validator) queryDNSKEY(ctx context.Context, domain string) (context.Context, []*dnsv1.DNSKEY, error) {
+	ctx, response, err := v.queryRecords(ctx, domain, dnsv1.TypeDNSKEY)
 	if err != nil {
 		// The sub-query itself failed (timeout/unreachable upstream/budget). This is a
 		// transient inability to gather validation data, NOT proof of an invalid signature,
@@ -129,7 +129,7 @@ func (v *Validator) queryDNSKEY(ctx context.Context, domain string) (context.Con
 		return ctx, nil, fmt.Errorf("%w: %w", errDNSKEYUnavailable, err)
 	}
 
-	keys, err := extractTypedRecords[*dns.DNSKEY](response.Answer)
+	keys, err := extractTypedRecords[*dnsv1.DNSKEY](response.Answer)
 
 	return ctx, keys, err
 }

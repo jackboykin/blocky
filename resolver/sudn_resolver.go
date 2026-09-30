@@ -8,7 +8,7 @@ import (
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 const exampleDomain = "example.com."
@@ -140,31 +140,31 @@ func newSUDNResponse(response *model.Request, rcode int) *model.Response {
 }
 
 func sudnNXDomain(request *model.Request, _ *config.SUDN) *model.Response {
-	return newSUDNResponse(request, dns.RcodeNameError)
+	return newSUDNResponse(request, dnsv1.RcodeNameError)
 }
 
 func sudnNoData(request *model.Request, _ *config.SUDN) *model.Response {
-	return newSUDNResponse(request, dns.RcodeSuccess)
+	return newSUDNResponse(request, dnsv1.RcodeSuccess)
 }
 
 func sudnLocalhost(request *model.Request, cfg *config.SUDN) *model.Response {
 	q := request.Req.Question[0]
 
-	var rr dns.RR
+	var rr dnsv1.RR
 
 	switch q.Qtype {
-	case dns.TypeA:
-		rr = &dns.A{A: loopbackV4}
-	case dns.TypeAAAA:
-		rr = &dns.AAAA{AAAA: loopbackV6}
+	case dnsv1.TypeA:
+		rr = &dnsv1.A{A: loopbackV4}
+	case dnsv1.TypeAAAA:
+		rr = &dnsv1.AAAA{AAAA: loopbackV6}
 	default:
 		return sudnNXDomain(request, cfg)
 	}
 
 	*rr.Header() = util.CreateHeader(q, 0)
 
-	response := newSUDNResponse(request, dns.RcodeSuccess)
-	response.Res.Answer = []dns.RR{rr}
+	response := newSUDNResponse(request, dnsv1.RcodeSuccess)
+	response.Res.Answer = []dnsv1.RR{rr}
 
 	return response
 }
@@ -178,7 +178,7 @@ func sudnRFC6762AppendixG(request *model.Request, cfg *config.SUDN) *model.Respo
 }
 
 func sudnHomeArpa(request *model.Request, cfg *config.SUDN) *model.Response {
-	if request.Req.Question[0].Qtype == dns.TypeDS {
+	if request.Req.Question[0].Qtype == dnsv1.TypeDS {
 		// DS queries must be forwarded
 		return nil
 	}

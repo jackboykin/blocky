@@ -17,7 +17,7 @@ import (
 	"github.com/0xERR0R/blocky/resolver"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
@@ -94,7 +94,7 @@ type MockResolver struct{}
 
 func (m *MockResolver) Resolve(ctx context.Context, request *model.Request) (*model.Response, error) {
 	resp := &model.Response{
-		Res:    &dns.Msg{},
+		Res:    &dnsv1.Msg{},
 		Reason: "mocking",
 		RType:  0,
 	}
@@ -129,8 +129,8 @@ func TestAllExpectedMetricsAreRegistered(t *testing.T) {
 	metricsResolver.Next(&MockResolver{})
 
 	// prepare request
-	dnsMsg := new(dns.Msg)
-	dnsMsg.SetQuestion("example.com.", dns.TypeA)
+	dnsMsg := new(dnsv1.Msg)
+	dnsMsg.SetQuestion("example.com.", dnsv1.TypeA)
 
 	req := model.Request{
 		ClientIP:        netip.MustParseAddr("192.168.0.1"),

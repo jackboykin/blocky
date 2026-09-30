@@ -4,7 +4,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -87,7 +87,7 @@ var _ = Describe("DNS64Config", func() {
 
 			When("filtering AAAA queries", func() {
 				It("should return error", func() {
-					filtering.QueryTypes.Insert(dns.Type(dns.TypeAAAA))
+					filtering.QueryTypes.Insert(dnsv1.Type(dnsv1.TypeAAAA))
 					err := cfg.validate(logger, filtering, caching)
 					Expect(err).Should(HaveOccurred())
 					Expect(err.Error()).Should(ContainSubstring("will have no effect"))

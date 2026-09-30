@@ -11,7 +11,7 @@ import (
 	"github.com/0xERR0R/blocky/log"
 	. "github.com/0xERR0R/blocky/model"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -35,7 +35,7 @@ var _ = Describe("RateLimitingResolver", func() {
 	JustBeforeEach(func() {
 		sut = NewRateLimitingResolver(ctx, sutConfig)
 		m = &mockResolver{}
-		m.On("Resolve", mock.Anything).Return(&Response{Res: new(dns.Msg)}, nil)
+		m.On("Resolve", mock.Anything).Return(&Response{Res: new(dnsv1.Msg)}, nil)
 		sut.Next(m)
 	})
 
@@ -189,7 +189,7 @@ var _ = Describe("RateLimitingResolver", func() {
 		It("does not panic when a drop is logged for a malformed empty-question request", func() {
 			req := &Request{
 				ClientIP: netip.MustParseAddr("1.2.3.4"),
-				Req:      new(dns.Msg),
+				Req:      new(dnsv1.Msg),
 				Protocol: RequestProtocolUDP,
 			}
 			_, _ = sut.Resolve(ctx, req) // first allowed (or dropped — bucket=1/1 from prior tests; doesn't matter)

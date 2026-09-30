@@ -24,7 +24,7 @@ import (
 	"github.com/0xERR0R/blocky/resolver"
 	"github.com/0xERR0R/blocky/util"
 	"github.com/creasty/defaults"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -54,7 +54,7 @@ var _ = BeforeSuite(func() {
 	var upstreamGoogle, upstreamFritzbox, upstreamClient config.Upstream
 	ctx, cancelFn := context.WithCancel(context.Background())
 	DeferCleanup(cancelFn)
-	googleMockUpstream = resolver.NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+	googleMockUpstream = resolver.NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
 		if request.Question[0].Name == "error." {
 			return nil
 		}
@@ -67,7 +67,7 @@ var _ = BeforeSuite(func() {
 		return response
 	})
 
-	fritzboxMockUpstream = resolver.NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+	fritzboxMockUpstream = resolver.NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
 		response, err := util.NewMsgWithAnswer(
 			util.ExtractDomain(request.Question[0]), 3600, A, "192.168.178.2",
 		)
@@ -77,7 +77,7 @@ var _ = BeforeSuite(func() {
 		return response
 	})
 
-	clientMockUpstream = resolver.NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+	clientMockUpstream = resolver.NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
 		var clientName string
 
 		if name, ok := mockClientName.Load().(string); ok && name != "" {
@@ -87,7 +87,7 @@ var _ = BeforeSuite(func() {
 		}
 
 		response, err := util.NewMsgWithAnswer(
-			util.ExtractDomain(request.Question[0]), 3600, dns.Type(dns.TypePTR), clientName,
+			util.ExtractDomain(request.Question[0]), 3600, dnsv1.Type(dnsv1.TypePTR), clientName,
 		)
 
 		Expect(err).Should(Succeed())
@@ -111,8 +111,8 @@ var _ = BeforeSuite(func() {
 		CustomDNS: config.CustomDNS{
 			CustomTTL: config.Duration(3600 * time.Second),
 			Mapping: config.CustomDNSMapping{
-				"custom.lan": {&dns.A{A: net.ParseIP("192.168.178.55")}},
-				"lan.home":   {&dns.A{A: net.ParseIP("192.168.178.56")}},
+				"custom.lan": {&dnsv1.A{A: net.ParseIP("192.168.178.55")}},
+				"lan.home":   {&dnsv1.A{A: net.ParseIP("192.168.178.56")}},
 			},
 		},
 		Conditional: config.ConditionalUpstream{
@@ -429,7 +429,7 @@ var _ = Describe("Running DNS server", func() {
 					rawMsg, err := io.ReadAll(resp.Body)
 					Expect(err).Should(Succeed())
 
-					msg := new(dns.Msg)
+					msg := new(dnsv1.Msg)
 					err = msg.Unpack(rawMsg)
 					Expect(err).Should(Succeed())
 
@@ -478,7 +478,7 @@ var _ = Describe("Running DNS server", func() {
 		Context("DOH over POST (RFC 8484)", func() {
 			var (
 				resp *http.Response
-				msg  *dns.Msg
+				msg  *dnsv1.Msg
 			)
 			When("DOH post request with 'example.com' is performed", func() {
 				It("should get a valid response", func() {
@@ -500,7 +500,7 @@ var _ = Describe("Running DNS server", func() {
 					rawMsg, err := io.ReadAll(resp.Body)
 					Expect(err).Should(Succeed())
 
-					msg = new(dns.Msg)
+					msg = new(dnsv1.Msg)
 					err = msg.Unpack(rawMsg)
 					Expect(err).Should(Succeed())
 
@@ -524,7 +524,7 @@ var _ = Describe("Running DNS server", func() {
 					rawMsg, err := io.ReadAll(resp.Body)
 					Expect(err).Should(Succeed())
 
-					msg = new(dns.Msg)
+					msg = new(dnsv1.Msg)
 					err = msg.Unpack(rawMsg)
 					Expect(err).Should(Succeed())
 
@@ -567,9 +567,9 @@ var _ = Describe("Running DNS server", func() {
 					body, err := io.ReadAll(resp.Body)
 					Expect(err).Should(Succeed())
 
-					msg := new(dns.Msg)
+					msg := new(dnsv1.Msg)
 					Expect(msg.Unpack(body)).Should(Succeed())
-					Expect(msg.Rcode).Should(Equal(dns.RcodeServerFailure))
+					Expect(msg.Rcode).Should(Equal(dnsv1.RcodeServerFailure))
 				})
 			})
 			When("Internal error occurs", func() {
@@ -594,9 +594,9 @@ var _ = Describe("Running DNS server", func() {
 					body, err := io.ReadAll(resp.Body)
 					Expect(err).Should(Succeed())
 
-					msg := new(dns.Msg)
+					msg := new(dnsv1.Msg)
 					Expect(msg.Unpack(body)).Should(Succeed())
-					Expect(msg.Rcode).Should(Equal(dns.RcodeServerFailure))
+					Expect(msg.Rcode).Should(Equal(dnsv1.RcodeServerFailure))
 				})
 			})
 		})
@@ -630,13 +630,13 @@ var _ = Describe("Running DNS server", func() {
 			tlsConn := tls.Client(rawConn, &tls.Config{InsecureSkipVerify: true})
 			Expect(tlsConn.HandshakeContext(ctx)).Should(Succeed())
 
-			dnsConn := &dns.Conn{Conn: tlsConn}
+			dnsConn := &dnsv1.Conn{Conn: tlsConn}
 			query := util.NewMsgWithQuestion("example.com.", A)
 			Expect(dnsConn.WriteMsg(query)).Should(Succeed())
 
 			msg, err := dnsConn.ReadMsg()
 			Expect(err).Should(Succeed())
-			Expect(msg.Rcode).Should(Equal(dns.RcodeSuccess))
+			Expect(msg.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 		})
 
 		It("uses the PROXY source address for HTTPS DoH requests", func() {
@@ -712,13 +712,13 @@ var _ = Describe("Running DNS server", func() {
 			_, err = rawConn.Write([]byte(proxyProtocolLine(expectedIP, netip.MustParseAddr("127.0.0.1"))))
 			Expect(err).Should(Succeed())
 
-			dnsConn := &dns.Conn{Conn: rawConn}
+			dnsConn := &dnsv1.Conn{Conn: rawConn}
 			query := util.NewMsgWithQuestion("example.com.", A)
 			Expect(dnsConn.WriteMsg(query)).Should(Succeed())
 
 			msg, err := dnsConn.ReadMsg()
 			Expect(err).Should(Succeed())
-			Expect(msg.Rcode).Should(Equal(dns.RcodeSuccess))
+			Expect(msg.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 		})
 
 		It("uses the PROXY source address for HTTP DoH requests", func() {
@@ -916,8 +916,8 @@ var _ = Describe("Running DNS server", func() {
 					},
 					CustomDNS: config.CustomDNS{
 						Mapping: config.CustomDNSMapping{
-							"custom.lan": {&dns.A{A: net.ParseIP("192.168.178.55")}},
-							"lan.home":   {&dns.A{A: net.ParseIP("192.168.178.56")}},
+							"custom.lan": {&dnsv1.A{A: net.ParseIP("192.168.178.55")}},
+							"lan.home":   {&dnsv1.A{A: net.ParseIP("192.168.178.56")}},
 						},
 					},
 					Blocking: config.Blocking{BlockType: "zeroIp"},
@@ -961,8 +961,8 @@ var _ = Describe("Running DNS server", func() {
 					},
 					CustomDNS: config.CustomDNS{
 						Mapping: config.CustomDNSMapping{
-							"custom.lan": {&dns.A{A: net.ParseIP("192.168.178.55")}},
-							"lan.home":   {&dns.A{A: net.ParseIP("192.168.178.56")}},
+							"custom.lan": {&dnsv1.A{A: net.ParseIP("192.168.178.55")}},
+							"lan.home":   {&dnsv1.A{A: net.ParseIP("192.168.178.56")}},
 						},
 					},
 					Blocking: config.Blocking{BlockType: "zeroIp"},
@@ -1023,8 +1023,8 @@ var _ = Describe("Running DNS server", func() {
 	Describe("getMaxResponseSize", func() {
 		Context("TCP protocol", func() {
 			It("should return maximum DNS message size", func() {
-				msg := new(dns.Msg)
-				msg.SetQuestion("example.com.", dns.TypeA)
+				msg := new(dnsv1.Msg)
+				msg.SetQuestion("example.com.", dnsv1.TypeA)
 
 				req := &model.Request{
 					Protocol: model.RequestProtocolTCP,
@@ -1032,12 +1032,12 @@ var _ = Describe("Running DNS server", func() {
 				}
 
 				size := getMaxResponseSize(req)
-				Expect(size).Should(Equal(dns.MaxMsgSize)) // 65535 bytes
+				Expect(size).Should(Equal(dnsv1.MaxMsgSize)) // 65535 bytes
 			})
 
 			It("should ignore EDNS UDP size for TCP", func() {
-				msg := new(dns.Msg)
-				msg.SetQuestion("example.com.", dns.TypeA)
+				msg := new(dnsv1.Msg)
+				msg.SetQuestion("example.com.", dnsv1.TypeA)
 				msg.SetEdns0(1232, false) // Set EDNS UDP size
 
 				req := &model.Request{
@@ -1046,14 +1046,14 @@ var _ = Describe("Running DNS server", func() {
 				}
 
 				size := getMaxResponseSize(req)
-				Expect(size).Should(Equal(dns.MaxMsgSize)) // Should still return 65535, not 1232
+				Expect(size).Should(Equal(dnsv1.MaxMsgSize)) // Should still return 65535, not 1232
 			})
 		})
 
 		Context("UDP protocol with EDNS", func() {
 			It("should return EDNS UDP size", func() {
-				msg := new(dns.Msg)
-				msg.SetQuestion("example.com.", dns.TypeA)
+				msg := new(dnsv1.Msg)
+				msg.SetQuestion("example.com.", dnsv1.TypeA)
 				msg.SetEdns0(1232, false)
 
 				req := &model.Request{
@@ -1066,8 +1066,8 @@ var _ = Describe("Running DNS server", func() {
 			})
 
 			It("should handle different EDNS buffer sizes", func() {
-				msg := new(dns.Msg)
-				msg.SetQuestion("example.com.", dns.TypeA)
+				msg := new(dnsv1.Msg)
+				msg.SetQuestion("example.com.", dnsv1.TypeA)
 				msg.SetEdns0(4096, false)
 
 				req := &model.Request{
@@ -1082,8 +1082,8 @@ var _ = Describe("Running DNS server", func() {
 
 		Context("UDP protocol without EDNS", func() {
 			It("should return minimum DNS message size", func() {
-				msg := new(dns.Msg)
-				msg.SetQuestion("example.com.", dns.TypeA)
+				msg := new(dnsv1.Msg)
+				msg.SetQuestion("example.com.", dnsv1.TypeA)
 
 				req := &model.Request{
 					Protocol: model.RequestProtocolUDP,
@@ -1091,7 +1091,7 @@ var _ = Describe("Running DNS server", func() {
 				}
 
 				size := getMaxResponseSize(req)
-				Expect(size).Should(Equal(dns.MinMsgSize)) // 512 bytes
+				Expect(size).Should(Equal(dnsv1.MinMsgSize)) // 512 bytes
 			})
 		})
 	})
@@ -1117,14 +1117,14 @@ var _ = Describe("Running DNS server", func() {
 
 	Describe("Query", func() {
 		It("should resolve a query", func() {
-			resp, err := sut.Query(ctx, "host.example.com", netip.MustParseAddr("192.168.178.1"), "google.de.", dns.Type(dns.TypeA))
+			resp, err := sut.Query(ctx, "host.example.com", netip.MustParseAddr("192.168.178.1"), "google.de.", dnsv1.Type(dnsv1.TypeA))
 			Expect(err).Should(Succeed())
 			Expect(resp).ShouldNot(BeNil())
 			Expect(resp.Res.Answer).Should(BeDNSRecord("google.de.", A, "123.124.122.122"))
 		})
 
 		It("should resolve a query with client ID in host", func() {
-			resp, err := sut.Query(ctx, "id-myclient.example.com", netip.MustParseAddr("192.168.178.1"), "google.de.", dns.Type(dns.TypeA))
+			resp, err := sut.Query(ctx, "id-myclient.example.com", netip.MustParseAddr("192.168.178.1"), "google.de.", dnsv1.Type(dnsv1.TypeA))
 			Expect(err).Should(Succeed())
 			Expect(resp).ShouldNot(BeNil())
 		})
@@ -1132,14 +1132,14 @@ var _ = Describe("Running DNS server", func() {
 
 	Describe("resolve with empty question", func() {
 		It("should return format error for message without questions", func() {
-			msg := new(dns.Msg)
-			msg.Id = dns.Id()
+			msg := new(dnsv1.Msg)
+			msg.Id = dnsv1.Id()
 			// No questions set
 
 			ctx, req := newRequest(ctx, netip.MustParseAddr("192.168.178.1"), "", model.RequestProtocolTCP, msg)
 			resp, err := sut.resolve(ctx, req)
 			Expect(err).Should(Succeed())
-			Expect(resp.Res.Rcode).Should(Equal(dns.RcodeFormatError))
+			Expect(resp.Res.Rcode).Should(Equal(dnsv1.RcodeFormatError))
 		})
 	})
 
@@ -1148,9 +1148,9 @@ var _ = Describe("Running DNS server", func() {
 		// buffer floor may add or enlarge an OPT record the client never sent, and the DNSSEC
 		// resolver overwrites the DO bit. The response sent back must be normalized against what
 		// the client itself asked for.
-		var chainResponse *dns.Msg
+		var chainResponse *dnsv1.Msg
 
-		newServerWithChain := func(chain func(req *model.Request) *dns.Msg) *Server {
+		newServerWithChain := func(chain func(req *model.Request) *dnsv1.Msg) *Server {
 			m := resolver.NewMockChainedResolver(GinkgoT())
 			m.EXPECT().Resolve(mock.Anything, mock.Anything).RunAndReturn(
 				func(_ context.Context, req *model.Request) (*model.Response, error) {
@@ -1167,7 +1167,7 @@ var _ = Describe("Running DNS server", func() {
 
 		// chainAddingEdns0 simulates a chain member adding EDNS0 to the request (like DNSSEC/ECS)
 		// and an upstream echoing it in the response.
-		chainAddingEdns0 := func(req *model.Request) *dns.Msg {
+		chainAddingEdns0 := func(req *model.Request) *dnsv1.Msg {
 			req.Req.SetEdns0(4096, true)
 
 			chainResponse.SetReply(req.Req)
@@ -1179,7 +1179,7 @@ var _ = Describe("Running DNS server", func() {
 		// chainValidatingDNSSEC simulates the DNSSEC resolver: it sets the DO bit on the request
 		// whatever the client asked for (a validating resolver must, per RFC 4035 section 3.2.1),
 		// the upstream answers with the signatures, and validation sets the AD flag.
-		chainValidatingDNSSEC := func(req *model.Request) *dns.Msg {
+		chainValidatingDNSSEC := func(req *model.Request) *dnsv1.Msg {
 			req.Req.SetEdns0(4096, true)
 
 			chainResponse.SetReply(req.Req)
@@ -1190,8 +1190,8 @@ var _ = Describe("Running DNS server", func() {
 		}
 
 		// rr parses a record from its zone file presentation, failing the spec if it is invalid.
-		rr := func(s string) dns.RR {
-			record, err := dns.NewRR(s)
+		rr := func(s string) dnsv1.RR {
+			record, err := dnsv1.NewRR(s)
 			Expect(err).Should(Succeed())
 
 			return record
@@ -1199,14 +1199,14 @@ var _ = Describe("Running DNS server", func() {
 
 		// rrsig returns a signature over the given record type, sized like a real ECDSA P-256
 		// signature so the specs exercise realistic message sizes.
-		rrsig := func(name, covered string) dns.RR {
+		rrsig := func(name, covered string) dnsv1.RR {
 			return rr(name + " 300 IN RRSIG " + covered +
 				" 13 2 300 20260806185109 20260716185109 12345 example.com. " +
 				"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejAxMjM0NTY3ODk=")
 		}
 
 		// answerTypes returns the RR types of the response's answer section.
-		answerTypes := func(res *dns.Msg) []uint16 {
+		answerTypes := func(res *dnsv1.Msg) []uint16 {
 			result := make([]uint16, 0, len(res.Answer))
 			for _, record := range res.Answer {
 				result = append(result, record.Header().Rrtype)
@@ -1236,7 +1236,7 @@ var _ = Describe("Running DNS server", func() {
 
 			It("truncates the response to the client's 512 byte limit, not the chain's buffer size", func() {
 				for i := range 40 {
-					rr, err := dns.NewRR(fmt.Sprintf("example.com. 123 IN A 1.2.3.%d", i))
+					rr, err := dnsv1.NewRR(fmt.Sprintf("example.com. 123 IN A 1.2.3.%d", i))
 					Expect(err).Should(Succeed())
 					chainResponse.Answer = append(chainResponse.Answer, rr)
 				}
@@ -1248,7 +1248,7 @@ var _ = Describe("Running DNS server", func() {
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
-				Expect(resp.Res.Len()).Should(BeNumerically("<=", dns.MinMsgSize))
+				Expect(resp.Res.Len()).Should(BeNumerically("<=", dnsv1.MinMsgSize))
 				Expect(resp.Res.Truncated).Should(BeTrue())
 			})
 		})
@@ -1272,7 +1272,7 @@ var _ = Describe("Running DNS server", func() {
 			// RFC 6891 section 6.1.1: cache hits are served without the OPT record, and a client
 			// reads its absence as a server without EDNS0 support.
 			It("adds an OPT record mirroring the DO bit", func() {
-				s := newServerWithChain(func(req *model.Request) *dns.Msg {
+				s := newServerWithChain(func(req *model.Request) *dnsv1.Msg {
 					return chainResponse.SetReply(req.Req)
 				})
 
@@ -1289,7 +1289,7 @@ var _ = Describe("Running DNS server", func() {
 			})
 
 			It("adds an OPT record with the DO bit clear when the client cleared it", func() {
-				s := newServerWithChain(func(req *model.Request) *dns.Msg {
+				s := newServerWithChain(func(req *model.Request) *dnsv1.Msg {
 					return chainResponse.SetReply(req.Req)
 				})
 
@@ -1310,9 +1310,9 @@ var _ = Describe("Running DNS server", func() {
 			// util.SetEdns0Option, which the EDE resolver uses on cache hits and blocked answers,
 			// leaves the class field zero. RFC 6891 section 6.2.4 makes a peer read that as 512.
 			It("advertises a usable buffer size instead of zero", func() {
-				s := newServerWithChain(func(req *model.Request) *dns.Msg {
+				s := newServerWithChain(func(req *model.Request) *dnsv1.Msg {
 					res := chainResponse.SetReply(req.Req)
-					util.SetEdns0Option(res, &dns.EDNS0_EDE{InfoCode: dns.ExtendedErrorCodeCachedError})
+					util.SetEdns0Option(res, &dnsv1.EDNS0_EDE{InfoCode: dnsv1.ExtendedErrorCodeCachedError})
 
 					return res
 				})
@@ -1339,17 +1339,17 @@ var _ = Describe("Running DNS server", func() {
 				serverCookie = "1112131415161718"
 			)
 
-			var upstreamRequest *dns.Msg
+			var upstreamRequest *dnsv1.Msg
 
 			// chainWithUpstreamCookie records the request as the chain saw it and answers like a
 			// cookie-supporting upstream.
-			chainWithUpstreamCookie := func(req *model.Request) *dns.Msg {
+			chainWithUpstreamCookie := func(req *model.Request) *dnsv1.Msg {
 				upstreamRequest = req.Req.Copy()
 
 				res := chainResponse.SetReply(req.Req)
 				res.SetEdns0(4096, false)
-				util.SetEdns0Option(res, &dns.EDNS0_COOKIE{
-					Code: dns.EDNS0COOKIE, Cookie: clientCookie + serverCookie,
+				util.SetEdns0Option(res, &dnsv1.EDNS0_COOKIE{
+					Code: dnsv1.EDNS0COOKIE, Cookie: clientCookie + serverCookie,
 				})
 
 				return res
@@ -1360,7 +1360,7 @@ var _ = Describe("Running DNS server", func() {
 
 				clientMsg := util.NewMsgWithQuestion("example.com.", A)
 				clientMsg.SetEdns0(udpSize, do)
-				util.SetEdns0Option(clientMsg, &dns.EDNS0_COOKIE{Code: dns.EDNS0COOKIE, Cookie: clientCookie})
+				util.SetEdns0Option(clientMsg, &dnsv1.EDNS0_COOKIE{Code: dnsv1.EDNS0COOKIE, Cookie: clientCookie})
 
 				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
 
@@ -1377,7 +1377,7 @@ var _ = Describe("Running DNS server", func() {
 			It("removes the upstream's COOKIE option from the response", func() {
 				resp := resolveWithCookie(1232, false)
 
-				Expect(resp.Res).ShouldNot(HaveEdnsOption(dns.EDNS0COOKIE))
+				Expect(resp.Res).ShouldNot(HaveEdnsOption(dnsv1.EDNS0COOKIE))
 				Expect(resp.Res.IsEdns0()).ShouldNot(BeNil())
 			})
 
@@ -1385,7 +1385,7 @@ var _ = Describe("Running DNS server", func() {
 				resolveWithCookie(1232, false)
 
 				Expect(upstreamRequest).ShouldNot(BeNil())
-				Expect(upstreamRequest).ShouldNot(HaveEdnsOption(dns.EDNS0COOKIE))
+				Expect(upstreamRequest).ShouldNot(HaveEdnsOption(dnsv1.EDNS0COOKIE))
 			})
 
 			It("keeps the OPT record sent upstream when the cookie was the only option", func() {
@@ -1413,7 +1413,7 @@ var _ = Describe("Running DNS server", func() {
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
-				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dns.TypeA}))
+				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dnsv1.TypeA}))
 				Expect(resp.Res.IsEdns0().Do()).Should(BeFalse())
 			})
 
@@ -1427,7 +1427,7 @@ var _ = Describe("Running DNS server", func() {
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
-				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dns.TypeA}))
+				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dnsv1.TypeA}))
 				Expect(resp.Res.IsEdns0()).Should(BeNil())
 			})
 
@@ -1445,7 +1445,7 @@ var _ = Describe("Running DNS server", func() {
 			})
 
 			It("keeps a DNSSEC type the query explicitly asked for, without its signature", func() {
-				chainResponse.Answer = []dns.RR{
+				chainResponse.Answer = []dnsv1.RR{
 					rr("example.com. 3600 IN DNSKEY 256 3 13 a2V5"),
 					rrsig("example.com.", "DNSKEY"),
 				}
@@ -1453,11 +1453,11 @@ var _ = Describe("Running DNS server", func() {
 				s := newServerWithChain(chainValidatingDNSSEC)
 
 				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP,
-					util.NewMsgWithQuestion("example.com.", dns.Type(dns.TypeDNSKEY)))
+					util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeDNSKEY)))
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
-				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dns.TypeDNSKEY}))
+				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dnsv1.TypeDNSKEY}))
 			})
 
 			It("strips DNSSEC records the chain returns without validating them", func() {
@@ -1475,7 +1475,7 @@ var _ = Describe("Running DNS server", func() {
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
-				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dns.TypeA}))
+				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dnsv1.TypeA}))
 			})
 
 			It("keeps everything for an ANY query", func() {
@@ -1486,11 +1486,11 @@ var _ = Describe("Running DNS server", func() {
 				s := newServerWithChain(chainValidatingDNSSEC)
 
 				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP,
-					util.NewMsgWithQuestion("example.com.", dns.Type(dns.TypeANY)))
+					util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeANY)))
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
-				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dns.TypeA, dns.TypeRRSIG}))
+				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dnsv1.TypeA, dnsv1.TypeRRSIG}))
 			})
 
 			It("keeps a signed answer within the client's 512 byte limit instead of truncating it", func() {
@@ -1504,8 +1504,8 @@ var _ = Describe("Running DNS server", func() {
 				// premise: carrying the signatures would push the answer past the 512 bytes a
 				// client without EDNS0 accepts, and Truncate would drop records and set TC
 				signed := chainResponse.Copy()
-				signed.SetQuestion("example.com.", dns.TypeA)
-				Expect(signed.Len()).Should(BeNumerically(">", dns.MinMsgSize))
+				signed.SetQuestion("example.com.", dnsv1.TypeA)
+				Expect(signed.Len()).Should(BeNumerically(">", dnsv1.MinMsgSize))
 
 				s := newServerWithChain(chainValidatingDNSSEC)
 
@@ -1532,7 +1532,7 @@ var _ = Describe("Running DNS server", func() {
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
-				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dns.TypeA, dns.TypeRRSIG}))
+				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dnsv1.TypeA, dnsv1.TypeRRSIG}))
 				Expect(resp.Res.AuthenticatedData).Should(BeTrue())
 				Expect(resp.Res.IsEdns0().Do()).Should(BeTrue())
 			})
@@ -1553,7 +1553,7 @@ var _ = Describe("Running DNS server", func() {
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
-				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dns.TypeA}))
+				Expect(answerTypes(resp.Res)).Should(Equal([]uint16{dnsv1.TypeA}))
 				Expect(resp.Res.AuthenticatedData).Should(BeTrue())
 			})
 		})
@@ -1563,7 +1563,7 @@ var _ = Describe("Running DNS server", func() {
 		// miekg's Truncate sets Compress=false when the message already fits uncompressed
 		// ("don't waste effort compressing this message"). resolve must honor that decision
 		// instead of clobbering it by forcing Compress=true on every response.
-		newServerWithResponse := func(res *dns.Msg) *Server {
+		newServerWithResponse := func(res *dnsv1.Msg) *Server {
 			m := resolver.NewMockChainedResolver(GinkgoT())
 			m.EXPECT().Resolve(mock.Anything, mock.Anything).RunAndReturn(
 				func(_ context.Context, req *model.Request) (*model.Response, error) {
@@ -1598,9 +1598,9 @@ var _ = Describe("Running DNS server", func() {
 
 		When("the response does not fit the client buffer uncompressed", func() {
 			It("keeps compression enabled so Pack can shrink the message", func() {
-				res := new(dns.Msg)
+				res := new(dnsv1.Msg)
 				for i := range 20 {
-					rr, err := dns.NewRR(fmt.Sprintf("example.com. 123 IN A 1.2.3.%d", i))
+					rr, err := dnsv1.NewRR(fmt.Sprintf("example.com. 123 IN A 1.2.3.%d", i))
 					Expect(err).Should(Succeed())
 					res.Answer = append(res.Answer, rr)
 				}
@@ -1625,9 +1625,9 @@ var _ = Describe("Running DNS server", func() {
 			// such an answer uncompressed makes the forwarder truncate it for its 512-byte
 			// clients, which costs them the whole answer section.
 			It("compresses it so a forwarder can relay it to a 512-byte client", func() {
-				res := new(dns.Msg)
+				res := new(dnsv1.Msg)
 				for i := range 20 {
-					rr, err := dns.NewRR(fmt.Sprintf("example.com. 123 IN A 1.2.3.%d", i))
+					rr, err := dnsv1.NewRR(fmt.Sprintf("example.com. 123 IN A 1.2.3.%d", i))
 					Expect(err).Should(Succeed())
 					res.Answer = append(res.Answer, rr)
 				}
@@ -1650,11 +1650,11 @@ var _ = Describe("Running DNS server", func() {
 				// this passes without the response ever needing compression.
 				uncompressed := resp.Res.Copy()
 				uncompressed.Compress = false
-				Expect(uncompressed.Len()).Should(BeNumerically(">", dns.MinMsgSize))
+				Expect(uncompressed.Len()).Should(BeNumerically(">", dnsv1.MinMsgSize))
 
 				packed, err := resp.Res.Pack()
 				Expect(err).Should(Succeed())
-				Expect(len(packed)).Should(BeNumerically("<=", dns.MinMsgSize))
+				Expect(len(packed)).Should(BeNumerically("<=", dnsv1.MinMsgSize))
 			})
 		})
 	})
@@ -1745,7 +1745,7 @@ var _ = Describe("Running DNS server", func() {
 	})
 })
 
-func requestServer(ctx context.Context, request *dns.Msg) *dns.Msg {
+func requestServer(ctx context.Context, request *dnsv1.Msg) *dnsv1.Msg {
 	conn, err := (&net.Dialer{}).DialContext(ctx, "udp", GetHostPort("", dnsBasePort))
 	if err != nil {
 		Log().Fatal("could not connect to server: ", err)
@@ -1764,7 +1764,7 @@ func requestServer(ctx context.Context, request *dns.Msg) *dns.Msg {
 	out := make([]byte, 1024)
 
 	if _, err := conn.Read(out); err == nil {
-		response := new(dns.Msg)
+		response := new(dnsv1.Msg)
 
 		err = response.Unpack(out)
 		if err != nil {
@@ -1823,7 +1823,7 @@ type countingMsgWriter struct {
 	writes int
 }
 
-func (w *countingMsgWriter) WriteMsg(*dns.Msg) error {
+func (w *countingMsgWriter) WriteMsg(*dnsv1.Msg) error {
 	w.writes++
 
 	return nil

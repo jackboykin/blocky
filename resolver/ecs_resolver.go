@@ -9,7 +9,7 @@ import (
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -60,7 +60,7 @@ func (r *ECSClientResolver) Resolve(ctx context.Context, request *model.Request)
 
 		// A full prefix (/32 for IPv4, /128 for IPv6) identifies a single client, so the
 		// subnet address can stand in for the connecting client's IP.
-		so := util.GetEdns0Option[*dns.EDNS0_SUBNET](request.Req)
+		so := util.GetEdns0Option[*dnsv1.EDNS0_SUBNET](request.Req)
 		if so != nil && so.Address != nil && ((so.Family == ecsFamilyIPv4 && so.SourceNetmask == ecsMaskIPv4) ||
 			(so.Family == ecsFamilyIPv6 && so.SourceNetmask == ecsMaskIPv6)) {
 			logger.Debugf("using request's edns0 address as internal client IP: %s", so.Address)
@@ -103,7 +103,7 @@ func (r *ECSResolver) Resolve(ctx context.Context, request *model.Request) (*mod
 	if r.cfg.IsEnabled() {
 		_, logger := r.log(ctx)
 
-		so := util.GetEdns0Option[*dns.EDNS0_SUBNET](request.Req)
+		so := util.GetEdns0Option[*dnsv1.EDNS0_SUBNET](request.Req)
 
 		// Adopting the ECS subnet as the internal client IP (ecs.useAsClient) happens in the
 		// ECSClientResolver, which runs above the client-name lookup and the cache.
@@ -117,7 +117,7 @@ func (r *ECSResolver) Resolve(ctx context.Context, request *model.Request) (*mod
 		// and the forwardEcs option is not enabled
 		if r.cfg.IPv4Mask == 0 && r.cfg.IPv6Mask == 0 && so != nil && !r.cfg.Forward {
 			logger.Debug("remove edns0 subnet option")
-			util.RemoveEdns0OptionKeepRecord[*dns.EDNS0_SUBNET](request.Req)
+			util.RemoveEdns0OptionKeepRecord[*dnsv1.EDNS0_SUBNET](request.Req)
 		}
 	}
 
@@ -126,7 +126,7 @@ func (r *ECSResolver) Resolve(ctx context.Context, request *model.Request) (*mod
 
 // setSubnet appends the subnet information to the request as EDNS0 option
 // if the client IP is IPv4 or IPv6 and the corresponding mask is set in the configuration
-func (r *ECSResolver) setSubnet(so *dns.EDNS0_SUBNET, request *model.Request, logger *logrus.Entry) {
+func (r *ECSResolver) setSubnet(so *dnsv1.EDNS0_SUBNET, request *model.Request, logger *logrus.Entry) {
 	var subIP netip.Addr
 	if so != nil && r.cfg.Forward && so.Address != nil {
 		subIP = util.AddrFromIP(so.Address)
@@ -134,7 +134,7 @@ func (r *ECSResolver) setSubnet(so *dns.EDNS0_SUBNET, request *model.Request, lo
 		subIP = request.ClientIP
 	}
 
-	var edsOption *dns.EDNS0_SUBNET
+	var edsOption *dnsv1.EDNS0_SUBNET
 
 	if subIP.Is4() && r.cfg.IPv4Mask > 0 {
 		if mip, err := maskIP(subIP, r.cfg.IPv4Mask); err == nil {
@@ -163,9 +163,9 @@ func maskIP[maskType ECSMask](ip netip.Addr, mask maskType) (netip.Addr, error) 
 }
 
 // newEdnsSubnetOption( creates a new EDNS0 subnet option with the given IP, family and mask
-func newEdnsSubnetOption[maskType ECSMask](ip netip.Addr, family uint16, mask maskType) *dns.EDNS0_SUBNET {
-	return &dns.EDNS0_SUBNET{
-		Code:          dns.EDNS0SUBNET,
+func newEdnsSubnetOption[maskType ECSMask](ip netip.Addr, family uint16, mask maskType) *dnsv1.EDNS0_SUBNET {
+	return &dnsv1.EDNS0_SUBNET{
+		Code:          dnsv1.EDNS0SUBNET,
 		SourceScope:   ecsSourceScope,
 		Family:        family,
 		SourceNetmask: uint8(mask),

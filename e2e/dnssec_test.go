@@ -6,7 +6,7 @@ import (
 
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -60,7 +60,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					Expect(err).Should(Succeed())
 
 					// Should return SERVFAIL because DNSSEC validation failed
-					Expect(resp.Rcode).Should(Equal(dns.RcodeServerFailure),
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure),
 						"Expected SERVFAIL for invalid DNSSEC signatures")
 
 					// Should NOT have the Authenticated Data (AD) flag set
@@ -123,7 +123,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					Expect(err).Should(Succeed())
 
 					// Should return NOERROR because DNSSEC validation succeeded
-					Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess),
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess),
 						"Expected NOERROR for valid DNSSEC signatures")
 
 					// Should have the Authenticated Data (AD) flag set
@@ -145,14 +145,14 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 
-					Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess),
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess),
 						"Expected NOERROR for valid DNSSEC signatures")
 
 					// The validated answer is still returned, just without the DNSSEC records
 					Expect(resp.Answer).Should(ContainElement(
 						BeDNSRecord("www.example.", A, "192.0.2.10"),
 					))
-					Expect(resp.Answer).ShouldNot(ContainElement(BeAssignableToTypeOf(&dns.RRSIG{})),
+					Expect(resp.Answer).ShouldNot(ContainElement(BeAssignableToTypeOf(&dnsv1.RRSIG{})),
 						"RRSIG must not be returned to a client that didn't set the DO bit")
 
 					Expect(resp.AuthenticatedData).Should(BeFalse(),
@@ -169,7 +169,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 
 						resp, err := doDNSRequest(ctx, blocky, withoutDO)
 						Expect(err).Should(Succeed())
-						Expect(resp.Answer).ShouldNot(ContainElement(BeAssignableToTypeOf(&dns.RRSIG{})))
+						Expect(resp.Answer).ShouldNot(ContainElement(BeAssignableToTypeOf(&dnsv1.RRSIG{})))
 
 						// The upstream disappears; any later answer comes from the cache.
 						Expect(mokka.Terminate(ctx)).Should(Succeed())
@@ -179,8 +179,8 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 
 						resp, err = doDNSRequest(ctx, blocky, withDO)
 						Expect(err).Should(Succeed())
-						Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
-						Expect(resp.Answer).Should(ContainElement(BeAssignableToTypeOf(&dns.RRSIG{})),
+						Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
+						Expect(resp.Answer).Should(ContainElement(BeAssignableToTypeOf(&dnsv1.RRSIG{})),
 							"the cached entry must still carry the signatures")
 						// The AD flag is not asserted here: the cached answer is re-validated on
 						// every hit, which can no longer reach the upstream for the DNSKEY.
@@ -235,7 +235,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					Expect(err).Should(Succeed())
 
 					// Should return SERVFAIL because RRSIG signature doesn't match DNSKEY
-					Expect(resp.Rcode).Should(Equal(dns.RcodeServerFailure),
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure),
 						"Expected SERVFAIL when RRSIG doesn't match DNSKEY")
 
 					// Should NOT have the Authenticated Data (AD) flag set
@@ -269,7 +269,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					Expect(err).Should(Succeed())
 
 					// Should return NOERROR
-					Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 
 					// Should have the Authenticated Data (AD) flag set
 					// NOTE: Currently Blocky just passes through the AD flag from upstream
@@ -346,7 +346,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					Expect(err).Should(Succeed())
 
 					// Should return NOERROR because full DNSSEC chain validated successfully
-					Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess),
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess),
 						"Expected NOERROR for valid DNSSEC chain")
 
 					// Should have the Authenticated Data (AD) flag set
@@ -398,7 +398,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 
-					Expect(resp.Rcode).Should(Equal(dns.RcodeServerFailure),
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure),
 						"unsigned answer accepted for a DNSSEC-signed zone")
 					Expect(resp.AuthenticatedData).Should(BeFalse())
 					Expect(resp.Answer).ShouldNot(ContainElement(
@@ -496,7 +496,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 
 						resp, err := doDNSRequest(ctx, blocky, msg)
 						Expect(err).Should(Succeed())
-						Expect(resp.Rcode).Should(Equal(dns.RcodeServerFailure),
+						Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure),
 							"forged unsigned answer accepted under the default root anchor")
 						Expect(resp.Answer).ShouldNot(ContainElement(
 							BeDNSRecord("cloudflare.com.", A, "203.0.113.77")))
@@ -537,7 +537,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					Expect(err).Should(Succeed())
 
 					// Should return NOERROR and the answer
-					Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 					Expect(resp.Answer).Should(ContainElement(
 						BeDNSRecord("any.domain.example.", A, "192.0.2.1"),
 					))
@@ -580,7 +580,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 
 					// FIXED BEHAVIOR: Blocky validates independently regardless of upstream behavior
 					// Should return SERVFAIL because DNSSEC validation failed
-					Expect(resp.Rcode).Should(Equal(dns.RcodeServerFailure),
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure),
 						"Blocky should validate independently and reject broken DNSSEC")
 
 					// Should NOT have the Authenticated Data (AD) flag set

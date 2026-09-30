@@ -11,7 +11,7 @@ import (
 
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -203,7 +203,7 @@ var _ = Describe("API endpoints", func() {
 				})
 
 				By("waiting for duration to expire and verifying blocking is re-enabled", func() {
-					Eventually(func() *dns.Msg {
+					Eventually(func() *dnsv1.Msg {
 						msg := util.NewMsgWithQuestion("blocked.com.", A)
 						resp, _ := doDNSRequest(ctx, blocky, msg)
 

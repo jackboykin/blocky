@@ -11,7 +11,7 @@ import (
 	. "github.com/0xERR0R/blocky/helpertest"
 	. "github.com/0xERR0R/blocky/model"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -36,7 +36,7 @@ var _ = Describe("ECSClientResolver", func() {
 
 	JustBeforeEach(func() {
 		m = &mockResolver{}
-		m.On("Resolve", mock.Anything).Return(respondWith(new(dns.Msg)), nil)
+		m.On("Resolve", mock.Anything).Return(respondWith(new(dnsv1.Msg)), nil)
 
 		sut = NewECSClientResolver(sutConfig).(*ECSClientResolver)
 		sut.Next(m)
@@ -57,7 +57,7 @@ var _ = Describe("ECSClientResolver", func() {
 			m.ResolveFn = func(_ context.Context, req *Request) (*Response, error) {
 				Expect(req.ClientIP).Should(Equal(ecsIP))
 
-				return respondWith(new(dns.Msg)), nil
+				return respondWith(new(dnsv1.Msg)), nil
 			}
 
 			_, err := sut.Resolve(ctx, request)
@@ -74,7 +74,7 @@ var _ = Describe("ECSClientResolver", func() {
 			m.ResolveFn = func(_ context.Context, req *Request) (*Response, error) {
 				Expect(req.ClientIP).Should(Equal(origIP))
 
-				return respondWith(new(dns.Msg)), nil
+				return respondWith(new(dnsv1.Msg)), nil
 			}
 
 			_, err := sut.Resolve(ctx, request)
@@ -95,7 +95,7 @@ var _ = Describe("ECSClientResolver", func() {
 			m.ResolveFn = func(_ context.Context, req *Request) (*Response, error) {
 				Expect(req.ClientIP).Should(Equal(origIP))
 
-				return respondWith(new(dns.Msg)), nil
+				return respondWith(new(dnsv1.Msg)), nil
 			}
 
 			_, err := sut.Resolve(ctx, request)

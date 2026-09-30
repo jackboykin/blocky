@@ -9,7 +9,7 @@ import (
 	"github.com/0xERR0R/blocky/log"
 	. "github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -93,7 +93,7 @@ var _ = Describe("StrictResolver", Label("strictResolver"), func() {
 
 	When("some default upstream resolvers cannot be reached", func() {
 		BeforeEach(func() {
-			mockUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+			mockUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
 				response, _ = util.NewMsgWithAnswer(request.Question[0].Name, 123, A, "123.124.122.122")
 
 				return response
@@ -155,7 +155,7 @@ var _ = Describe("StrictResolver", Label("strictResolver"), func() {
 									BeDNSRecord("example.com.", A, "123.124.122.122"),
 									HaveTTL(BeNumerically("==", 123)),
 									HaveResponseType(ResponseTypeRESOLVED),
-									HaveReturnCode(dns.RcodeSuccess),
+									HaveReturnCode(dnsv1.RcodeSuccess),
 								))
 					})
 				})
@@ -176,7 +176,7 @@ var _ = Describe("StrictResolver", Label("strictResolver"), func() {
 								BeDNSRecord("example.com.", A, "123.124.122.2"),
 								HaveTTL(BeNumerically("==", 123)),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dns.RcodeSuccess),
+								HaveReturnCode(dnsv1.RcodeSuccess),
 							))
 					})
 				})
@@ -213,7 +213,7 @@ var _ = Describe("StrictResolver", Label("strictResolver"), func() {
 								BeDNSRecord("example.com.", A, "123.124.122.123"),
 								HaveTTL(BeNumerically("==", 123)),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dns.RcodeSuccess),
+								HaveReturnCode(dnsv1.RcodeSuccess),
 							))
 				})
 			})
@@ -244,7 +244,7 @@ var _ = Describe("StrictResolver", Label("strictResolver"), func() {
 							BeDNSRecord("example.com.", A, "123.124.122.122"),
 							HaveTTL(BeNumerically("==", 123)),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 						))
 			})
 		})

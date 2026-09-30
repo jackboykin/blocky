@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // validateWildcardExpansion validates wildcard expansions per RFC 4035 §5.3.4
@@ -22,17 +22,17 @@ import (
 // match any existing name within the zone by checking for the existence of
 // an NSEC RR proving that the QNAME does not exist."
 func (v *Validator) validateWildcardExpansion(
-	rrsetName string, rrsig *dns.RRSIG, nsRecords []dns.RR, qname string,
+	rrsetName string, rrsig *dnsv1.RRSIG, nsRecords []dnsv1.RR, qname string,
 ) error {
 	// RFC 4035 §5.3.4: Check if this is a wildcard expansion
 	// The labels field in RRSIG indicates the number of labels in the original owner name
 	// If the actual owner name has more labels, it's a wildcard expansion
 
-	rrsetName = dns.Fqdn(rrsetName)
-	signerName := dns.Fqdn(rrsig.SignerName)
+	rrsetName = dnsv1.Fqdn(rrsetName)
+	signerName := dnsv1.Fqdn(rrsig.SignerName)
 
 	// Count labels in the RRset owner name (excluding root label)
-	rrsetLabels := dns.CountLabel(rrsetName)
+	rrsetLabels := dnsv1.CountLabel(rrsetName)
 
 	// RRSIG Labels field indicates original owner name label count
 	rrsigLabels := int(rrsig.Labels)
@@ -54,11 +54,11 @@ func (v *Validator) validateWildcardExpansion(
 
 // validateWildcardExpansionDetails performs the actual wildcard validation logic
 func (v *Validator) validateWildcardExpansionDetails(
-	rrsetName, signerName string, rrsigLabels int, nsRecords []dns.RR, qname string,
+	rrsetName, signerName string, rrsigLabels int, nsRecords []dnsv1.RR, qname string,
 ) error {
 	// RFC 4035 §5.3.4: Construct the wildcard name
 	// Take the rightmost (rrsigLabels) labels and prepend "*"
-	labels := dns.SplitDomainName(rrsetName)
+	labels := dnsv1.SplitDomainName(rrsetName)
 	if len(labels) < rrsigLabels {
 		return fmt.Errorf("invalid wildcard: RRset has %d labels but RRSIG claims %d",
 			len(labels), rrsigLabels)
@@ -66,12 +66,12 @@ func (v *Validator) validateWildcardExpansionDetails(
 
 	// Build wildcard name: *.rightmost(rrsigLabels) labels
 	wildcardLabels := append([]string{"*"}, labels[len(labels)-rrsigLabels:]...)
-	wildcardName := dns.Fqdn(strings.Join(wildcardLabels, "."))
+	wildcardName := dnsv1.Fqdn(strings.Join(wildcardLabels, "."))
 
 	v.logger.Debugf("Wildcard expansion detected: %s expanded to %s", wildcardName, rrsetName)
 
 	// Verify wildcard name is within the signer's zone
-	if !dns.IsSubDomain(signerName, wildcardName) {
+	if !dnsv1.IsSubDomain(signerName, wildcardName) {
 		return fmt.Errorf("wildcard %s not within signer zone %s", wildcardName, signerName)
 	}
 
@@ -81,9 +81,9 @@ func (v *Validator) validateWildcardExpansionDetails(
 
 // validateWildcardProof verifies NSEC/NSEC3 proof that qname doesn't exist
 func (v *Validator) validateWildcardProof(
-	wildcardName, rrsetName string, nsRecords []dns.RR, qname string,
+	wildcardName, rrsetName string, nsRecords []dnsv1.RR, qname string,
 ) error {
-	qname = dns.Fqdn(qname)
+	qname = dnsv1.Fqdn(qname)
 
 	// Try NSEC validation first
 	nsecRecords := extractNSECRecords(nsRecords)
@@ -127,8 +127,8 @@ func (v *Validator) validateWildcardProof(
 
 // validateWildcardNSEC validates wildcard expansion using NSEC records
 // Per RFC 4035 §5.3.4: Must prove the query name doesn't exist
-func (v *Validator) validateWildcardNSEC(nsecRecords []*dns.NSEC, qname string) error {
-	qname = dns.Fqdn(qname)
+func (v *Validator) validateWildcardNSEC(nsecRecords []*dnsv1.NSEC, qname string) error {
+	qname = dnsv1.Fqdn(qname)
 
 	// Check if any NSEC covers the query name (proving it doesn't exist)
 	for _, nsec := range nsecRecords {
@@ -144,12 +144,12 @@ func (v *Validator) validateWildcardNSEC(nsecRecords []*dns.NSEC, qname string) 
 
 // validateWildcardNSEC3 validates wildcard expansion using NSEC3 records
 // Per RFC 5155 §7.2.6: Must prove the query name doesn't exist
-func (v *Validator) validateWildcardNSEC3(nsec3Records []*dns.NSEC3, qname string) error {
+func (v *Validator) validateWildcardNSEC3(nsec3Records []*dnsv1.NSEC3, qname string) error {
 	if len(nsec3Records) == 0 {
 		return errors.New("no NSEC3 records available")
 	}
 
-	qname = dns.Fqdn(qname)
+	qname = dnsv1.Fqdn(qname)
 
 	// Get NSEC3 parameters from first record
 	hashAlg := nsec3Records[0].Hash
@@ -170,7 +170,7 @@ func (v *Validator) validateWildcardNSEC3(nsec3Records []*dns.NSEC3, qname strin
 	}
 
 	// Only SHA-1 is currently standardized
-	if hashAlg != dns.SHA1 {
+	if hashAlg != dnsv1.SHA1 {
 		return fmt.Errorf("unsupported NSEC3 hash algorithm: %d", hashAlg)
 	}
 

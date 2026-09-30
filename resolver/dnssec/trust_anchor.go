@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // rootAnchor represents a root KSK trust anchor with metadata
@@ -60,7 +60,7 @@ func getDefaultRootTrustAnchors() []string {
 
 // TrustAnchor represents a DNSSEC trust anchor (DNSKEY record)
 type TrustAnchor struct {
-	Key *dns.DNSKEY
+	Key *dnsv1.DNSKEY
 }
 
 // TrustAnchorStore manages DNSSEC trust anchors
@@ -106,18 +106,18 @@ func NewTrustAnchorStore(customAnchors []string) (*TrustAnchorStore, error) {
 // AddTrustAnchor adds a trust anchor from a DNSKEY record string.
 func (s *TrustAnchorStore) AddTrustAnchor(anchorStr string) error {
 	// Parse the DNSKEY record
-	rr, err := dns.NewRR(anchorStr)
+	rr, err := dnsv1.NewRR(anchorStr)
 	if err != nil {
 		return fmt.Errorf("failed to parse trust anchor: %w", err)
 	}
 
-	dnskey, ok := rr.(*dns.DNSKEY)
+	dnskey, ok := rr.(*dnsv1.DNSKEY)
 	if !ok {
 		return errors.New("trust anchor is not a DNSKEY record")
 	}
 
 	// Validate that it's a KSK (Secure Entry Point)
-	if dnskey.Flags&dns.SEP == 0 {
+	if dnskey.Flags&dnsv1.SEP == 0 {
 		return errors.New("trust anchor is not a KSK (SEP flag not set)")
 	}
 
@@ -136,14 +136,14 @@ func (s *TrustAnchorStore) AddTrustAnchor(anchorStr string) error {
 
 // GetTrustAnchors returns trust anchors for a domain
 func (s *TrustAnchorStore) GetTrustAnchors(domain string) []*TrustAnchor {
-	domain = strings.ToLower(dns.Fqdn(domain))
+	domain = strings.ToLower(dnsv1.Fqdn(domain))
 
 	return s.anchors[domain]
 }
 
 // HasTrustAnchor returns true if the store has a trust anchor for the domain
 func (s *TrustAnchorStore) HasTrustAnchor(domain string) bool {
-	domain = strings.ToLower(dns.Fqdn(domain))
+	domain = strings.ToLower(dnsv1.Fqdn(domain))
 
 	return len(s.anchors[domain]) > 0
 }

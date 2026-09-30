@@ -17,7 +17,7 @@ import (
 	"github.com/0xERR0R/blocky/querylog"
 	"github.com/0xERR0R/blocky/util"
 	"github.com/avast/retry-go/v4"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -284,14 +284,14 @@ func (r *QueryLoggingResolver) createLogEntry(request *model.Request, response *
 		case config.QueryLogFieldResponseReason:
 			entry.ResponseReason = response.Reason
 			entry.ResponseType = response.RType.String()
-			entry.ResponseCode = dns.RcodeToString[response.Res.Rcode]
+			entry.ResponseCode = dnsv1.RcodeToString[response.Res.Rcode]
 
 		case config.QueryLogFieldResponseAnswer:
 			entry.Answer = util.Obfuscate(util.AnswerToString(response.Res.Answer))
 
 		case config.QueryLogFieldQuestion:
 			entry.QuestionName = util.Obfuscate(request.Req.Question[0].Name)
-			entry.QuestionType = dns.TypeToString[request.Req.Question[0].Qtype]
+			entry.QuestionType = dnsv1.TypeToString[request.Req.Question[0].Qtype]
 
 		case config.QueryLogFieldDuration:
 			entry.DurationMs = durationMs

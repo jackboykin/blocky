@@ -6,15 +6,15 @@ package dnssec
 import (
 	"context"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // validateDenialOfExistence validates NSEC/NSEC3 records for authenticated denial of existence
 // Per RFC 4035 §5.4 and RFC 5155
 func (v *Validator) validateDenialOfExistence(
 	ctx context.Context,
-	response *dns.Msg,
-	question dns.Question,
+	response *dnsv1.Msg,
+	question dnsv1.Question,
 ) ValidationResult {
 	// Check if we have NSEC3 records (RFC 5155)
 	hasNSEC3 := false
@@ -22,9 +22,9 @@ func (v *Validator) validateDenialOfExistence(
 
 	for _, rr := range response.Ns {
 		switch rr.(type) {
-		case *dns.NSEC3:
+		case *dnsv1.NSEC3:
 			hasNSEC3 = true
-		case *dns.NSEC:
+		case *dnsv1.NSEC:
 			hasNSEC = true
 		}
 	}

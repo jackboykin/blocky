@@ -2,7 +2,7 @@ package resolver
 
 import (
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // Helpers shared by the mock upstream servers (UDP/TCP, DoT, DoQ) to build
@@ -11,12 +11,12 @@ import (
 
 // rrAnswerFn returns a mock answer function that replies with the given resource
 // records (in dns.NewRR text form).
-func rrAnswerFn(answers ...string) func(request *dns.Msg) *dns.Msg {
-	return func(_ *dns.Msg) *dns.Msg {
-		msg := new(dns.Msg)
+func rrAnswerFn(answers ...string) func(request *dnsv1.Msg) *dnsv1.Msg {
+	return func(_ *dnsv1.Msg) *dnsv1.Msg {
+		msg := new(dnsv1.Msg)
 
 		for _, a := range answers {
-			rr, err := dns.NewRR(a)
+			rr, err := dnsv1.NewRR(a)
 			util.FatalOnError("can't create RR", err)
 
 			msg.Answer = append(msg.Answer, rr)
@@ -27,9 +27,9 @@ func rrAnswerFn(answers ...string) func(request *dns.Msg) *dns.Msg {
 }
 
 // errorAnswerFn returns a mock answer function that replies with the given Rcode.
-func errorAnswerFn(errorCode int) func(request *dns.Msg) *dns.Msg {
-	return func(_ *dns.Msg) *dns.Msg {
-		msg := new(dns.Msg)
+func errorAnswerFn(errorCode int) func(request *dnsv1.Msg) *dnsv1.Msg {
+	return func(_ *dnsv1.Msg) *dnsv1.Msg {
+		msg := new(dnsv1.Msg)
 		msg.Rcode = errorCode
 
 		return msg
@@ -39,7 +39,7 @@ func errorAnswerFn(errorCode int) func(request *dns.Msg) *dns.Msg {
 // mockReply turns the response produced by a mock answer function into a reply to
 // request. dns.Msg.SetReply resets Rcode to success, so a non-success Rcode set
 // by the answer function is restored afterwards.
-func mockReply(request, response *dns.Msg) *dns.Msg {
+func mockReply(request, response *dnsv1.Msg) *dnsv1.Msg {
 	rCode := response.Rcode
 	response.SetReply(request)
 

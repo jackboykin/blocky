@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/0xERR0R/blocky/log"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -32,19 +32,19 @@ var _ = Describe("NSEC validation", func() {
 
 	Describe("extractNSECRecords", func() {
 		It("should extract NSEC records from RR slice", func() {
-			nsec1 := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "a.example.com.", Rrtype: dns.TypeNSEC},
+			nsec1 := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "a.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "b.example.com.",
 			}
-			nsec2 := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "b.example.com.", Rrtype: dns.TypeNSEC},
+			nsec2 := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "b.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "c.example.com.",
 			}
-			soa := &dns.SOA{
-				Hdr: dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeSOA},
+			soa := &dnsv1.SOA{
+				Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeSOA},
 			}
 
-			rrs := []dns.RR{nsec1, soa, nsec2}
+			rrs := []dnsv1.RR{nsec1, soa, nsec2}
 			nsecs := extractNSECRecords(rrs)
 
 			Expect(nsecs).Should(HaveLen(2))
@@ -53,21 +53,21 @@ var _ = Describe("NSEC validation", func() {
 		})
 
 		It("should return empty slice when no NSEC records", func() {
-			soa := &dns.SOA{
-				Hdr: dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeSOA},
+			soa := &dnsv1.SOA{
+				Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeSOA},
 			}
-			ns := &dns.NS{
-				Hdr: dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeNS},
+			ns := &dnsv1.NS{
+				Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeNS},
 			}
 
-			rrs := []dns.RR{soa, ns}
+			rrs := []dnsv1.RR{soa, ns}
 			nsecs := extractNSECRecords(rrs)
 
 			Expect(nsecs).Should(BeEmpty())
 		})
 
 		It("should handle empty RR slice", func() {
-			nsecs := extractNSECRecords([]dns.RR{})
+			nsecs := extractNSECRecords([]dnsv1.RR{})
 			Expect(nsecs).Should(BeEmpty())
 		})
 
@@ -79,15 +79,15 @@ var _ = Describe("NSEC validation", func() {
 
 	Describe("validateNSECDenialOfExistence", func() {
 		It("should return Insecure when no NSEC records present", func() {
-			response := &dns.Msg{
-				Ns: []dns.RR{},
+			response := &dnsv1.Msg{
+				Ns: []dnsv1.RR{},
 			}
-			response.Rcode = dns.RcodeNameError
+			response.Rcode = dnsv1.RcodeNameError
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "test.example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			result := sut.validateNSECDenialOfExistence(response, question)
@@ -96,20 +96,20 @@ var _ = Describe("NSEC validation", func() {
 
 		It("should validate NXDOMAIN when RCODE is NXDOMAIN", func() {
 			// NSEC covers name range from a.example.com to z.example.com
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "a.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "a.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
 			}
 
-			response := &dns.Msg{
-				Ns: []dns.RR{nsec},
+			response := &dnsv1.Msg{
+				Ns: []dnsv1.RR{nsec},
 			}
-			response.Rcode = dns.RcodeNameError
+			response.Rcode = dnsv1.RcodeNameError
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "m.example.com.", // Falls between a and z
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			result := sut.validateNSECDenialOfExistence(response, question)
@@ -118,21 +118,21 @@ var _ = Describe("NSEC validation", func() {
 
 		It("should validate NODATA when RCODE is not NXDOMAIN", func() {
 			// NSEC at exact name with A record but not AAAA
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS, dns.TypeSOA},
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeSOA},
 			}
 
-			response := &dns.Msg{
-				Ns: []dns.RR{nsec},
+			response := &dnsv1.Msg{
+				Ns: []dnsv1.RR{nsec},
 			}
-			response.Rcode = dns.RcodeSuccess // NODATA
+			response.Rcode = dnsv1.RcodeSuccess // NODATA
 
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "example.com.",
-				Qtype:  dns.TypeAAAA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeAAAA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			result := sut.validateNSECDenialOfExistence(response, question)
@@ -142,145 +142,145 @@ var _ = Describe("NSEC validation", func() {
 
 	Describe("validateNSECNXDOMAIN", func() {
 		It("should return Secure when NSEC covers the query name", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "a.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "a.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
 			}
 
-			result := sut.validateNSECNXDOMAIN([]*dns.NSEC{nsec}, "m.example.com.")
+			result := sut.validateNSECNXDOMAIN([]*dnsv1.NSEC{nsec}, "m.example.com.")
 			Expect(result).Should(Equal(ValidationResultSecure))
 		})
 
 		It("should return Bogus when no NSEC covers the query name", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "a.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "a.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "b.example.com.",
 			}
 
-			result := sut.validateNSECNXDOMAIN([]*dns.NSEC{nsec}, "z.example.com.")
+			result := sut.validateNSECNXDOMAIN([]*dnsv1.NSEC{nsec}, "z.example.com.")
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should normalize query name to FQDN", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "a.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "a.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
 			}
 
 			// Test without trailing dot
-			result := sut.validateNSECNXDOMAIN([]*dns.NSEC{nsec}, "m.example.com")
+			result := sut.validateNSECNXDOMAIN([]*dnsv1.NSEC{nsec}, "m.example.com")
 			Expect(result).Should(Equal(ValidationResultSecure))
 		})
 
 		It("should handle multiple NSEC records", func() {
-			nsec1 := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "a.example.com.", Rrtype: dns.TypeNSEC},
+			nsec1 := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "a.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "b.example.com.",
 			}
-			nsec2 := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "m.example.com.", Rrtype: dns.TypeNSEC},
+			nsec2 := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "m.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "n.example.com.",
 			}
-			nsec3 := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "x.example.com.", Rrtype: dns.TypeNSEC},
+			nsec3 := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "x.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
 			}
 
 			// Query falls in second range (canonically between m and n)
-			result := sut.validateNSECNXDOMAIN([]*dns.NSEC{nsec1, nsec2, nsec3}, "ma.example.com.")
+			result := sut.validateNSECNXDOMAIN([]*dnsv1.NSEC{nsec1, nsec2, nsec3}, "ma.example.com.")
 			Expect(result).Should(Equal(ValidationResultSecure))
 		})
 
 		It("should handle wrap-around at end of zone", func() {
 			// NSEC wraps from z back to a (covers end of zone)
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "z.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "z.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "a.example.com.",
 			}
 
 			// Query name that wraps around (after z or before a)
-			result := sut.validateNSECNXDOMAIN([]*dns.NSEC{nsec}, "zz.example.com.")
+			result := sut.validateNSECNXDOMAIN([]*dnsv1.NSEC{nsec}, "zz.example.com.")
 			Expect(result).Should(Equal(ValidationResultSecure))
 		})
 
 		It("should return Bogus for empty NSEC list", func() {
-			result := sut.validateNSECNXDOMAIN([]*dns.NSEC{}, "test.example.com.")
+			result := sut.validateNSECNXDOMAIN([]*dnsv1.NSEC{}, "test.example.com.")
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 	})
 
 	Describe("validateNSECNODATA", func() {
 		It("should return Secure when NSEC matches name and type not in bitmap", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS},
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS},
 			}
 
-			result := sut.validateNSECNODATA([]*dns.NSEC{nsec}, "example.com.", dns.TypeAAAA)
+			result := sut.validateNSECNODATA([]*dnsv1.NSEC{nsec}, "example.com.", dnsv1.TypeAAAA)
 			Expect(result).Should(Equal(ValidationResultSecure))
 		})
 
 		It("should return Bogus when NSEC matches name but type exists in bitmap", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeAAAA},
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeAAAA},
 			}
 
-			result := sut.validateNSECNODATA([]*dns.NSEC{nsec}, "example.com.", dns.TypeAAAA)
+			result := sut.validateNSECNODATA([]*dnsv1.NSEC{nsec}, "example.com.", dnsv1.TypeAAAA)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should return Bogus when no NSEC matches the query name", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "other.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "other.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
-				TypeBitMap: []uint16{dns.TypeA},
+				TypeBitMap: []uint16{dnsv1.TypeA},
 			}
 
-			result := sut.validateNSECNODATA([]*dns.NSEC{nsec}, "example.com.", dns.TypeA)
+			result := sut.validateNSECNODATA([]*dnsv1.NSEC{nsec}, "example.com.", dnsv1.TypeA)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should normalize query name to FQDN", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
-				TypeBitMap: []uint16{dns.TypeA},
+				TypeBitMap: []uint16{dnsv1.TypeA},
 			}
 
 			// Test without trailing dot
-			result := sut.validateNSECNODATA([]*dns.NSEC{nsec}, "example.com", dns.TypeAAAA)
+			result := sut.validateNSECNODATA([]*dnsv1.NSEC{nsec}, "example.com", dnsv1.TypeAAAA)
 			Expect(result).Should(Equal(ValidationResultSecure))
 		})
 
 		It("should handle multiple NSEC records", func() {
-			nsec1 := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "a.example.com.", Rrtype: dns.TypeNSEC},
+			nsec1 := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "a.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "b.example.com.",
-				TypeBitMap: []uint16{dns.TypeA},
+				TypeBitMap: []uint16{dnsv1.TypeA},
 			}
-			nsec2 := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "test.example.com.", Rrtype: dns.TypeNSEC},
+			nsec2 := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "test.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
-				TypeBitMap: []uint16{dns.TypeA},
+				TypeBitMap: []uint16{dnsv1.TypeA},
 			}
 
-			result := sut.validateNSECNODATA([]*dns.NSEC{nsec1, nsec2}, "test.example.com.", dns.TypeAAAA)
+			result := sut.validateNSECNODATA([]*dnsv1.NSEC{nsec1, nsec2}, "test.example.com.", dnsv1.TypeAAAA)
 			Expect(result).Should(Equal(ValidationResultSecure))
 		})
 
 		It("should return Bogus for empty NSEC list", func() {
-			result := sut.validateNSECNODATA([]*dns.NSEC{}, "test.example.com.", dns.TypeA)
+			result := sut.validateNSECNODATA([]*dnsv1.NSEC{}, "test.example.com.", dnsv1.TypeA)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 	})
 
 	Describe("nsecCoversName", func() {
 		It("should return true when name is covered in normal range", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "a.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "a.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
 			}
 
@@ -290,8 +290,8 @@ var _ = Describe("NSEC validation", func() {
 		})
 
 		It("should return false when name equals owner", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "a.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "a.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
 			}
 
@@ -299,8 +299,8 @@ var _ = Describe("NSEC validation", func() {
 		})
 
 		It("should return false when name equals next domain", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "a.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "a.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
 			}
 
@@ -308,8 +308,8 @@ var _ = Describe("NSEC validation", func() {
 		})
 
 		It("should return false when name is outside normal range", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "m.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "m.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "n.example.com.",
 			}
 
@@ -319,8 +319,8 @@ var _ = Describe("NSEC validation", func() {
 
 		It("should handle wrap-around case", func() {
 			// NSEC wraps from z back to a
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "z.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "z.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "a.example.com.",
 			}
 
@@ -333,8 +333,8 @@ var _ = Describe("NSEC validation", func() {
 		})
 
 		It("should use canonical name ordering", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "A.EXAMPLE.COM.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "A.EXAMPLE.COM.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "Z.EXAMPLE.COM.",
 			}
 
@@ -344,8 +344,8 @@ var _ = Describe("NSEC validation", func() {
 		})
 
 		It("should handle names with different label counts", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "a.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "a.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "z.example.com.",
 			}
 
@@ -356,8 +356,8 @@ var _ = Describe("NSEC validation", func() {
 		It("should cover underscore-prefixed subdomains using canonical ordering (issue #1969)", func() {
 			// Exact scenario from https://github.com/0xERR0R/blocky/issues/1969
 			// RFC 4034 §6.1 canonical order: mail... < _25._tcp.mail... < pop...
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "mail.boegli-bestattungen.ch.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "mail.boegli-bestattungen.ch.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "pop.boegli-bestattungen.ch.",
 			}
 
@@ -365,8 +365,8 @@ var _ = Describe("NSEC validation", func() {
 		})
 
 		It("should cover other underscore-prefixed names correctly", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "mail.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "mail.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "pop.example.com.",
 			}
 
@@ -375,8 +375,8 @@ var _ = Describe("NSEC validation", func() {
 		})
 
 		It("should not cover underscore-prefixed names outside the NSEC range", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "b.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "b.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "c.example.com.",
 			}
 
@@ -385,8 +385,8 @@ var _ = Describe("NSEC validation", func() {
 		})
 
 		It("should handle wrap-around with underscore-prefixed subdomains", func() {
-			nsec := &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: "z.example.com.", Rrtype: dns.TypeNSEC},
+			nsec := &dnsv1.NSEC{
+				Hdr:        dnsv1.RR_Header{Name: "z.example.com.", Rrtype: dnsv1.TypeNSEC},
 				NextDomain: "a.example.com.",
 			}
 
@@ -445,53 +445,53 @@ var _ = Describe("NSEC validation", func() {
 
 	Describe("nsecHasType", func() {
 		It("should return true when type is in bitmap", func() {
-			nsec := &dns.NSEC{
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeAAAA, dns.TypeNS},
+			nsec := &dnsv1.NSEC{
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeAAAA, dnsv1.TypeNS},
 			}
 
-			Expect(sut.nsecHasType(nsec, dns.TypeA)).Should(BeTrue())
-			Expect(sut.nsecHasType(nsec, dns.TypeAAAA)).Should(BeTrue())
-			Expect(sut.nsecHasType(nsec, dns.TypeNS)).Should(BeTrue())
+			Expect(sut.nsecHasType(nsec, dnsv1.TypeA)).Should(BeTrue())
+			Expect(sut.nsecHasType(nsec, dnsv1.TypeAAAA)).Should(BeTrue())
+			Expect(sut.nsecHasType(nsec, dnsv1.TypeNS)).Should(BeTrue())
 		})
 
 		It("should return false when type is not in bitmap", func() {
-			nsec := &dns.NSEC{
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS},
+			nsec := &dnsv1.NSEC{
+				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS},
 			}
 
-			Expect(sut.nsecHasType(nsec, dns.TypeAAAA)).Should(BeFalse())
-			Expect(sut.nsecHasType(nsec, dns.TypeMX)).Should(BeFalse())
+			Expect(sut.nsecHasType(nsec, dnsv1.TypeAAAA)).Should(BeFalse())
+			Expect(sut.nsecHasType(nsec, dnsv1.TypeMX)).Should(BeFalse())
 		})
 
 		It("should return false for empty bitmap", func() {
-			nsec := &dns.NSEC{
+			nsec := &dnsv1.NSEC{
 				TypeBitMap: []uint16{},
 			}
 
-			Expect(sut.nsecHasType(nsec, dns.TypeA)).Should(BeFalse())
+			Expect(sut.nsecHasType(nsec, dnsv1.TypeA)).Should(BeFalse())
 		})
 
 		It("should handle nil bitmap", func() {
-			nsec := &dns.NSEC{
+			nsec := &dnsv1.NSEC{
 				TypeBitMap: nil,
 			}
 
-			Expect(sut.nsecHasType(nsec, dns.TypeA)).Should(BeFalse())
+			Expect(sut.nsecHasType(nsec, dnsv1.TypeA)).Should(BeFalse())
 		})
 
 		It("should handle all common DNS types", func() {
-			nsec := &dns.NSEC{
+			nsec := &dnsv1.NSEC{
 				TypeBitMap: []uint16{
-					dns.TypeA, dns.TypeNS, dns.TypeCNAME, dns.TypeSOA,
-					dns.TypeMX, dns.TypeTXT, dns.TypeAAAA, dns.TypeDNSKEY,
-					dns.TypeRRSIG, dns.TypeNSEC, dns.TypeDS,
+					dnsv1.TypeA, dnsv1.TypeNS, dnsv1.TypeCNAME, dnsv1.TypeSOA,
+					dnsv1.TypeMX, dnsv1.TypeTXT, dnsv1.TypeAAAA, dnsv1.TypeDNSKEY,
+					dnsv1.TypeRRSIG, dnsv1.TypeNSEC, dnsv1.TypeDS,
 				},
 			}
 
-			Expect(sut.nsecHasType(nsec, dns.TypeA)).Should(BeTrue())
-			Expect(sut.nsecHasType(nsec, dns.TypeDNSKEY)).Should(BeTrue())
-			Expect(sut.nsecHasType(nsec, dns.TypeRRSIG)).Should(BeTrue())
-			Expect(sut.nsecHasType(nsec, dns.TypeNSEC3)).Should(BeFalse())
+			Expect(sut.nsecHasType(nsec, dnsv1.TypeA)).Should(BeTrue())
+			Expect(sut.nsecHasType(nsec, dnsv1.TypeDNSKEY)).Should(BeTrue())
+			Expect(sut.nsecHasType(nsec, dnsv1.TypeRRSIG)).Should(BeTrue())
+			Expect(sut.nsecHasType(nsec, dnsv1.TypeNSEC3)).Should(BeFalse())
 		})
 	})
 })

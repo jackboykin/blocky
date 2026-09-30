@@ -12,7 +12,7 @@ import (
 	"github.com/0xERR0R/blocky/util"
 	"github.com/ThinkChaos/parcour"
 	"github.com/ThinkChaos/parcour/jobgroup"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -65,7 +65,7 @@ func (r *HostsFileResolver) LogConfig(logger *logrus.Entry) {
 
 func (r *HostsFileResolver) handleReverseDNS(request *model.Request) *model.Response {
 	question := request.Req.Question[0]
-	if question.Qtype != dns.TypePTR {
+	if question.Qtype != dnsv1.TypePTR {
 		return nil
 	}
 
@@ -81,11 +81,11 @@ func (r *HostsFileResolver) handleReverseDNS(request *model.Request) *model.Resp
 	}
 
 	hdr := util.CreateHeader(question, r.cfg.HostsTTL.SecondsU32())
-	answers := make([]dns.RR, 0, len(hostNames))
+	answers := make([]dnsv1.RR, 0, len(hostNames))
 
 	for _, name := range hostNames {
-		ptr := new(dns.PTR)
-		ptr.Ptr = dns.Fqdn(name)
+		ptr := new(dnsv1.PTR)
+		ptr.Ptr = dnsv1.Fqdn(name)
 		ptr.Hdr = hdr
 		answers = append(answers, ptr)
 	}
@@ -157,15 +157,15 @@ func (r *HostsFileResolver) Resolve(ctx context.Context, request *model.Request)
 	return r.next.Resolve(ctx, request)
 }
 
-func (r *HostsFileResolver) resolve(question dns.Question, domain string) []dns.RR {
-	ip := r.hosts.getIP(dns.Type(question.Qtype), domain)
+func (r *HostsFileResolver) resolve(question dnsv1.Question, domain string) []dnsv1.RR {
+	ip := r.hosts.getIP(dnsv1.Type(question.Qtype), domain)
 	if !ip.IsValid() {
 		return nil
 	}
 
 	rr, _ := util.CreateAnswerFromQuestion(question, ip, r.cfg.HostsTTL.SecondsU32())
 
-	return []dns.RR{rr}
+	return []dnsv1.RR{rr}
 }
 
 func (r *HostsFileResolver) loadSources(ctx context.Context) error {
@@ -284,11 +284,11 @@ func (d splitHostsFileData) len() int {
 	return d.v4.len() + d.v6.len()
 }
 
-func (d splitHostsFileData) getIP(qType dns.Type, domain string) netip.Addr {
+func (d splitHostsFileData) getIP(qType dnsv1.Type, domain string) netip.Addr {
 	switch uint16(qType) {
-	case dns.TypeA:
+	case dnsv1.TypeA:
 		return d.v4.getIP(domain)
-	case dns.TypeAAAA:
+	case dnsv1.TypeAAAA:
 		return d.v6.getIP(domain)
 	}
 

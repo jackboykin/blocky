@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // Algorithm strength scores for preventing downgrade attacks
@@ -34,7 +34,7 @@ const (
 // queryAndMatchDNSKEY queries for DNSKEY records and finds the one matching the key tag
 func (v *Validator) queryAndMatchDNSKEY(
 	ctx context.Context, signerName string, keyTag uint16, algorithm uint8,
-) (context.Context, *dns.DNSKEY, error) {
+) (context.Context, *dnsv1.DNSKEY, error) {
 	// Query for DNSKEY records
 	ctx, keys, err := v.queryDNSKEY(ctx, signerName)
 	if err != nil {
@@ -72,19 +72,19 @@ func (v *Validator) queryAndMatchDNSKEY(
 // Higher scores indicate stronger algorithms (used to prevent downgrade attacks)
 func (v *Validator) getAlgorithmStrength(alg uint8) int {
 	switch alg {
-	case dns.ED448: // Algorithm 16 - strongest
+	case dnsv1.ED448:
 		return algorithmStrengthED448
-	case dns.ED25519: // Algorithm 15 - very strong
+	case dnsv1.ED25519:
 		return algorithmStrengthED25519
-	case dns.ECDSAP384SHA384: // Algorithm 14 - strong
+	case dnsv1.ECDSAP384SHA384:
 		return algorithmStrengthECDSAP384SHA384
-	case dns.ECDSAP256SHA256: // Algorithm 13 - strong
+	case dnsv1.ECDSAP256SHA256:
 		return algorithmStrengthECDSAP256SHA256
-	case dns.RSASHA512: // Algorithm 10 - moderate
+	case dnsv1.RSASHA512:
 		return algorithmStrengthRSASHA512
-	case dns.RSASHA256: // Algorithm 8 - moderate
+	case dnsv1.RSASHA256:
 		return algorithmStrengthRSASHA256
-	case dns.RSASHA1, dns.RSASHA1NSEC3SHA1: // Algorithm 5, 7 - deprecated/weak
+	case dnsv1.RSASHA1, dnsv1.RSASHA1NSEC3SHA1:
 		return algorithmStrengthRSASHA1
 	default:
 		return algorithmStrengthUnsupported
@@ -93,7 +93,7 @@ func (v *Validator) getAlgorithmStrength(alg uint8) int {
 
 // selectBestRRSIG selects the RRSIG with the strongest algorithm from a list
 // This prevents algorithm downgrade attacks per RFC 6840 §5.11
-func (v *Validator) selectBestRRSIG(rrsigs []*dns.RRSIG) *dns.RRSIG {
+func (v *Validator) selectBestRRSIG(rrsigs []*dnsv1.RRSIG) *dnsv1.RRSIG {
 	if len(rrsigs) == 0 {
 		return nil
 	}
@@ -114,13 +114,13 @@ func (v *Validator) selectBestRRSIG(rrsigs []*dns.RRSIG) *dns.RRSIG {
 
 // sortRRSIGsByStrength sorts RRSIGs by algorithm strength (strongest first)
 // Per RFC 4035 §5.3.1: Try all signatures, preferring stronger algorithms
-func (v *Validator) sortRRSIGsByStrength(rrsigs []*dns.RRSIG) []*dns.RRSIG {
+func (v *Validator) sortRRSIGsByStrength(rrsigs []*dnsv1.RRSIG) []*dnsv1.RRSIG {
 	if len(rrsigs) <= 1 {
 		return rrsigs
 	}
 
 	// Create a copy to avoid modifying the original slice
-	sorted := make([]*dns.RRSIG, len(rrsigs))
+	sorted := make([]*dnsv1.RRSIG, len(rrsigs))
 	copy(sorted, rrsigs)
 
 	// Simple bubble sort (sufficient for small RRSIG lists, typically 1-3 signatures)
@@ -139,11 +139,11 @@ func (v *Validator) sortRRSIGsByStrength(rrsigs []*dns.RRSIG) []*dns.RRSIG {
 // Per RFC 4035: An RRSIG covers an RRset if:
 // 1. The RRSIG's owner name equals the RRset's owner name
 // 2. The RRSIG's Type Covered field equals the RRset's type
-func findMatchingRRSIGs(sigs []*dns.RRSIG, ownerName string, rrType uint16) []*dns.RRSIG {
-	ownerName = dns.Fqdn(ownerName)
-	var matchingRRSIGs []*dns.RRSIG
+func findMatchingRRSIGs(sigs []*dnsv1.RRSIG, ownerName string, rrType uint16) []*dnsv1.RRSIG {
+	ownerName = dnsv1.Fqdn(ownerName)
+	var matchingRRSIGs []*dnsv1.RRSIG
 	for _, sig := range sigs {
-		sigOwnerName := dns.Fqdn(sig.Header().Name)
+		sigOwnerName := dnsv1.Fqdn(sig.Header().Name)
 		if sig.TypeCovered == rrType && sigOwnerName == ownerName {
 			matchingRRSIGs = append(matchingRRSIGs, sig)
 		}
@@ -156,8 +156,8 @@ func findMatchingRRSIGs(sigs []*dns.RRSIG, ownerName string, rrType uint16) []*d
 // Note: This function only matches by type, not owner name. Use findMatchingRRSIGs instead.
 //
 //nolint:unparam // rrType is always TypeA in tests, but function is kept for testing flexibility
-func findMatchingRRSIGsForType(sigs []*dns.RRSIG, rrType uint16) []*dns.RRSIG {
-	var matchingRRSIGs []*dns.RRSIG
+func findMatchingRRSIGsForType(sigs []*dnsv1.RRSIG, rrType uint16) []*dnsv1.RRSIG {
+	var matchingRRSIGs []*dnsv1.RRSIG
 	for _, sig := range sigs {
 		if sig.TypeCovered == rrType {
 			matchingRRSIGs = append(matchingRRSIGs, sig)
@@ -170,12 +170,12 @@ func findMatchingRRSIGsForType(sigs []*dns.RRSIG, rrType uint16) []*dns.RRSIG {
 // validateSignerName validates that the RRSIG signer name is valid for the RRset
 // RFC 4035 §5.3.1: The signer name must be equal to or a parent of the RRset owner name
 func validateSignerName(signerName, rrsetName string) bool {
-	return dns.IsSubDomain(signerName, rrsetName)
+	return dnsv1.IsSubDomain(signerName, rrsetName)
 }
 
 // findMatchingDNSKEY finds the DNSKEY that matches the given key tag
 // RFC 4034 §2.1.2: Protocol field MUST be 3
-func findMatchingDNSKEY(keys []*dns.DNSKEY, keyTag uint16, algorithm uint8) *dns.DNSKEY {
+func findMatchingDNSKEY(keys []*dnsv1.DNSKEY, keyTag uint16, algorithm uint8) *dnsv1.DNSKEY {
 	for _, key := range keys {
 		// RFC 4034 §2.1.2: The Protocol Field MUST have value 3
 		if key.Protocol != dnskeyProtocolValue {
@@ -193,10 +193,10 @@ func findMatchingDNSKEY(keys []*dns.DNSKEY, keyTag uint16, algorithm uint8) *dns
 // Per RFC 3110, RSA exponents can be up to 65535 bytes, but Go's crypto/rsa limits them to 2^31-1
 // This function detects keys with exponents > 4 bytes, which likely exceed the limit
 // Returns true if the exponent is unsupported, false otherwise
-func hasUnsupportedRSAExponent(key *dns.DNSKEY) bool {
+func hasUnsupportedRSAExponent(key *dnsv1.DNSKEY) bool {
 	// Only check RSA algorithms
 	switch key.Algorithm {
-	case dns.RSASHA1, dns.RSASHA1NSEC3SHA1, dns.RSASHA256, dns.RSASHA512:
+	case dnsv1.RSASHA1, dnsv1.RSASHA1NSEC3SHA1, dnsv1.RSASHA256, dnsv1.RSASHA512:
 		// Decode the base64 public key
 		pubKeyBytes, err := base64.StdEncoding.DecodeString(key.PublicKey)
 		if err != nil || len(pubKeyBytes) < 1 {
@@ -260,14 +260,14 @@ func (v *Validator) isSupportedAlgorithm(alg uint8) bool {
 	// Supported algorithms as per RFC 8624 (DNSSEC Algorithm Implementation Status)
 	// These are the algorithms supported by the miekg/dns library
 	switch alg {
-	case dns.RSASHA1, // Algorithm 5 (deprecated but still supported)
-		dns.RSASHA1NSEC3SHA1, // Algorithm 7 (same as 5, used with NSEC3)
-		dns.RSASHA256,        // Algorithm 8 (recommended)
-		dns.RSASHA512,        // Algorithm 10 (recommended)
-		dns.ECDSAP256SHA256,  // Algorithm 13 (recommended)
-		dns.ECDSAP384SHA384,  // Algorithm 14 (recommended)
-		dns.ED25519,          // Algorithm 15 (recommended)
-		dns.ED448:            // Algorithm 16 (recommended, RFC 8080)
+	case dnsv1.RSASHA1,
+		dnsv1.RSASHA1NSEC3SHA1,
+		dnsv1.RSASHA256,
+		dnsv1.RSASHA512,
+		dnsv1.ECDSAP256SHA256,
+		dnsv1.ECDSAP384SHA384,
+		dnsv1.ED25519,
+		dnsv1.ED448:
 		return true
 	default:
 		return false
@@ -276,7 +276,7 @@ func (v *Validator) isSupportedAlgorithm(alg uint8) bool {
 
 // verifyRRSIG verifies an RRSIG signature for an RRset
 func (v *Validator) verifyRRSIG(
-	rrset []dns.RR, rrsig *dns.RRSIG, key *dns.DNSKEY, nsRecords []dns.RR, qname string,
+	rrset []dnsv1.RR, rrsig *dnsv1.RRSIG, key *dnsv1.DNSKEY, nsRecords []dnsv1.RR, qname string,
 ) error {
 	// Log DNSKEY details including public key prefix for debugging
 	pkeyPrefix := key.PublicKey
@@ -302,7 +302,7 @@ func (v *Validator) verifyRRSIG(
 
 	// RFC 4035 §5.3.4: Validate wildcard expansion if applicable
 	if len(rrset) > 0 {
-		rrsetName := dns.Fqdn(rrset[0].Header().Name)
+		rrsetName := dnsv1.Fqdn(rrset[0].Header().Name)
 		if err := v.validateWildcardExpansion(rrsetName, rrsig, nsRecords, qname); err != nil {
 			return fmt.Errorf("wildcard validation failed: %w", err)
 		}

@@ -8,17 +8,17 @@ import (
 
 	"github.com/0xERR0R/blocky/util"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // validateNSECDenialOfExistence validates NSEC-based denial of existence per RFC 4035 §5.4
-func (v *Validator) validateNSECDenialOfExistence(response *dns.Msg, question dns.Question) ValidationResult {
+func (v *Validator) validateNSECDenialOfExistence(response *dnsv1.Msg, question dnsv1.Question) ValidationResult {
 	nsecRecords := extractNSECRecords(response.Ns)
 	if len(nsecRecords) == 0 {
 		return ValidationResultInsecure
 	}
 
-	if response.Rcode == dns.RcodeNameError {
+	if response.Rcode == dnsv1.RcodeNameError {
 		return v.validateNSECNXDOMAIN(nsecRecords, question.Name)
 	}
 
@@ -26,13 +26,13 @@ func (v *Validator) validateNSECDenialOfExistence(response *dns.Msg, question dn
 }
 
 // extractNSECRecords extracts all NSEC records from a slice of RRs
-func extractNSECRecords(rrs []dns.RR) []*dns.NSEC {
-	return util.ExtractRecordsFromSlice[*dns.NSEC](rrs)
+func extractNSECRecords(rrs []dnsv1.RR) []*dnsv1.NSEC {
+	return util.ExtractRecordsFromSlice[*dnsv1.NSEC](rrs)
 }
 
 // validateNSECNXDOMAIN validates NSEC proof for NXDOMAIN
-func (v *Validator) validateNSECNXDOMAIN(nsecRecords []*dns.NSEC, qname string) ValidationResult {
-	qname = dns.Fqdn(qname)
+func (v *Validator) validateNSECNXDOMAIN(nsecRecords []*dnsv1.NSEC, qname string) ValidationResult {
+	qname = dnsv1.Fqdn(qname)
 
 	// NXDOMAIN: Need to prove the name doesn't exist
 	// Find NSEC that covers the query name
@@ -50,12 +50,12 @@ func (v *Validator) validateNSECNXDOMAIN(nsecRecords []*dns.NSEC, qname string) 
 }
 
 // validateNSECNODATA validates NSEC proof for NODATA
-func (v *Validator) validateNSECNODATA(nsecRecords []*dns.NSEC, qname string, qtype uint16) ValidationResult {
-	qname = dns.Fqdn(qname)
+func (v *Validator) validateNSECNODATA(nsecRecords []*dnsv1.NSEC, qname string, qtype uint16) ValidationResult {
+	qname = dnsv1.Fqdn(qname)
 
 	// NODATA: Need NSEC at the name proving type doesn't exist
 	for _, nsec := range nsecRecords {
-		nsecName := dns.Fqdn(nsec.Header().Name)
+		nsecName := dnsv1.Fqdn(nsec.Header().Name)
 		if nsecName == qname {
 			// NSEC matches the query name - check if it proves type doesn't exist
 			if !v.nsecHasType(nsec, qtype) {
@@ -82,8 +82,8 @@ func (v *Validator) validateNSECNODATA(nsecRecords []*dns.NSEC, qname string, qt
 //
 // Returns a negative value if a < b, 0 if a == b, a positive value if a > b.
 func canonicalNameCompare(a, b string) int {
-	a = strings.TrimSuffix(strings.ToLower(dns.Fqdn(a)), ".")
-	b = strings.TrimSuffix(strings.ToLower(dns.Fqdn(b)), ".")
+	a = strings.TrimSuffix(strings.ToLower(dnsv1.Fqdn(a)), ".")
+	b = strings.TrimSuffix(strings.ToLower(dnsv1.Fqdn(b)), ".")
 
 	labelsA := strings.Split(a, ".")
 	labelsB := strings.Split(b, ".")
@@ -108,10 +108,10 @@ func canonicalNameCompare(a, b string) int {
 // nsecCoversName checks if an NSEC record covers a given name (for NXDOMAIN proof)
 // Per RFC 4034 §4.1: NSEC RR covers names between owner name and next domain name
 // Uses RFC 4034 §6.1 canonical DNS name ordering (label-by-label, right to left).
-func (v *Validator) nsecCoversName(nsec *dns.NSEC, name string) bool {
-	owner := dns.CanonicalName(nsec.Header().Name)
-	next := dns.CanonicalName(nsec.NextDomain)
-	name = dns.CanonicalName(name)
+func (v *Validator) nsecCoversName(nsec *dnsv1.NSEC, name string) bool {
+	owner := dnsv1.CanonicalName(nsec.Header().Name)
+	next := dnsv1.CanonicalName(nsec.NextDomain)
+	name = dnsv1.CanonicalName(name)
 
 	// If owner < name < next, then NSEC covers the name
 	// Handle wrap-around at end of zone (when next < owner)
@@ -124,6 +124,6 @@ func (v *Validator) nsecCoversName(nsec *dns.NSEC, name string) bool {
 }
 
 // nsecHasType checks if an NSEC record claims a given type exists
-func (v *Validator) nsecHasType(nsec *dns.NSEC, qtype uint16) bool {
+func (v *Validator) nsecHasType(nsec *dnsv1.NSEC, qtype uint16) bool {
 	return slices.Contains(nsec.TypeBitMap, qtype)
 }

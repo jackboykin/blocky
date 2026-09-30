@@ -9,16 +9,16 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
 // rewriteRequest applies domain rewrites to the DNS request
 func rewriteRequest(
 	logger *logrus.Entry,
-	request *dns.Msg,
+	request *dnsv1.Msg,
 	rewriteMap map[string]string,
-) (rewritten *dns.Msg, originalNames map[string]string) {
+) (rewritten *dnsv1.Msg, originalNames map[string]string) {
 	if len(rewriteMap) == 0 {
 		return nil, nil
 	}
@@ -32,7 +32,7 @@ func rewriteRequest(
 		domainRewritten, rewriteKey := rewriteDomain(domainOriginal, rewriteMap)
 
 		if domainRewritten != domainOriginal {
-			rewrittenFQDN := dns.Fqdn(domainRewritten)
+			rewrittenFQDN := dnsv1.Fqdn(domainRewritten)
 
 			originalNames[rewrittenFQDN] = nameOriginal
 
@@ -88,7 +88,7 @@ func shouldFallbackUpstream(cfg *config.RewriterConfig, response *model.Response
 }
 
 // revertRewritesInResponse reverts domain rewrites in the DNS response
-func revertRewritesInResponse(response *dns.Msg, originalNames map[string]string) {
+func revertRewritesInResponse(response *dnsv1.Msg, originalNames map[string]string) {
 	if len(originalNames) == 0 {
 		return
 	}

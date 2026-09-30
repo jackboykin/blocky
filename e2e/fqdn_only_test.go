@@ -5,7 +5,7 @@ import (
 
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -49,7 +49,7 @@ var _ = Describe("FQDN only mode", func() {
 			// the client to time out instead of seeing the NXDOMAIN.
 			resp, err := doDNSRequest(ctx, blocky, msg)
 			Expect(err).Should(Succeed())
-			Expect(resp.Rcode).Should(Equal(dns.RcodeNameError))
+			Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
 			Expect(resp.Question).Should(Equal(msg.Question))
 			Expect(resp.Answer).Should(BeEmpty())
 		})

@@ -17,7 +17,7 @@ import (
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
 	"github.com/avast/retry-go/v4"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/moby/moby/api/types/container"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -422,7 +422,7 @@ func checkBlockyReadiness(ctx context.Context, cfg *config.Config, container tes
 
 	err = retry.Do(
 		func() error {
-			_, err = doDNSRequest(ctx, container, util.NewMsgWithQuestion("healthcheck.blocky.", dns.Type(dns.TypeA)))
+			_, err = doDNSRequest(ctx, container, util.NewMsgWithQuestion("healthcheck.blocky.", dnsv1.Type(dnsv1.TypeA)))
 			if err != nil {
 				return fmt.Errorf("DNS request failed: %w", err)
 			}

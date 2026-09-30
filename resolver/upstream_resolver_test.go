@@ -20,7 +20,7 @@ import (
 	"github.com/0xERR0R/blocky/log"
 	. "github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -30,13 +30,13 @@ import (
 const dohTestURL = "https://example.com/dns-query"
 
 // replyWithRR builds a reply to req whose answer section holds the single given record.
-func replyWithRR(req *dns.Msg, rr string) *dns.Msg {
-	resp := new(dns.Msg)
+func replyWithRR(req *dnsv1.Msg, rr string) *dnsv1.Msg {
+	resp := new(dnsv1.Msg)
 	resp.SetReply(req)
 
-	parsed, err := dns.NewRR(rr)
+	parsed, err := dnsv1.NewRR(rr)
 	Expect(err).Should(Succeed())
-	resp.Answer = []dns.RR{parsed}
+	resp.Answer = []dnsv1.RR{parsed}
 
 	return resp
 }
@@ -111,7 +111,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, "123.124.122.122"),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							HaveTTL(BeNumerically("==", 123)),
 							HaveReason(fmt.Sprintf("RESOLVED (%s)", sutConfig.Upstream))),
 					)
@@ -119,7 +119,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 		})
 		When("Configured DNS resolver can't resolve query", func() {
 			It("should return response code from DNS upstream", func() {
-				mockUpstream := NewMockUDPUpstreamServer().WithAnswerError(dns.RcodeNameError)
+				mockUpstream := NewMockUDPUpstreamServer().WithAnswerError(dnsv1.RcodeNameError)
 
 				sutConfig.Upstream = mockUpstream.Start()
 				sut := newUpstreamResolverUnchecked(sutConfig, nil)
@@ -129,14 +129,14 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeNameError),
+							HaveReturnCode(dnsv1.RcodeNameError),
 							HaveReason(fmt.Sprintf("RESOLVED (%s)", sutConfig.Upstream))),
 					)
 			})
 		})
 		When("Configured DNS resolver fails", func() {
 			It("should return error", func() {
-				mockUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+				mockUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
 					return nil
 				})
 
@@ -149,7 +149,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 		})
 		When("Configured DNS resolver returns ServFail", func() {
 			It("should return error", func() {
-				mockUpstream := NewMockUDPUpstreamServer().WithAnswerError(dns.RcodeServerFailure)
+				mockUpstream := NewMockUDPUpstreamServer().WithAnswerError(dnsv1.RcodeServerFailure)
 
 				sutConfig.Upstream = mockUpstream.Start()
 				sut := newUpstreamResolverUnchecked(sutConfig, nil)
@@ -165,7 +165,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 			var counter atomic.Int32
 			var attemptsWithTimeout atomic.Int32
 			BeforeEach(func() {
-				resolveFn := func(request *dns.Msg) *dns.Msg {
+				resolveFn := func(request *dnsv1.Msg) *dnsv1.Msg {
 					// timeout on first x attempts
 					if counter.Add(1) <= attemptsWithTimeout.Load() {
 						time.Sleep(2 * timeout)
@@ -192,7 +192,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 							SatisfyAll(
 								BeDNSRecord("example.com.", A, "123.124.122.122"),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dns.RcodeSuccess),
+								HaveReturnCode(dnsv1.RcodeSuccess),
 								HaveTTL(BeNumerically("==", 123)),
 							))
 				})
@@ -224,7 +224,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 							SatisfyAll(
 								BeDNSRecord("example.com.", A, "123.124.122.122"),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dns.RcodeSuccess),
+								HaveReturnCode(dnsv1.RcodeSuccess),
 								HaveTTL(BeNumerically("==", 123)),
 							))
 				})
@@ -244,13 +244,13 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 		When("the UDP answer is clean (not truncated, question matches)", func() {
 			It("returns the UDP answer and never dials TCP", func() {
 				mockUpstream := newMockTCPUDPUpstreamServer(
-					func(req *dns.Msg) *dns.Msg {
+					func(req *dnsv1.Msg) *dnsv1.Msg {
 						// Delay UDP so a speculative TCP race (the old behavior) would win if started.
 						time.Sleep(handlerDelay)
 
 						return replyWithRR(req, "example.com. 123 IN A 1.2.3.4")
 					},
-					func(req *dns.Msg) *dns.Msg {
+					func(req *dnsv1.Msg) *dnsv1.Msg {
 						return replyWithRR(req, "example.com. 123 IN A 5.6.7.8")
 					},
 				)
@@ -269,14 +269,14 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 		When("the UDP answer is truncated", func() {
 			It("falls back to TCP and returns the TCP answer", func() {
 				mockUpstream := newMockTCPUDPUpstreamServer(
-					func(req *dns.Msg) *dns.Msg {
-						resp := new(dns.Msg)
+					func(req *dnsv1.Msg) *dnsv1.Msg {
+						resp := new(dnsv1.Msg)
 						resp.SetReply(req)
 						resp.Truncated = true
 
 						return resp
 					},
-					func(req *dns.Msg) *dns.Msg {
+					func(req *dnsv1.Msg) *dnsv1.Msg {
 						return replyWithRR(req, "example.com. 123 IN A 5.6.7.8")
 					},
 				)
@@ -295,10 +295,10 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 		When("the UDP handler simulates a broken upstream (returns nil)", func() {
 			It("falls back to TCP and returns the TCP answer", func() {
 				mockUpstream := newMockTCPUDPUpstreamServer(
-					func(req *dns.Msg) *dns.Msg {
+					func(req *dnsv1.Msg) *dnsv1.Msg {
 						return nil // the mock answers with garbage the client can't parse
 					},
-					func(req *dns.Msg) *dns.Msg {
+					func(req *dnsv1.Msg) *dnsv1.Msg {
 						return replyWithRR(req, "example.com. 123 IN A 5.6.7.8")
 					},
 				)
@@ -318,7 +318,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 			It("falls back to TCP and returns the TCP answer", func() {
 				mockUpstream := newMockTCPUDPUpstreamServer(
 					nil, // UDP queries are refused, the handler is never reached
-					func(req *dns.Msg) *dns.Msg {
+					func(req *dnsv1.Msg) *dnsv1.Msg {
 						return replyWithRR(req, "example.com. 123 IN A 5.6.7.8")
 					},
 				)
@@ -336,21 +336,21 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 		When("the UDP answer's question section doesn't match the request", func() {
 			It("treats it as unusable and falls back to TCP", func() {
 				mockUpstream := newMockTCPUDPUpstreamServer(
-					func(req *dns.Msg) *dns.Msg {
-						resp := new(dns.Msg)
+					func(req *dnsv1.Msg) *dnsv1.Msg {
+						resp := new(dnsv1.Msg)
 						resp.SetReply(req)
 						// A mismatched question section — some buggy/limited upstreams do this over UDP.
-						resp.Question = []dns.Question{{
-							Name: "wrong.example.", Qtype: dns.TypeA, Qclass: dns.ClassINET,
+						resp.Question = []dnsv1.Question{{
+							Name: "wrong.example.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET,
 						}}
 
-						parsed, err := dns.NewRR("wrong.example. 123 IN A 1.2.3.4")
+						parsed, err := dnsv1.NewRR("wrong.example. 123 IN A 1.2.3.4")
 						Expect(err).Should(Succeed())
-						resp.Answer = []dns.RR{parsed}
+						resp.Answer = []dnsv1.RR{parsed}
 
 						return resp
 					},
-					func(req *dns.Msg) *dns.Msg {
+					func(req *dnsv1.Msg) *dnsv1.Msg {
 						// Delay TCP so the (old) racing UDP answer would win and be returned if it could.
 						time.Sleep(handlerDelay)
 
@@ -371,16 +371,16 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 		When("the UDP answer's question section doesn't match and TCP is unreachable", func() {
 			It("returns an error instead of the mismatched answer", func() {
 				mockUpstream := newMockTCPUDPUpstreamServer(
-					func(req *dns.Msg) *dns.Msg {
-						resp := new(dns.Msg)
+					func(req *dnsv1.Msg) *dnsv1.Msg {
+						resp := new(dnsv1.Msg)
 						resp.SetReply(req)
-						resp.Question = []dns.Question{{
-							Name: "wrong.example.", Qtype: dns.TypeA, Qclass: dns.ClassINET,
+						resp.Question = []dnsv1.Question{{
+							Name: "wrong.example.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET,
 						}}
 
-						parsed, err := dns.NewRR("wrong.example. 123 IN A 1.2.3.4")
+						parsed, err := dnsv1.NewRR("wrong.example. 123 IN A 1.2.3.4")
 						Expect(err).Should(Succeed())
-						resp.Answer = []dns.RR{parsed}
+						resp.Answer = []dnsv1.RR{parsed}
 
 						return resp
 					},
@@ -402,7 +402,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 				var advertised atomic.Int32
 
 				mockUpstream := newMockTCPUDPUpstreamServer(
-					func(req *dns.Msg) *dns.Msg {
+					func(req *dnsv1.Msg) *dnsv1.Msg {
 						if opt := req.IsEdns0(); opt != nil {
 							advertised.Store(int32(opt.UDPSize()))
 						}
@@ -412,7 +412,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 
 						return resp
 					},
-					func(req *dns.Msg) *dns.Msg {
+					func(req *dnsv1.Msg) *dnsv1.Msg {
 						return replyWithRR(req, "example.com. 123 IN A 5.6.7.8")
 					},
 				)
@@ -439,14 +439,14 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 				var advertised atomic.Int32
 
 				mockUpstream := newMockTCPUDPUpstreamServer(
-					func(req *dns.Msg) *dns.Msg {
+					func(req *dnsv1.Msg) *dnsv1.Msg {
 						if opt := req.IsEdns0(); opt != nil {
 							advertised.Store(int32(opt.UDPSize()))
 						}
 
 						return replyWithRR(req, "example.com. 123 IN A 1.2.3.4")
 					},
-					func(req *dns.Msg) *dns.Msg {
+					func(req *dnsv1.Msg) *dnsv1.Msg {
 						return replyWithRR(req, "example.com. 123 IN A 5.6.7.8")
 					},
 				)
@@ -465,12 +465,12 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 
 	Describe("Using DNS over HTTPS (DoH) upstream", func() {
 		var (
-			respFn           func(request *dns.Msg) (response *dns.Msg)
+			respFn           func(request *dnsv1.Msg) (response *dnsv1.Msg)
 			modifyHTTPRespFn func(w http.ResponseWriter)
 		)
 
 		BeforeEach(func() {
-			respFn = func(_ *dns.Msg) *dns.Msg {
+			respFn = func(_ *dnsv1.Msg) *dnsv1.Msg {
 				response, err := util.NewMsgWithAnswer("example.com", 123, A, "123.124.122.122")
 
 				Expect(err).Should(Succeed())
@@ -513,7 +513,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, "123.124.122.122"),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							HaveTTL(BeNumerically("==", 123)),
 							HaveReason(fmt.Sprintf("RESOLVED (%s)", sutConfig.Upstream)),
 						))
@@ -607,7 +607,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, "123.124.122.122"),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dns.RcodeSuccess),
+							HaveReturnCode(dnsv1.RcodeSuccess),
 							HaveTTL(BeNumerically("==", 123)),
 						))
 			})
@@ -615,7 +615,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 
 		When("DoQ upstream returns error code", func() {
 			It("should return error response", func() {
-				mockUpstream := NewMockDoQUpstreamServer().WithAnswerError(dns.RcodeServerFailure)
+				mockUpstream := NewMockDoQUpstreamServer().WithAnswerError(dnsv1.RcodeServerFailure)
 				upstream := mockUpstream.Start()
 
 				sutConfig.Upstream = upstream
@@ -625,7 +625,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 				quicClient.tlsConfig.InsecureSkipVerify = true
 
 				Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
-					Should(HaveReturnCode(dns.RcodeServerFailure))
+					Should(HaveReturnCode(dnsv1.RcodeServerFailure))
 			})
 		})
 
@@ -660,7 +660,7 @@ var _ = Describe("UpstreamResolver", Label("upstreamResolver"), func() {
 							SatisfyAll(
 								BeDNSRecord("example.com.", A, "123.124.122.122"),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dns.RcodeSuccess),
+								HaveReturnCode(dnsv1.RcodeSuccess),
 							))
 				}
 
@@ -956,7 +956,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 		It("falls back to the tcp client instead of nil-dereferencing the pool", func() {
 			// A connection-oriented client with neither a udp client nor a pool
 			// (e.g. a future tcp-only client) must surface an error, not panic.
-			client := &dnsUpstreamClient{tcpClient: &dns.Client{Net: transportTCP}}
+			client := &dnsUpstreamClient{tcpClient: &dnsv1.Client{Net: transportTCP}}
 
 			_, _, err := client.callExternal(ctx, newRequest("example.com.", A).Req, "127.0.0.1:0")
 			Expect(err).Should(HaveOccurred())
@@ -968,9 +968,9 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 			It("returns a pack error without sending anything", func() {
 				client := &httpUpstreamClient{client: http.DefaultClient, host: "example.com"}
 
-				msg := new(dns.Msg)
-				msg.Question = []dns.Question{{
-					Name: "not-fully-qualified", Qtype: dns.TypeA, Qclass: dns.ClassINET,
+				msg := new(dnsv1.Msg)
+				msg.Question = []dnsv1.Question{{
+					Name: "not-fully-qualified", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET,
 				}}
 
 				_, _, err := client.callExternal(ctx, msg, "https://127.0.0.1:1/dns-query")
@@ -1035,24 +1035,24 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 			It("maps the response to an UpstreamServerError like the UDP/TCP path", func() {
 				mockUpstream := newMockTCPUDPUpstreamServer(
 					nil, // a TCP-only client never dials UDP
-					func(req *dns.Msg) *dns.Msg {
-						resp := new(dns.Msg)
+					func(req *dnsv1.Msg) *dnsv1.Msg {
+						resp := new(dnsv1.Msg)
 						resp.SetReply(req)
-						resp.Rcode = dns.RcodeServerFailure
+						resp.Rcode = dnsv1.RcodeServerFailure
 
 						return resp
 					},
 				)
 				upstream := mockUpstream.StartTCPOnly()
 
-				client := &dnsUpstreamClient{tcpClient: &dns.Client{Net: transportTCP}}
+				client := &dnsUpstreamClient{tcpClient: &dnsv1.Client{Net: transportTCP}}
 				url := client.fmtURL(netip.MustParseAddr(upstream.Host), upstream.Port, "")
 
 				_, _, err := client.callExternal(ctx, newRequest("example.com.", A).Req, url)
 
 				var servErr *UpstreamServerError
 				Expect(errors.As(err, &servErr)).Should(BeTrue())
-				Expect(servErr.Msg.Rcode).Should(Equal(dns.RcodeServerFailure))
+				Expect(servErr.Msg.Rcode).Should(Equal(dnsv1.RcodeServerFailure))
 			})
 		})
 	})
@@ -1095,7 +1095,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 					Should(SatisfyAll(
 						BeDNSRecord("example.com.", A, "123.124.122.122"),
 						HaveResponseType(ResponseTypeRESOLVED),
-						HaveReturnCode(dns.RcodeSuccess),
+						HaveReturnCode(dnsv1.RcodeSuccess),
 					))
 			}
 
@@ -1121,7 +1121,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 					Should(SatisfyAll(
 						BeDNSRecord("example.com.", A, "123.124.122.122"),
 						HaveResponseType(ResponseTypeRESOLVED),
-						HaveReturnCode(dns.RcodeSuccess),
+						HaveReturnCode(dnsv1.RcodeSuccess),
 					))
 			}
 
@@ -1144,7 +1144,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 			sut := newDoTResolver(mock.Start())
 
 			Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
-				Should(HaveReturnCode(dns.RcodeSuccess))
+				Should(HaveReturnCode(dnsv1.RcodeSuccess))
 
 			client := sut.upstreamClient.(*dnsUpstreamClient)
 			Expect(client.pool.idleCount()).Should(Equal(1))
@@ -1158,7 +1158,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 			sut := newDoTResolver(mock.Start())
 
 			Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
-				Should(HaveReturnCode(dns.RcodeSuccess))
+				Should(HaveReturnCode(dnsv1.RcodeSuccess))
 
 			// The query left a handleConn goroutine serving the accepted connection.
 			Eventually(mock.openConnCount).Should(Equal(1))
@@ -1191,7 +1191,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 
 			for range 3 {
 				Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
-					Should(HaveReturnCode(dns.RcodeSuccess))
+					Should(HaveReturnCode(dnsv1.RcodeSuccess))
 			}
 
 			Expect(mock.GetCallCount()).Should(Equal(3))
@@ -1204,7 +1204,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 			sut := newDoHResolver(mock.Start())
 
 			Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
-				Should(HaveReturnCode(dns.RcodeSuccess))
+				Should(HaveReturnCode(dnsv1.RcodeSuccess))
 
 			// The upstream drops the idle connection blocky still has pooled. The
 			// next query goes out on it and fails without ever being served.
@@ -1214,7 +1214,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 				Should(SatisfyAll(
 					BeDNSRecord("example.com.", A, "123.124.122.122"),
 					HaveResponseType(ResponseTypeRESOLVED),
-					HaveReturnCode(dns.RcodeSuccess),
+					HaveReturnCode(dnsv1.RcodeSuccess),
 				))
 
 			// Two queries served, on a fresh connection for the second.
@@ -1240,7 +1240,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 					defer wg.Done()
 
 					Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
-						Should(HaveReturnCode(dns.RcodeSuccess))
+						Should(HaveReturnCode(dnsv1.RcodeSuccess))
 				}()
 			}
 
@@ -1250,7 +1250,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 			mock.KillOpenConns()
 
 			Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
-				Should(HaveReturnCode(dns.RcodeSuccess))
+				Should(HaveReturnCode(dnsv1.RcodeSuccess))
 		})
 
 		It("gives up instead of retrying forever when the upstream never answers", func() {
@@ -1328,7 +1328,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 
 			for range 4 {
 				Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
-					Should(HaveReturnCode(dns.RcodeSuccess))
+					Should(HaveReturnCode(dnsv1.RcodeSuccess))
 			}
 
 			// A reconnect happened: 3 queries on the first connection, then a fresh one.

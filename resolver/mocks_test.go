@@ -16,7 +16,7 @@ import (
 
 	"github.com/0xERR0R/blocky/model"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -25,8 +25,8 @@ type mockResolver struct {
 	NextResolver
 
 	ResolveFn  func(ctx context.Context, req *model.Request) (*model.Response, error)
-	ResponseFn func(req *dns.Msg) *dns.Msg
-	AnswerFn   func(qType dns.Type, qName string) (*dns.Msg, error)
+	ResponseFn func(req *dnsv1.Msg) *dnsv1.Msg
+	AnswerFn   func(qType dnsv1.Type, qName string) (*dnsv1.Msg, error)
 }
 
 // Type implements `Resolver`.
@@ -63,7 +63,7 @@ func (r *mockResolver) Resolve(ctx context.Context, req *model.Request) (*model.
 
 	if r.AnswerFn != nil {
 		for _, question := range req.Req.Question {
-			answer, err := r.AnswerFn(dns.Type(question.Qtype), question.Name)
+			answer, err := r.AnswerFn(dnsv1.Type(question.Qtype), question.Name)
 			if err != nil {
 				return nil, fmt.Errorf("AnswerFn error: %w", err)
 			}
@@ -77,8 +77,8 @@ func (r *mockResolver) Resolve(ctx context.Context, req *model.Request) (*model.
 			}
 		}
 
-		response := new(dns.Msg)
-		response.SetRcode(req.Req, dns.RcodeBadName)
+		response := new(dnsv1.Msg)
+		response.SetRcode(req.Req, dnsv1.RcodeBadName)
 
 		return &model.Response{
 			Res:    response,
@@ -103,23 +103,23 @@ var (
 // autoAnswer provides a valid fake answer.
 //
 // To be used as a value for `mockResolver.AnswerFn`.
-func autoAnswer(qType dns.Type, qName string) (*dns.Msg, error) {
+func autoAnswer(qType dnsv1.Type, qName string) (*dnsv1.Msg, error) {
 	var ip net.IP
 
 	switch uint16(qType) {
-	case dns.TypeA:
+	case dnsv1.TypeA:
 		ip = autoAnswerIPv4
-	case dns.TypeAAAA:
+	case dnsv1.TypeAAAA:
 		ip = autoAnswerIPv6
 	default:
-		return nil, fmt.Errorf("autoAnswer not implemented for qType=%s", dns.TypeToString[uint16(qType)])
+		return nil, fmt.Errorf("autoAnswer not implemented for qType=%s", dnsv1.TypeToString[uint16(qType)])
 	}
 
 	return util.NewMsgWithAnswer(qName, 60, qType, ip.String())
 }
 
 // newTestBootstrap creates a test Bootstrap
-func newTestBootstrap(ctx context.Context, response *dns.Msg) *Bootstrap {
+func newTestBootstrap(ctx context.Context, response *dnsv1.Msg) *Bootstrap {
 	const cfgTxt = `
 upstream: https://mock
 ips:
@@ -147,7 +147,7 @@ ips:
 }
 
 // newTestDOHUpstream creates a test DoH Upstream
-func newTestDOHUpstream(fn func(request *dns.Msg) (response *dns.Msg),
+func newTestDOHUpstream(fn func(request *dnsv1.Msg) (response *dnsv1.Msg),
 	reqFn ...func(w http.ResponseWriter),
 ) config.Upstream {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -155,7 +155,7 @@ func newTestDOHUpstream(fn func(request *dns.Msg) (response *dns.Msg),
 
 		util.FatalOnError("can't read request: ", err)
 
-		msg := new(dns.Msg)
+		msg := new(dnsv1.Msg)
 		err = msg.Unpack(body)
 		util.FatalOnError("can't deserialize message: ", err)
 
@@ -249,11 +249,11 @@ func (c *mockConn) SetWriteDeadline(time.Time) error {
 // newRecordingResolver returns a resolver that answers every query with the given
 // record, and a pointer to the question name it was last asked for. Use it to
 // assert which name a resolver hands down the chain.
-func newRecordingResolver(qType dns.Type, address string) (*mockResolver, *string) {
+func newRecordingResolver(qType dnsv1.Type, address string) (*mockResolver, *string) {
 	var seen string
 
 	m := &mockResolver{}
-	m.On("Resolve", mock.Anything).Return(&model.Response{Res: new(dns.Msg)}, nil)
+	m.On("Resolve", mock.Anything).Return(&model.Response{Res: new(dnsv1.Msg)}, nil)
 	m.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 		seen = req.Req.Question[0].Name
 
@@ -274,6 +274,6 @@ func newRecordingResolver(qType dns.Type, address string) (*mockResolver, *strin
 // and turn the "broken" upstream into a working one.
 func NewBrokenUDPUpstreamServer() config.Upstream {
 	return NewMockUDPUpstreamServer().
-		WithAnswerFn(func(*dns.Msg) *dns.Msg { return nil }).
+		WithAnswerFn(func(*dnsv1.Msg) *dnsv1.Msg { return nil }).
 		Start()
 }

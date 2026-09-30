@@ -8,7 +8,7 @@ import (
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // RebindingProtectionResolver drops answers that contain private, loopback, link-local
@@ -99,7 +99,7 @@ func (r *RebindingProtectionResolver) Resolve(ctx context.Context, request *mode
 
 	// fixed reason: it becomes a Prometheus label via MetricsResolver, and the IP is
 	// attacker-chosen — embedding it would allow unbounded cardinality growth
-	return model.NewResponseWithRcode(request, dns.RcodeSuccess, model.ResponseTypeREBIND,
+	return model.NewResponseWithRcode(request, dnsv1.RcodeSuccess, model.ResponseTypeREBIND,
 		"REBIND (rebinding protection)"), nil
 }
 
@@ -115,8 +115,8 @@ func (r *RebindingProtectionResolver) isAllowed(domain string) bool {
 // message: upstreams may place address records not only in the answer but also in
 // the additional section (e.g. HTTPS/SVCB target addresses, RFC 9460 §5) or the
 // authority section, and clients may consume them from there.
-func findBlockedIPInMsg(msg *dns.Msg) netip.Addr {
-	for _, section := range [][]dns.RR{msg.Answer, msg.Extra, msg.Ns} {
+func findBlockedIPInMsg(msg *dnsv1.Msg) netip.Addr {
+	for _, section := range [][]dnsv1.RR{msg.Answer, msg.Extra, msg.Ns} {
 		if ip := findBlockedIP(section); ip.IsValid() {
 			return ip
 		}
@@ -127,22 +127,22 @@ func findBlockedIPInMsg(msg *dns.Msg) netip.Addr {
 
 // findBlockedIP returns the first non-public IP found in the A/AAAA records or HTTPS/SVCB ip hints of the
 // given record section, or the zero Addr if there is none.
-func findBlockedIP(answers []dns.RR) netip.Addr {
+func findBlockedIP(answers []dnsv1.RR) netip.Addr {
 	for _, rr := range answers {
 		switch v := rr.(type) {
-		case *dns.A:
+		case *dnsv1.A:
 			if ip := util.AddrFromIP(v.A); isBlockedIP(ip) {
 				return ip
 			}
-		case *dns.AAAA:
+		case *dnsv1.AAAA:
 			if ip := util.AddrFromIP(v.AAAA); isBlockedIP(ip) {
 				return ip
 			}
-		case *dns.HTTPS:
+		case *dnsv1.HTTPS:
 			if ip := findBlockedHintIP(v.Value); ip.IsValid() {
 				return ip
 			}
-		case *dns.SVCB:
+		case *dnsv1.SVCB:
 			if ip := findBlockedHintIP(v.Value); ip.IsValid() {
 				return ip
 			}
@@ -154,14 +154,14 @@ func findBlockedIP(answers []dns.RR) netip.Addr {
 
 // findBlockedHintIP returns the first non-public IP in the ipv4hint/ipv6hint
 // SvcParams of an HTTPS/SVCB record, or the zero Addr if there is none.
-func findBlockedHintIP(values []dns.SVCBKeyValue) netip.Addr {
+func findBlockedHintIP(values []dnsv1.SVCBKeyValue) netip.Addr {
 	var hints []net.IP
 
 	for _, kv := range values {
 		switch hint := kv.(type) {
-		case *dns.SVCBIPv4Hint:
+		case *dnsv1.SVCBIPv4Hint:
 			hints = hint.Hint
-		case *dns.SVCBIPv6Hint:
+		case *dnsv1.SVCBIPv6Hint:
 			hints = hint.Hint
 		default:
 			continue

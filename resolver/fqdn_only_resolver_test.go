@@ -7,7 +7,7 @@ import (
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/log"
 	. "github.com/0xERR0R/blocky/model"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -18,7 +18,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 		sut        *FQDNOnlyResolver
 		sutConfig  config.FQDNOnly
 		m          *mockResolver
-		mockAnswer *dns.Msg
+		mockAnswer *dnsv1.Msg
 
 		ctx      context.Context
 		cancelFn context.CancelFunc
@@ -34,7 +34,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 		ctx, cancelFn = context.WithCancel(context.Background())
 		DeferCleanup(cancelFn)
 
-		mockAnswer = new(dns.Msg)
+		mockAnswer = new(dnsv1.Msg)
 	})
 
 	JustBeforeEach(func() {
@@ -70,7 +70,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 					SatisfyAll(
 						HaveNoAnswer(),
 						HaveResponseType(ResponseTypeRESOLVED),
-						HaveReturnCode(dns.RcodeSuccess),
+						HaveReturnCode(dnsv1.RcodeSuccess),
 					))
 
 			// delegated to next resolver
@@ -82,7 +82,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 					SatisfyAll(
 						HaveNoAnswer(),
 						HaveResponseType(ResponseTypeNOTFQDN),
-						HaveReturnCode(dns.RcodeNameError),
+						HaveReturnCode(dnsv1.RcodeNameError),
 					))
 
 			// no call of next resolver
@@ -128,7 +128,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 					SatisfyAll(
 						HaveNoAnswer(),
 						HaveResponseType(ResponseTypeRESOLVED),
-						HaveReturnCode(dns.RcodeSuccess),
+						HaveReturnCode(dnsv1.RcodeSuccess),
 					))
 
 			// delegated to next resolver
@@ -140,7 +140,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 					SatisfyAll(
 						HaveNoAnswer(),
 						HaveResponseType(ResponseTypeRESOLVED),
-						HaveReturnCode(dns.RcodeSuccess),
+						HaveReturnCode(dnsv1.RcodeSuccess),
 					))
 
 			// delegated to next resolver

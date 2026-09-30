@@ -4,24 +4,24 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // EDNS0Option is an interface for all EDNS0 options as type constraint for generics.
 type EDNS0Option interface {
-	*dns.EDNS0_SUBNET | *dns.EDNS0_EDE | *dns.EDNS0_LOCAL | *dns.EDNS0_NSID | *dns.EDNS0_COOKIE | *dns.EDNS0_UL
+	*dnsv1.EDNS0_SUBNET | *dnsv1.EDNS0_EDE | *dnsv1.EDNS0_LOCAL | *dnsv1.EDNS0_NSID | *dnsv1.EDNS0_COOKIE | *dnsv1.EDNS0_UL
 	Option() uint16
 }
 
 // RemoveEdns0Record removes the OPT record from the Extra section of the given message.
 // If the OPT record is removed, true will be returned.
-func RemoveEdns0Record(msg *dns.Msg) bool {
+func RemoveEdns0Record(msg *dnsv1.Msg) bool {
 	if msg == nil || msg.IsEdns0() == nil {
 		return false
 	}
 
 	for i, rr := range msg.Extra {
-		if rr.Header().Rrtype == dns.TypeOPT {
+		if rr.Header().Rrtype == dnsv1.TypeOPT {
 			msg.Extra = slices.Delete(msg.Extra, i, i+1)
 
 			return true
@@ -34,7 +34,7 @@ func RemoveEdns0Record(msg *dns.Msg) bool {
 // GetEdns0Option returns the option with the given code from the OPT record in the
 // Extra section of the given message.
 // If the option is not found, nil will be returned.
-func GetEdns0Option[T EDNS0Option](msg *dns.Msg) T {
+func GetEdns0Option[T EDNS0Option](msg *dnsv1.Msg) T {
 	if msg == nil {
 		return nil
 	}
@@ -64,7 +64,7 @@ func GetEdns0Option[T EDNS0Option](msg *dns.Msg) T {
 // in the Extra section of the given message.
 // If there are no more options in the OPT record, the OPT record will be removed.
 // If the option is successfully removed, true will be returned.
-func RemoveEdns0Option[T EDNS0Option](msg *dns.Msg) bool {
+func RemoveEdns0Option[T EDNS0Option](msg *dnsv1.Msg) bool {
 	return removeEdns0Option[T](msg, true)
 }
 
@@ -73,11 +73,11 @@ func RemoveEdns0Option[T EDNS0Option](msg *dns.Msg) bool {
 // empty: on a request its header still carries the DO bit and the UDP buffer size the client
 // advertised, and a response to an EDNS0 query must have one (RFC 6891 section 6.1.1).
 // If the option is successfully removed, true will be returned.
-func RemoveEdns0OptionKeepRecord[T EDNS0Option](msg *dns.Msg) bool {
+func RemoveEdns0OptionKeepRecord[T EDNS0Option](msg *dnsv1.Msg) bool {
 	return removeEdns0Option[T](msg, false)
 }
 
-func removeEdns0Option[T EDNS0Option](msg *dns.Msg, dropEmptyRecord bool) bool {
+func removeEdns0Option[T EDNS0Option](msg *dnsv1.Msg, dropEmptyRecord bool) bool {
 	if msg == nil {
 		return false
 	}
@@ -112,7 +112,7 @@ func removeEdns0Option[T EDNS0Option](msg *dns.Msg, dropEmptyRecord bool) bool {
 // given message.
 // If the option already exists, it will be replaced.
 // If the option is successfully set, true will be returned.
-func SetEdns0Option(msg *dns.Msg, opt dns.EDNS0) bool {
+func SetEdns0Option(msg *dnsv1.Msg, opt dnsv1.EDNS0) bool {
 	if msg == nil || opt == nil {
 		return false
 	}
@@ -120,13 +120,13 @@ func SetEdns0Option(msg *dns.Msg, opt dns.EDNS0) bool {
 	optRecord := msg.IsEdns0()
 
 	if optRecord == nil {
-		optRecord = new(dns.OPT)
+		optRecord = new(dnsv1.OPT)
 		optRecord.Hdr.Name = "."
-		optRecord.Hdr.Rrtype = dns.TypeOPT
+		optRecord.Hdr.Rrtype = dnsv1.TypeOPT
 		msg.Extra = append(msg.Extra, optRecord)
 	}
 
-	newOpts := make([]dns.EDNS0, 0, len(optRecord.Option)+1)
+	newOpts := make([]dnsv1.EDNS0, 0, len(optRecord.Option)+1)
 
 	for _, o := range optRecord.Option {
 		if o.Option() != opt.Option() {

@@ -10,7 +10,7 @@ import (
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/invopop/jsonschema"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -18,8 +18,8 @@ import (
 // exact set QType.UnmarshalText looks up in dns.StringToType, so a schema enum
 // built from it can never be a false-positive.
 func qtypeNames() []string {
-	names := make([]string, 0, len(dns.StringToType))
-	for name := range dns.StringToType {
+	names := make([]string, 0, len(dnsv1.StringToType))
+	for name := range dnsv1.StringToType {
 		names = append(names, name)
 	}
 

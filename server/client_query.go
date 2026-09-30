@@ -3,7 +3,7 @@ package server
 import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // clientQuery holds the properties of a query as the client itself sent it.
@@ -58,7 +58,7 @@ func newClientQuery(request *model.Request) clientQuery {
 
 // normalizeResponse adapts res to the query the client actually sent. It is the last step before
 // the response goes on the wire.
-func (q clientQuery) normalizeResponse(res *dns.Msg) {
+func (q clientQuery) normalizeResponse(res *dnsv1.Msg) {
 	res.RecursionAvailable = q.recursionDesired
 
 	if !q.wantsAD {
@@ -86,7 +86,7 @@ func (q clientQuery) normalizeResponse(res *dns.Msg) {
 		// answered and on whether the answer came from the cache (stored without an OPT record),
 		// and a client that tracks cookie support per server address — c-ares does — discards the
 		// cookieless answers of such a flip-flopping server as spoofed.
-		util.RemoveEdns0OptionKeepRecord[*dns.EDNS0_COOKIE](res)
+		util.RemoveEdns0OptionKeepRecord[*dnsv1.EDNS0_COOKIE](res)
 
 		// RFC 3225 §3: the DO bit of the query is copied into the response
 		opt.SetDo(q.wantsDNSSEC)
@@ -95,13 +95,13 @@ func (q clientQuery) normalizeResponse(res *dns.Msg) {
 		// resolver uses to annotate cache hits and blocked answers, builds one without a class
 		// field. RFC 6891 §6.2.4 makes a peer read that zero as 512 and shrink its buffer to match.
 		if opt.UDPSize() == 0 {
-			opt.SetUDPSize(dns.DefaultMsgSize)
+			opt.SetUDPSize(dnsv1.DefaultMsgSize)
 		}
 	} else {
 		// RFC 6891 §6.1.1: a response to an EDNS0 query must carry an OPT record. Cache hits
 		// are served from bytes packed without one; resolvers such as systemd-resolved read
 		// its absence as a server without EDNS0 support and downgrade.
-		res.SetEdns0(dns.DefaultMsgSize, q.wantsDNSSEC)
+		res.SetEdns0(dnsv1.DefaultMsgSize, q.wantsDNSSEC)
 	}
 
 	// truncate if necessary; Truncate also disables compression when the message already fits
@@ -114,7 +114,7 @@ func (q clientQuery) normalizeResponse(res *dns.Msg) {
 	// what it received. Compress anything that wouldn't fit a bare 512-byte UDP message so it
 	// survives that hop; below that there is nothing to gain and the compression map costs more
 	// than the bytes it would save.
-	if !res.Compress && res.Len() > dns.MinMsgSize {
+	if !res.Compress && res.Len() > dnsv1.MinMsgSize {
 		res.Compress = true
 	}
 }
@@ -123,7 +123,7 @@ func (q clientQuery) normalizeResponse(res *dns.Msg) {
 // For UDP returns EDNS UDP size or if not present, 512
 func getMaxResponseSize(req *model.Request) int {
 	if req.Protocol == model.RequestProtocolTCP {
-		return dns.MaxMsgSize
+		return dnsv1.MaxMsgSize
 	}
 
 	edns := req.Req.IsEdns0()
@@ -131,5 +131,5 @@ func getMaxResponseSize(req *model.Request) int {
 		return int(edns.UDPSize())
 	}
 
-	return dns.MinMsgSize
+	return dnsv1.MinMsgSize
 }

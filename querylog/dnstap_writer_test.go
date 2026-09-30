@@ -11,7 +11,7 @@ import (
 	"github.com/0xERR0R/blocky/log"
 	"github.com/0xERR0R/blocky/model"
 	dnstap "github.com/dnstap/golang-dnstap"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -99,12 +99,12 @@ var _ = Describe("DnstapWriter", func() {
 
 	Describe("marshalDnstapFrame", func() {
 		It("builds a CLIENT_RESPONSE frame", func() {
-			query := new(dns.Msg)
-			query.SetQuestion("example.com.", dns.TypeA)
+			query := new(dnsv1.Msg)
+			query.SetQuestion("example.com.", dnsv1.TypeA)
 			queryWire, err := query.Pack()
 			Expect(err).Should(Succeed())
 
-			response := new(dns.Msg)
+			response := new(dnsv1.Msg)
 			response.SetReply(query)
 			responseWire, err := response.Pack()
 			Expect(err).Should(Succeed())
@@ -154,14 +154,14 @@ var _ = Describe("DnstapWriter", func() {
 		)
 
 		BeforeEach(func() {
-			query := new(dns.Msg)
-			query.SetQuestion("example.com.", dns.TypeA)
+			query := new(dnsv1.Msg)
+			query.SetQuestion("example.com.", dnsv1.TypeA)
 
 			var err error
 			queryWire, err = query.Pack()
 			Expect(err).Should(Succeed())
 
-			response := new(dns.Msg)
+			response := new(dnsv1.Msg)
 			response.SetReply(query)
 			responseWire, err = response.Pack()
 			Expect(err).Should(Succeed())

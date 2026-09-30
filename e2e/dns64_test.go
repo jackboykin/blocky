@@ -5,7 +5,7 @@ import (
 
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -59,7 +59,7 @@ var _ = Describe("DNS64 e2e tests", Label("e2e"), func() {
 					Expect(err).Should(Succeed())
 
 					// Should get synthesized AAAA record
-					Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 					Expect(resp.Answer).Should(HaveLen(1))
 
 					// Verify the synthesized AAAA record
@@ -118,7 +118,7 @@ var _ = Describe("DNS64 e2e tests", Label("e2e"), func() {
 					Expect(err).Should(Succeed())
 
 					// Should get native AAAA record, not synthesized
-					Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 					Expect(resp.Answer).Should(HaveLen(1))
 
 					// Verify it's the native IPv6 address, not a synthesized one
@@ -176,7 +176,7 @@ var _ = Describe("DNS64 e2e tests", Label("e2e"), func() {
 				Expect(err).Should(Succeed())
 
 				// Should get CNAME record and synthesized AAAA record
-				Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 				Expect(resp.Answer).Should(HaveLen(2))
 
 				// Verify the CNAME and synthesized AAAA record
@@ -223,7 +223,7 @@ var _ = Describe("DNS64 e2e tests", Label("e2e"), func() {
 				Expect(err).Should(Succeed())
 
 				// Should get CNAME record and synthesized AAAA record
-				Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 				Expect(resp.Answer).Should(HaveLen(2))
 
 				// Verify the CNAME is present
@@ -236,7 +236,7 @@ var _ = Describe("DNS64 e2e tests", Label("e2e"), func() {
 				// The synthesized AAAA TTL should be the minimum from the chain (60, not 300)
 				var aaaaTTL uint32
 				for _, rr := range resp.Answer {
-					if rr.Header().Rrtype == dns.TypeAAAA {
+					if rr.Header().Rrtype == dnsv1.TypeAAAA {
 						aaaaTTL = rr.Header().Ttl
 
 						break
@@ -279,7 +279,7 @@ var _ = Describe("DNS64 e2e tests", Label("e2e"), func() {
 				Expect(err).Should(Succeed())
 
 				// Should get a single synthesized AAAA record, not the excluded one
-				Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 				Expect(resp.Answer).Should(HaveLen(1))
 
 				// Verify the synthesized record is from the A record (198.51.100.5)
@@ -322,7 +322,7 @@ var _ = Describe("DNS64 e2e tests", Label("e2e"), func() {
 				Expect(err).Should(Succeed())
 
 				// Should get two synthesized AAAA records
-				Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 				Expect(resp.Answer).Should(HaveLen(2))
 
 				// Verify both synthesized records are present
@@ -369,7 +369,7 @@ var _ = Describe("DNS64 e2e tests", Label("e2e"), func() {
 					Expect(err).Should(Succeed())
 
 					// Verify the synthesized record
-					Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 					Expect(resp.Answer).Should(HaveLen(1))
 					Expect(resp).Should(BeDNSRecord("cached.example.com.", AAAA, "64:ff9b::c000:206"))
 				})
@@ -380,7 +380,7 @@ var _ = Describe("DNS64 e2e tests", Label("e2e"), func() {
 					Expect(err).Should(Succeed())
 
 					// Verify the synthesized record is still correct
-					Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 					Expect(resp.Answer).Should(HaveLen(1))
 					Expect(resp).Should(BeDNSRecord("cached.example.com.", AAAA, "64:ff9b::c000:206"))
 				})

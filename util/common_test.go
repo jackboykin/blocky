@@ -8,7 +8,7 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 
@@ -50,12 +50,12 @@ var _ = Describe("Common function tests", func() {
 
 	Describe("Print DNS answer", func() {
 		When("different types of DNS answers", func() {
-			rr := make([]dns.RR, 0, 5)
-			rr = append(rr, &dns.A{A: net.ParseIP("127.0.0.1")})
-			rr = append(rr, &dns.AAAA{AAAA: net.ParseIP("2001:0db8:85a3:08d3:1319:8a2e:0370:7344")})
-			rr = append(rr, &dns.CNAME{Target: "cname"})
-			rr = append(rr, &dns.PTR{Ptr: "ptr"})
-			rr = append(rr, &dns.NS{Ns: "ns"})
+			rr := make([]dnsv1.RR, 0, 5)
+			rr = append(rr, &dnsv1.A{A: net.ParseIP("127.0.0.1")})
+			rr = append(rr, &dnsv1.AAAA{AAAA: net.ParseIP("2001:0db8:85a3:08d3:1319:8a2e:0370:7344")})
+			rr = append(rr, &dnsv1.CNAME{Target: "cname"})
+			rr = append(rr, &dnsv1.PTR{Ptr: "ptr"})
+			rr = append(rr, &dnsv1.NS{Ns: "ns"})
 			It("should print the answers", func() {
 				answerToString := AnswerToString(rr)
 				Expect(answerToString).Should(Equal("A (127.0.0.1), " +
@@ -73,7 +73,7 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should still return the raw representation (obfuscation is the caller's job)", func() {
-				rr := []dns.RR{&dns.A{A: net.ParseIP("127.0.0.1")}}
+				rr := []dnsv1.RR{&dnsv1.A{A: net.ParseIP("127.0.0.1")}}
 				Expect(AnswerToString(rr)).Should(Equal("A (127.0.0.1)"))
 			})
 		})
@@ -81,13 +81,13 @@ var _ = Describe("Common function tests", func() {
 
 	Describe("print question", func() {
 		When("question is provided", func() {
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "google.de",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 			It("should print the answers", func() {
-				questionToString := QuestionToString([]dns.Question{question})
+				questionToString := QuestionToString([]dnsv1.Question{question})
 				Expect(questionToString).Should(Equal("A (google.de)"))
 			})
 		})
@@ -95,10 +95,10 @@ var _ = Describe("Common function tests", func() {
 
 	Describe("Extract domain from query", func() {
 		When("Question is provided", func() {
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "google.de.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 			It("should extract only domain", func() {
 				domain := ExtractDomain(question)
@@ -111,20 +111,20 @@ var _ = Describe("Common function tests", func() {
 		When("Question is provided", func() {
 			question := "google.com."
 			It("should create message", func() {
-				msg := NewMsgWithQuestion(question, dns.Type(dns.TypeA))
+				msg := NewMsgWithQuestion(question, dnsv1.Type(dnsv1.TypeA))
 				Expect(QuestionToString(msg.Question)).Should(Equal("A (google.com.)"))
 			})
 		})
 		When("Answer is provided", func() {
 			It("should create message", func() {
-				msg, err := NewMsgWithAnswer("google.com", 25, dns.Type(dns.TypeA), "192.168.178.1")
+				msg, err := NewMsgWithAnswer("google.com", 25, dnsv1.Type(dnsv1.TypeA), "192.168.178.1")
 				Expect(err).Should(Succeed())
 				Expect(AnswerToString(msg.Answer)).Should(Equal("A (192.168.178.1)"))
 			})
 		})
 		When("Answer is corrupt", func() {
 			It("should throw an error", func() {
-				_, err := NewMsgWithAnswer(strings.Repeat("a", 300), 25, dns.Type(dns.TypeA), "192.168.178.1")
+				_, err := NewMsgWithAnswer(strings.Repeat("a", 300), 25, dnsv1.Type(dnsv1.TypeA), "192.168.178.1")
 				Expect(err).Should(HaveOccurred())
 			})
 		})
@@ -132,10 +132,10 @@ var _ = Describe("Common function tests", func() {
 
 	Describe("Create answer from question", func() {
 		When("type A is provided", func() {
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "google.de",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 			answer, err := CreateAnswerFromQuestion(question, netip.MustParseAddr("192.168.178.1"), 25)
 			Expect(err).Should(Succeed())
@@ -144,10 +144,10 @@ var _ = Describe("Common function tests", func() {
 			})
 		})
 		When("type AAAA is provided", func() {
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "google.de",
-				Qtype:  dns.TypeAAAA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeAAAA,
+				Qclass: dnsv1.ClassINET,
 			}
 			answer, err := CreateAnswerFromQuestion(question, netip.MustParseAddr("2001:0db8:85a3:0000:0000:8a2e:0370:7334"), 25)
 			Expect(err).Should(Succeed())
@@ -156,10 +156,10 @@ var _ = Describe("Common function tests", func() {
 			})
 		})
 		When("type NS is provided", func() {
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "google.de",
-				Qtype:  dns.TypeNS,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeNS,
+				Qclass: dnsv1.ClassINET,
 			}
 			answer, err := CreateAnswerFromQuestion(question, netip.MustParseAddr("192.168.178.1"), 25)
 			Expect(err).Should(Succeed())
@@ -169,10 +169,10 @@ var _ = Describe("Common function tests", func() {
 		})
 
 		When("Invalid record is provided", func() {
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   strings.Repeat("k", 99),
-				Qtype:  dns.TypeNS,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeNS,
+				Qclass: dnsv1.ClassINET,
 			}
 			_, err := CreateAnswerFromQuestion(question, netip.MustParseAddr("192.168.178.1"), 25)
 			It("should fail", func() {
@@ -241,9 +241,9 @@ var _ = Describe("Common function tests", func() {
 
 	Describe("Domain cache key generate/extract", func() {
 		It("should works", func() {
-			cacheKey := GenerateCacheKey(dns.Type(dns.TypeA), "example.com")
+			cacheKey := GenerateCacheKey(dnsv1.Type(dnsv1.TypeA), "example.com")
 			qType, qName := ExtractCacheKey(cacheKey)
-			Expect(qType).Should(Equal(dns.Type(dns.TypeA)))
+			Expect(qType).Should(Equal(dnsv1.Type(dnsv1.TypeA)))
 			Expect(qName).Should(Equal("example.com"))
 		})
 	})
@@ -284,10 +284,10 @@ var _ = Describe("Common function tests", func() {
 
 	Describe("CreateSOAForNegativeResponse", func() {
 		When("A valid question and blockTTL are provided", func() {
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "example.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 			blockTTL := uint32(3600)
 
@@ -303,7 +303,7 @@ var _ = Describe("Common function tests", func() {
 				soa := CreateSOAForNegativeResponse(question, blockTTL)
 
 				Expect(soa.Header().Name).Should(Equal("example.com."))
-				Expect(soa.Header().Rrtype).Should(Equal(dns.TypeSOA))
+				Expect(soa.Header().Rrtype).Should(Equal(dnsv1.TypeSOA))
 			})
 
 			It("should create SOA with proper nameserver and mailbox", func() {
@@ -324,10 +324,10 @@ var _ = Describe("Common function tests", func() {
 		})
 
 		When("Domain name is not FQDN", func() {
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "example.com", // Without trailing dot
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			It("should handle non-FQDN domain names", func() {
@@ -338,10 +338,10 @@ var _ = Describe("Common function tests", func() {
 		})
 
 		When("Different TTL values are provided", func() {
-			question := dns.Question{
+			question := dnsv1.Question{
 				Name:   "test.com.",
-				Qtype:  dns.TypeA,
-				Qclass: dns.ClassINET,
+				Qtype:  dnsv1.TypeA,
+				Qclass: dnsv1.ClassINET,
 			}
 
 			It("should respect blockTTL of 60 seconds", func() {
@@ -362,42 +362,42 @@ var _ = Describe("Common function tests", func() {
 
 	Describe("ExtractRecords", func() {
 		When("DNS message contains mixed record types", func() {
-			var msg *dns.Msg
+			var msg *dnsv1.Msg
 
 			BeforeEach(func() {
-				msg = new(dns.Msg)
+				msg = new(dnsv1.Msg)
 
-				aQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
-				aaaaQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeAAAA, Qclass: dns.ClassINET}
-				cnameQuestion := dns.Question{Name: "alias.com.", Qtype: dns.TypeCNAME, Qclass: dns.ClassINET}
-				nsQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeNS, Qclass: dns.ClassINET}
+				aQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET}
+				aaaaQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeAAAA, Qclass: dnsv1.ClassINET}
+				cnameQuestion := dnsv1.Question{Name: "alias.com.", Qtype: dnsv1.TypeCNAME, Qclass: dnsv1.ClassINET}
+				nsQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeNS, Qclass: dnsv1.ClassINET}
 
-				aRecord1 := &dns.A{
+				aRecord1 := &dnsv1.A{
 					Hdr: CreateHeader(aQuestion, 300),
 					A:   net.ParseIP("192.168.1.1"),
 				}
-				aaaaRecord := &dns.AAAA{
+				aaaaRecord := &dnsv1.AAAA{
 					Hdr:  CreateHeader(aaaaQuestion, 300),
 					AAAA: net.ParseIP("2001:db8::1"),
 				}
-				aRecord2 := &dns.A{
+				aRecord2 := &dnsv1.A{
 					Hdr: CreateHeader(aQuestion, 300),
 					A:   net.ParseIP("192.168.1.2"),
 				}
-				cnameRecord := &dns.CNAME{
+				cnameRecord := &dnsv1.CNAME{
 					Hdr:    CreateHeader(cnameQuestion, 300),
 					Target: "example.com.",
 				}
-				nsRecord := &dns.NS{
+				nsRecord := &dnsv1.NS{
 					Hdr: CreateHeader(nsQuestion, 300),
 					Ns:  "ns1.example.com.",
 				}
 
-				msg.Answer = []dns.RR{aRecord1, aaaaRecord, aRecord2, cnameRecord, nsRecord}
+				msg.Answer = []dnsv1.RR{aRecord1, aaaaRecord, aRecord2, cnameRecord, nsRecord}
 			})
 
 			It("should extract all A records", func() {
-				aRecords := ExtractRecords[*dns.A](msg)
+				aRecords := ExtractRecords[*dnsv1.A](msg)
 
 				Expect(aRecords).Should(HaveLen(2))
 				Expect(aRecords[0].A.String()).Should(Equal("192.168.1.1"))
@@ -405,21 +405,21 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should extract all AAAA records", func() {
-				aaaaRecords := ExtractRecords[*dns.AAAA](msg)
+				aaaaRecords := ExtractRecords[*dnsv1.AAAA](msg)
 
 				Expect(aaaaRecords).Should(HaveLen(1))
 				Expect(aaaaRecords[0].AAAA.String()).Should(Equal("2001:db8::1"))
 			})
 
 			It("should extract all CNAME records", func() {
-				cnameRecords := ExtractRecords[*dns.CNAME](msg)
+				cnameRecords := ExtractRecords[*dnsv1.CNAME](msg)
 
 				Expect(cnameRecords).Should(HaveLen(1))
 				Expect(cnameRecords[0].Target).Should(Equal("example.com."))
 			})
 
 			It("should extract all NS records", func() {
-				nsRecords := ExtractRecords[*dns.NS](msg)
+				nsRecords := ExtractRecords[*dnsv1.NS](msg)
 
 				Expect(nsRecords).Should(HaveLen(1))
 				Expect(nsRecords[0].Ns).Should(Equal("ns1.example.com."))
@@ -427,20 +427,20 @@ var _ = Describe("Common function tests", func() {
 		})
 
 		When("DNS message has no matching records", func() {
-			var msg *dns.Msg
+			var msg *dnsv1.Msg
 
 			BeforeEach(func() {
-				msg = new(dns.Msg)
+				msg = new(dnsv1.Msg)
 
-				aQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
-				cnameQuestion := dns.Question{Name: "alias.com.", Qtype: dns.TypeCNAME, Qclass: dns.ClassINET}
+				aQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET}
+				cnameQuestion := dnsv1.Question{Name: "alias.com.", Qtype: dnsv1.TypeCNAME, Qclass: dnsv1.ClassINET}
 
-				msg.Answer = []dns.RR{
-					&dns.A{
+				msg.Answer = []dnsv1.RR{
+					&dnsv1.A{
 						Hdr: CreateHeader(aQuestion, 300),
 						A:   net.ParseIP("192.168.1.1"),
 					},
-					&dns.CNAME{
+					&dnsv1.CNAME{
 						Hdr:    CreateHeader(cnameQuestion, 300),
 						Target: "example.com.",
 					},
@@ -448,51 +448,51 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should return empty slice for MX records", func() {
-				mxRecords := ExtractRecords[*dns.MX](msg)
+				mxRecords := ExtractRecords[*dnsv1.MX](msg)
 
 				Expect(mxRecords).Should(BeEmpty())
 			})
 
 			It("should return empty slice for TXT records", func() {
-				txtRecords := ExtractRecords[*dns.TXT](msg)
+				txtRecords := ExtractRecords[*dnsv1.TXT](msg)
 
 				Expect(txtRecords).Should(BeEmpty())
 			})
 		})
 
 		When("DNS message has empty answer section", func() {
-			var msg *dns.Msg
+			var msg *dnsv1.Msg
 
 			BeforeEach(func() {
-				msg = new(dns.Msg)
-				msg.Answer = []dns.RR{}
+				msg = new(dnsv1.Msg)
+				msg.Answer = []dnsv1.RR{}
 			})
 
 			It("should return empty slice for A records", func() {
-				aRecords := ExtractRecords[*dns.A](msg)
+				aRecords := ExtractRecords[*dnsv1.A](msg)
 
 				Expect(aRecords).Should(BeEmpty())
 			})
 		})
 
 		When("DNS message contains only matching record type", func() {
-			var msg *dns.Msg
+			var msg *dnsv1.Msg
 
 			BeforeEach(func() {
-				msg = new(dns.Msg)
+				msg = new(dnsv1.Msg)
 
-				aQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
+				aQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET}
 
-				msg.Answer = []dns.RR{
-					&dns.A{
+				msg.Answer = []dnsv1.RR{
+					&dnsv1.A{
 						Hdr: CreateHeader(aQuestion, 300),
 						A:   net.ParseIP("192.168.1.1"),
 					},
-					&dns.A{
+					&dnsv1.A{
 						Hdr: CreateHeader(aQuestion, 300),
 						A:   net.ParseIP("192.168.1.2"),
 					},
-					&dns.A{
+					&dnsv1.A{
 						Hdr: CreateHeader(aQuestion, 300),
 						A:   net.ParseIP("192.168.1.3"),
 					},
@@ -500,7 +500,7 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should extract all A records", func() {
-				aRecords := ExtractRecords[*dns.A](msg)
+				aRecords := ExtractRecords[*dnsv1.A](msg)
 
 				Expect(aRecords).Should(HaveLen(3))
 				Expect(aRecords[0].A.String()).Should(Equal("192.168.1.1"))
@@ -510,16 +510,16 @@ var _ = Describe("Common function tests", func() {
 		})
 
 		When("DNS message contains SOA and PTR records", func() {
-			var msg *dns.Msg
+			var msg *dnsv1.Msg
 
 			BeforeEach(func() {
-				msg = new(dns.Msg)
+				msg = new(dnsv1.Msg)
 
-				soaQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeSOA, Qclass: dns.ClassINET}
-				ptrQuestion := dns.Question{Name: "1.1.168.192.in-addr.arpa.", Qtype: dns.TypePTR, Qclass: dns.ClassINET}
+				soaQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeSOA, Qclass: dnsv1.ClassINET}
+				ptrQuestion := dnsv1.Question{Name: "1.1.168.192.in-addr.arpa.", Qtype: dnsv1.TypePTR, Qclass: dnsv1.ClassINET}
 
-				msg.Answer = []dns.RR{
-					&dns.SOA{
+				msg.Answer = []dnsv1.RR{
+					&dnsv1.SOA{
 						Hdr:     CreateHeader(soaQuestion, 3600),
 						Ns:      "ns1.example.com.",
 						Mbox:    "admin.example.com.",
@@ -529,7 +529,7 @@ var _ = Describe("Common function tests", func() {
 						Expire:  604800,
 						Minttl:  3600,
 					},
-					&dns.PTR{
+					&dnsv1.PTR{
 						Hdr: CreateHeader(ptrQuestion, 300),
 						Ptr: "example.com.",
 					},
@@ -537,7 +537,7 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should extract SOA record", func() {
-				soaRecords := ExtractRecords[*dns.SOA](msg)
+				soaRecords := ExtractRecords[*dnsv1.SOA](msg)
 
 				Expect(soaRecords).Should(HaveLen(1))
 				Expect(soaRecords[0].Ns).Should(Equal("ns1.example.com."))
@@ -545,7 +545,7 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should extract PTR record", func() {
-				ptrRecords := ExtractRecords[*dns.PTR](msg)
+				ptrRecords := ExtractRecords[*dnsv1.PTR](msg)
 
 				Expect(ptrRecords).Should(HaveLen(1))
 				Expect(ptrRecords[0].Ptr).Should(Equal("example.com."))
@@ -555,32 +555,32 @@ var _ = Describe("Common function tests", func() {
 
 	Describe("ExtractRecordsFromSlice", func() {
 		When("RR slice contains mixed record types", func() {
-			var rrs []dns.RR
+			var rrs []dnsv1.RR
 
 			BeforeEach(func() {
-				aQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
-				aaaaQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeAAAA, Qclass: dns.ClassINET}
-				cnameQuestion := dns.Question{Name: "alias.com.", Qtype: dns.TypeCNAME, Qclass: dns.ClassINET}
-				nsQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeNS, Qclass: dns.ClassINET}
+				aQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET}
+				aaaaQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeAAAA, Qclass: dnsv1.ClassINET}
+				cnameQuestion := dnsv1.Question{Name: "alias.com.", Qtype: dnsv1.TypeCNAME, Qclass: dnsv1.ClassINET}
+				nsQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeNS, Qclass: dnsv1.ClassINET}
 
-				rrs = []dns.RR{
-					&dns.A{
+				rrs = []dnsv1.RR{
+					&dnsv1.A{
 						Hdr: CreateHeader(aQuestion, 300),
 						A:   net.ParseIP("192.168.1.1"),
 					},
-					&dns.AAAA{
+					&dnsv1.AAAA{
 						Hdr:  CreateHeader(aaaaQuestion, 300),
 						AAAA: net.ParseIP("2001:db8::1"),
 					},
-					&dns.A{
+					&dnsv1.A{
 						Hdr: CreateHeader(aQuestion, 300),
 						A:   net.ParseIP("192.168.1.2"),
 					},
-					&dns.CNAME{
+					&dnsv1.CNAME{
 						Hdr:    CreateHeader(cnameQuestion, 300),
 						Target: "example.com.",
 					},
-					&dns.NS{
+					&dnsv1.NS{
 						Hdr: CreateHeader(nsQuestion, 300),
 						Ns:  "ns1.example.com.",
 					},
@@ -588,7 +588,7 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should extract all A records", func() {
-				aRecords := ExtractRecordsFromSlice[*dns.A](rrs)
+				aRecords := ExtractRecordsFromSlice[*dnsv1.A](rrs)
 
 				Expect(aRecords).Should(HaveLen(2))
 				Expect(aRecords[0].A.String()).Should(Equal("192.168.1.1"))
@@ -596,21 +596,21 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should extract all AAAA records", func() {
-				aaaaRecords := ExtractRecordsFromSlice[*dns.AAAA](rrs)
+				aaaaRecords := ExtractRecordsFromSlice[*dnsv1.AAAA](rrs)
 
 				Expect(aaaaRecords).Should(HaveLen(1))
 				Expect(aaaaRecords[0].AAAA.String()).Should(Equal("2001:db8::1"))
 			})
 
 			It("should extract all CNAME records", func() {
-				cnameRecords := ExtractRecordsFromSlice[*dns.CNAME](rrs)
+				cnameRecords := ExtractRecordsFromSlice[*dnsv1.CNAME](rrs)
 
 				Expect(cnameRecords).Should(HaveLen(1))
 				Expect(cnameRecords[0].Target).Should(Equal("example.com."))
 			})
 
 			It("should extract all NS records", func() {
-				nsRecords := ExtractRecordsFromSlice[*dns.NS](rrs)
+				nsRecords := ExtractRecordsFromSlice[*dnsv1.NS](rrs)
 
 				Expect(nsRecords).Should(HaveLen(1))
 				Expect(nsRecords[0].Ns).Should(Equal("ns1.example.com."))
@@ -618,18 +618,18 @@ var _ = Describe("Common function tests", func() {
 		})
 
 		When("RR slice has no matching records", func() {
-			var rrs []dns.RR
+			var rrs []dnsv1.RR
 
 			BeforeEach(func() {
-				aQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeA, Qclass: dns.ClassINET}
-				cnameQuestion := dns.Question{Name: "alias.com.", Qtype: dns.TypeCNAME, Qclass: dns.ClassINET}
+				aQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET}
+				cnameQuestion := dnsv1.Question{Name: "alias.com.", Qtype: dnsv1.TypeCNAME, Qclass: dnsv1.ClassINET}
 
-				rrs = []dns.RR{
-					&dns.A{
+				rrs = []dnsv1.RR{
+					&dnsv1.A{
 						Hdr: CreateHeader(aQuestion, 300),
 						A:   net.ParseIP("192.168.1.1"),
 					},
-					&dns.CNAME{
+					&dnsv1.CNAME{
 						Hdr:    CreateHeader(cnameQuestion, 300),
 						Target: "example.com.",
 					},
@@ -637,48 +637,48 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should return empty slice for MX records", func() {
-				mxRecords := ExtractRecordsFromSlice[*dns.MX](rrs)
+				mxRecords := ExtractRecordsFromSlice[*dnsv1.MX](rrs)
 
 				Expect(mxRecords).Should(BeEmpty())
 			})
 
 			It("should return empty slice for TXT records", func() {
-				txtRecords := ExtractRecordsFromSlice[*dns.TXT](rrs)
+				txtRecords := ExtractRecordsFromSlice[*dnsv1.TXT](rrs)
 
 				Expect(txtRecords).Should(BeEmpty())
 			})
 		})
 
 		When("RR slice is empty", func() {
-			var rrs []dns.RR
+			var rrs []dnsv1.RR
 
 			BeforeEach(func() {
-				rrs = []dns.RR{}
+				rrs = []dnsv1.RR{}
 			})
 
 			It("should return empty slice for A records", func() {
-				aRecords := ExtractRecordsFromSlice[*dns.A](rrs)
+				aRecords := ExtractRecordsFromSlice[*dnsv1.A](rrs)
 
 				Expect(aRecords).Should(BeEmpty())
 			})
 		})
 
 		When("RR slice contains only matching record type", func() {
-			var rrs []dns.RR
+			var rrs []dnsv1.RR
 
 			BeforeEach(func() {
-				aaaaQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeAAAA, Qclass: dns.ClassINET}
+				aaaaQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeAAAA, Qclass: dnsv1.ClassINET}
 
-				rrs = []dns.RR{
-					&dns.AAAA{
+				rrs = []dnsv1.RR{
+					&dnsv1.AAAA{
 						Hdr:  CreateHeader(aaaaQuestion, 300),
 						AAAA: net.ParseIP("2001:db8::1"),
 					},
-					&dns.AAAA{
+					&dnsv1.AAAA{
 						Hdr:  CreateHeader(aaaaQuestion, 300),
 						AAAA: net.ParseIP("2001:db8::2"),
 					},
-					&dns.AAAA{
+					&dnsv1.AAAA{
 						Hdr:  CreateHeader(aaaaQuestion, 300),
 						AAAA: net.ParseIP("2001:db8::3"),
 					},
@@ -686,7 +686,7 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should extract all AAAA records", func() {
-				aaaaRecords := ExtractRecordsFromSlice[*dns.AAAA](rrs)
+				aaaaRecords := ExtractRecordsFromSlice[*dnsv1.AAAA](rrs)
 
 				Expect(aaaaRecords).Should(HaveLen(3))
 				Expect(aaaaRecords[0].AAAA.String()).Should(Equal("2001:db8::1"))
@@ -696,23 +696,23 @@ var _ = Describe("Common function tests", func() {
 		})
 
 		When("RR slice contains TXT and MX records", func() {
-			var rrs []dns.RR
+			var rrs []dnsv1.RR
 
 			BeforeEach(func() {
-				txtQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeTXT, Qclass: dns.ClassINET}
-				mxQuestion := dns.Question{Name: "example.com.", Qtype: dns.TypeMX, Qclass: dns.ClassINET}
+				txtQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeTXT, Qclass: dnsv1.ClassINET}
+				mxQuestion := dnsv1.Question{Name: "example.com.", Qtype: dnsv1.TypeMX, Qclass: dnsv1.ClassINET}
 
-				rrs = []dns.RR{
-					&dns.TXT{
+				rrs = []dnsv1.RR{
+					&dnsv1.TXT{
 						Hdr: CreateHeader(txtQuestion, 300),
 						Txt: []string{"v=spf1 include:_spf.example.com ~all"},
 					},
-					&dns.MX{
+					&dnsv1.MX{
 						Hdr:        CreateHeader(mxQuestion, 300),
 						Preference: 10,
 						Mx:         "mail.example.com.",
 					},
-					&dns.TXT{
+					&dnsv1.TXT{
 						Hdr: CreateHeader(txtQuestion, 300),
 						Txt: []string{"google-site-verification=12345"},
 					},
@@ -720,7 +720,7 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should extract all TXT records", func() {
-				txtRecords := ExtractRecordsFromSlice[*dns.TXT](rrs)
+				txtRecords := ExtractRecordsFromSlice[*dnsv1.TXT](rrs)
 
 				Expect(txtRecords).Should(HaveLen(2))
 				Expect(txtRecords[0].Txt).Should(Equal([]string{"v=spf1 include:_spf.example.com ~all"}))
@@ -728,7 +728,7 @@ var _ = Describe("Common function tests", func() {
 			})
 
 			It("should extract all MX records", func() {
-				mxRecords := ExtractRecordsFromSlice[*dns.MX](rrs)
+				mxRecords := ExtractRecordsFromSlice[*dnsv1.MX](rrs)
 
 				Expect(mxRecords).Should(HaveLen(1))
 				Expect(mxRecords[0].Preference).Should(Equal(uint16(10)))
@@ -737,14 +737,14 @@ var _ = Describe("Common function tests", func() {
 		})
 
 		When("RR slice is nil", func() {
-			var rrs []dns.RR
+			var rrs []dnsv1.RR
 
 			BeforeEach(func() {
 				rrs = nil
 			})
 
 			It("should return empty slice for A records", func() {
-				aRecords := ExtractRecordsFromSlice[*dns.A](rrs)
+				aRecords := ExtractRecordsFromSlice[*dnsv1.A](rrs)
 
 				Expect(aRecords).Should(BeEmpty())
 			})

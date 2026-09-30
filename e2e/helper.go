@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/jedisct1/go-dnsstamps"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	dockernetwork "github.com/moby/moby/api/types/network"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -81,10 +81,10 @@ func startContainerWithNetwork(ctx context.Context, req testcontainers.Container
 }
 
 // doDNSRequest sends the given DNS message to the container and returns the response.
-func doDNSRequest(ctx context.Context, container testcontainers.Container, message *dns.Msg) (*dns.Msg, error) {
+func doDNSRequest(ctx context.Context, container testcontainers.Container, message *dnsv1.Msg) (*dnsv1.Msg, error) {
 	const timeout = 5 * time.Second
 
-	c := &dns.Client{
+	c := &dnsv1.Client{
 		Net:     "tcp",
 		Timeout: timeout,
 	}

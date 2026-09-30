@@ -9,7 +9,7 @@ import (
 	"github.com/0xERR0R/blocky/metrics"
 	"github.com/0xERR0R/blocky/model"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -56,7 +56,7 @@ func (r *MetricsResolver) Resolve(ctx context.Context, request *model.Request) (
 	// WithLabelValues is used instead of With(prometheus.Labels{...}) throughout: the map
 	// literal costs an allocation per query on the hot path. The value order must match the
 	// label order of the corresponding metric constructor below.
-	r.totalQueries.WithLabelValues(clientLabel, dns.TypeToString[request.Req.Question[0].Qtype]).Inc()
+	r.totalQueries.WithLabelValues(clientLabel, dnsv1.TypeToString[request.Req.Question[0].Qtype]).Inc()
 
 	reqDuration := time.Since(request.RequestTS)
 	responseType := responseTypeErr
@@ -83,7 +83,7 @@ func (r *MetricsResolver) Resolve(ctx context.Context, request *model.Request) (
 
 		r.totalResponse.WithLabelValues(
 			reasonLabel,
-			dns.RcodeToString[response.Res.Rcode],
+			dnsv1.RcodeToString[response.Res.Rcode],
 			response.RType.String(),
 		).Inc()
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/0xERR0R/blocky/config"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -175,7 +175,7 @@ var _ = Describe("Hosts file resolver", func() {
 				msg := util.NewMsgWithQuestion("loopback.example.", A)
 				resp, err := doDNSRequest(ctx, blocky, msg)
 				Expect(err).Should(Succeed())
-				Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 				Expect(resp.Answer).Should(BeEmpty())
 			})
 

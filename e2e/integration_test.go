@@ -8,7 +8,7 @@ import (
 
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -146,7 +146,7 @@ var _ = Describe("Integration tests", func() {
 
 					ips := make([]string, len(resp.Answer))
 					for i, rr := range resp.Answer {
-						if a, ok := rr.(*dns.A); ok {
+						if a, ok := rr.(*dnsv1.A); ok {
 							ips[i] = a.A.String()
 						}
 					}
@@ -177,13 +177,13 @@ var _ = Describe("Integration tests", func() {
 					msg := util.NewMsgWithQuestion("ads.example.com.", A)
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dns.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
 					Expect(resp.Answer).Should(BeEmpty())
 
 					msg = util.NewMsgWithQuestion("tracker.analytics.com.", A)
 					resp, err = doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dns.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
 				})
 
 				// Test 5: Blocking with wildcard patterns
@@ -191,7 +191,7 @@ var _ = Describe("Integration tests", func() {
 					msg := util.NewMsgWithQuestion("subdomain.malware.com.", A)
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dns.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
 				})
 
 				// Test 6: Allowlist overriding denylist
@@ -252,7 +252,7 @@ var _ = Describe("Integration tests", func() {
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 					// Should be blocked by SUDN resolver
-					Expect(resp.Rcode).Should(Equal(dns.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
 				})
 
 				// Test 11: Prometheus metrics exposure
@@ -319,7 +319,7 @@ var _ = Describe("Integration tests", func() {
 					msg = util.NewMsgWithQuestion("tracker.analytics.com.", A)
 					respDNS, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(respDNS.Rcode).Should(Equal(dns.RcodeNameError))
+					Expect(respDNS.Rcode).Should(Equal(dnsv1.RcodeNameError))
 				})
 
 				// Test 13: Container health check
@@ -367,7 +367,7 @@ var _ = Describe("Integration tests", func() {
 					Expect(resp.Answer).Should(HaveLen(2))
 					ips := make([]string, len(resp.Answer))
 					for i, rr := range resp.Answer {
-						if a, ok := rr.(*dns.A); ok {
+						if a, ok := rr.(*dnsv1.A); ok {
 							ips[i] = a.A.String()
 						}
 					}
@@ -381,12 +381,12 @@ var _ = Describe("Integration tests", func() {
 					// First query - should be blocked
 					resp1, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp1.Rcode).Should(Equal(dns.RcodeNameError))
+					Expect(resp1.Rcode).Should(Equal(dnsv1.RcodeNameError))
 
 					// Second query - should still be blocked (from cache)
 					resp2, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp2.Rcode).Should(Equal(dns.RcodeNameError))
+					Expect(resp2.Rcode).Should(Equal(dnsv1.RcodeNameError))
 				})
 
 				// Conditional should take precedence over default upstream
@@ -409,8 +409,8 @@ var _ = Describe("Integration tests", func() {
 					Expect(err).Should(Succeed())
 					// Should propagate NXDOMAIN from upstream
 					Expect(resp.Rcode).Should(Or(
-						Equal(dns.RcodeNameError),
-						Equal(dns.RcodeSuccess), // or success with empty answer
+						Equal(dnsv1.RcodeNameError),
+						Equal(dnsv1.RcodeSuccess),
 					))
 				})
 

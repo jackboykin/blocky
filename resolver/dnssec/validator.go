@@ -53,7 +53,7 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 	expirationcache "github.com/0xERR0R/expiration-cache"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
@@ -225,8 +225,8 @@ func NewValidator(
 // ValidationResultBogus, or ValidationResultIndeterminate
 func (v *Validator) ValidateResponse(
 	ctx context.Context,
-	response *dns.Msg,
-	question dns.Question,
+	response *dnsv1.Msg,
+	question dnsv1.Question,
 ) ValidationResult {
 	start := time.Now()
 	v.logger.Debugf("DNSSEC validation requested for %s", question.Name)
@@ -259,7 +259,7 @@ func (v *Validator) ValidateResponse(
 }
 
 // hasAnySignatures checks if response contains any RRSIG records
-func (v *Validator) hasAnySignatures(response *dns.Msg) bool {
+func (v *Validator) hasAnySignatures(response *dnsv1.Msg) bool {
 	return len(extractRRSIGs(response.Answer)) > 0 ||
 		len(extractRRSIGs(response.Ns)) > 0 ||
 		len(extractRRSIGs(response.Extra)) > 0
@@ -270,7 +270,7 @@ func (v *Validator) hasAnySignatures(response *dns.Msg) bool {
 // "insecure" if the queried name is provably below an insecure delegation. If the
 // enclosing zone is secure (chains to a trust anchor) with no authenticated proof of
 // an insecure delegation, an unsigned answer is bogus, not insecure.
-func (v *Validator) classifyUnsignedResponse(ctx context.Context, question dns.Question) ValidationResult {
+func (v *Validator) classifyUnsignedResponse(ctx context.Context, question dnsv1.Question) ValidationResult {
 	status := v.checkZoneSecurityStatus(ctx, question.Name)
 	if status == ValidationResultSecure {
 		v.logger.Warnf("No RRSIG for %s but zone is secure - treating unsigned answer as bogus", question.Name)
@@ -286,7 +286,7 @@ func (v *Validator) classifyUnsignedResponse(ctx context.Context, question dns.Q
 
 // validateAnswer validates the answer section of a response
 func (v *Validator) validateAnswer(
-	ctx context.Context, response *dns.Msg, question dns.Question,
+	ctx context.Context, response *dnsv1.Msg, question dnsv1.Question,
 ) ValidationResult {
 	result := v.validateRRsets(ctx, response.Answer, question.Name, response.Ns, question.Name)
 	if result != ValidationResultSecure {
@@ -300,12 +300,12 @@ func (v *Validator) validateAnswer(
 
 // isNegativeResponse checks if response is NXDOMAIN or NODATA
 // Per RFC 4035 §5.4: NXDOMAIN (Rcode=3) or NODATA (Rcode=0 with no answer RRs)
-func (v *Validator) isNegativeResponse(response *dns.Msg) bool {
-	if response.Rcode == dns.RcodeNameError {
+func (v *Validator) isNegativeResponse(response *dnsv1.Msg) bool {
+	if response.Rcode == dnsv1.RcodeNameError {
 		return true // NXDOMAIN
 	}
 	// NODATA: Success with no answer section
-	if response.Rcode == dns.RcodeSuccess && len(response.Answer) == 0 {
+	if response.Rcode == dnsv1.RcodeSuccess && len(response.Answer) == 0 {
 		return true
 	}
 
@@ -314,7 +314,7 @@ func (v *Validator) isNegativeResponse(response *dns.Msg) bool {
 
 // validateNegativeResponse validates NXDOMAIN or NODATA responses
 func (v *Validator) validateNegativeResponse(
-	ctx context.Context, response *dns.Msg, question dns.Question,
+	ctx context.Context, response *dnsv1.Msg, question dnsv1.Question,
 ) ValidationResult {
 	nsSigs := extractRRSIGs(response.Ns)
 	if len(nsSigs) == 0 {
@@ -334,16 +334,16 @@ func (v *Validator) validateNegativeResponse(
 }
 
 // hasAuthorityOrAdditional checks if response has signatures in NS or Extra sections
-func (v *Validator) hasAuthorityOrAdditional(response *dns.Msg) bool {
+func (v *Validator) hasAuthorityOrAdditional(response *dnsv1.Msg) bool {
 	return len(extractRRSIGs(response.Ns)) > 0 || len(extractRRSIGs(response.Extra)) > 0
 }
 
 // validateAuthorityOrAdditional validates authority or additional sections
 func (v *Validator) validateAuthorityOrAdditional(
-	ctx context.Context, response *dns.Msg, question dns.Question,
+	ctx context.Context, response *dnsv1.Msg, question dnsv1.Question,
 ) ValidationResult {
 	// Combine authority and additional sections for validation
-	sectionsToValidate := make([]dns.RR, 0, len(response.Ns)+len(response.Extra))
+	sectionsToValidate := make([]dnsv1.RR, 0, len(response.Ns)+len(response.Extra))
 	sectionsToValidate = append(sectionsToValidate, response.Ns...)
 	sectionsToValidate = append(sectionsToValidate, response.Extra...)
 
@@ -367,8 +367,8 @@ func (v *Validator) recordMetrics(start time.Time, result ValidationResult) {
 }
 
 // extractRRSIGs extracts all RRSIG records from a slice of RRs
-func extractRRSIGs(rrs []dns.RR) []*dns.RRSIG {
-	return util.ExtractRecordsFromSlice[*dns.RRSIG](rrs)
+func extractRRSIGs(rrs []dnsv1.RR) []*dnsv1.RRSIG {
+	return util.ExtractRecordsFromSlice[*dnsv1.RRSIG](rrs)
 }
 
 // rrsetKey uniquely identifies an RRset by owner name and type
@@ -381,12 +381,12 @@ type rrsetKey struct {
 // groupRRsetsByNameAndType groups RRs by their owner name and type (excluding RRSIGs)
 // This is critical for DNSSEC validation: each RRset must contain only records
 // with the same owner name. For CNAME chains, each CNAME is a separate RRset.
-func groupRRsetsByNameAndType(rrs []dns.RR) map[rrsetKey][]dns.RR {
-	rrsets := make(map[rrsetKey][]dns.RR)
+func groupRRsetsByNameAndType(rrs []dnsv1.RR) map[rrsetKey][]dnsv1.RR {
+	rrsets := make(map[rrsetKey][]dnsv1.RR)
 	for _, rr := range rrs {
-		if _, isSig := rr.(*dns.RRSIG); !isSig {
+		if _, isSig := rr.(*dnsv1.RRSIG); !isSig {
 			key := rrsetKey{
-				name:   dns.Fqdn(rr.Header().Name),
+				name:   dnsv1.Fqdn(rr.Header().Name),
 				rrType: rr.Header().Rrtype,
 			}
 			rrsets[key] = append(rrsets[key], rr)
@@ -398,7 +398,7 @@ func groupRRsetsByNameAndType(rrs []dns.RR) map[rrsetKey][]dns.RR {
 
 // validateRRsets validates all RRsets in a section
 func (v *Validator) validateRRsets(
-	ctx context.Context, rrs []dns.RR, domain string, nsRecords []dns.RR, qname string,
+	ctx context.Context, rrs []dnsv1.RR, domain string, nsRecords []dnsv1.RR, qname string,
 ) ValidationResult {
 	// Extract all RRSIGs
 	sigs := extractRRSIGs(rrs)
@@ -464,18 +464,18 @@ func (v *Validator) validateRRsets(
 
 // validateSingleRRset validates a single RRset with its signatures
 func (v *Validator) validateSingleRRset(
-	ctx context.Context, rrType uint16, rrset []dns.RR, sigs []*dns.RRSIG,
-	domain string, nsRecords []dns.RR, qname string,
+	ctx context.Context, rrType uint16, rrset []dnsv1.RR, sigs []*dnsv1.RRSIG,
+	domain string, nsRecords []dnsv1.RR, qname string,
 ) ValidationResult {
 	// Find matching RRSIGs for this RRset
 	// Per RFC 6840 §5.11, we should prefer stronger algorithms to prevent downgrade attacks
 	// RRSIGs must match both the type covered AND the owner name
-	matchingRRSIGs := findMatchingRRSIGs(sigs, dns.Fqdn(domain), rrType)
+	matchingRRSIGs := findMatchingRRSIGs(sigs, dnsv1.Fqdn(domain), rrType)
 
 	if len(matchingRRSIGs) == 0 {
 		// RFC 4035 §5.2: Before treating missing RRSIG as Bogus, check if the zone is insecure (unsigned)
 		// This handles cases where CNAME chains cross zone boundaries with different security statuses
-		rrsetName := dns.Fqdn(rrset[0].Header().Name)
+		rrsetName := dnsv1.Fqdn(rrset[0].Header().Name)
 
 		return v.handleMissingRRSIG(ctx, rrType, rrsetName)
 	}
@@ -583,15 +583,15 @@ func (v *Validator) determineFinalValidationResult(
 // tryVerifyWithRRSIG attempts to verify an RRset with a single RRSIG
 // Returns true if verification succeeded, false otherwise
 func (v *Validator) tryVerifyWithRRSIG(
-	ctx context.Context, rrset []dns.RR, matchingSig *dns.RRSIG, domain string,
-	nsRecords []dns.RR, qname string, rrType uint16,
+	ctx context.Context, rrset []dnsv1.RR, matchingSig *dnsv1.RRSIG, domain string,
+	nsRecords []dnsv1.RR, qname string, rrType uint16,
 ) (bool, error) {
 	// Validate signer name
 	signerName := matchingSig.SignerName
-	rrsetName := dns.Fqdn(rrset[0].Header().Name)
+	rrsetName := dnsv1.Fqdn(rrset[0].Header().Name)
 
 	// RFC 4035 §2.2: For DNSKEY RRsets, the signer must equal the owner (self-signed at zone apex)
-	if rrType == dns.TypeDNSKEY {
+	if rrType == dnsv1.TypeDNSKEY {
 		if signerName != rrsetName {
 			v.logger.Debugf("Skipping RRSIG: DNSKEY signer %s must equal owner %s (RFC 4035 §2.2)", signerName, rrsetName)
 
@@ -657,8 +657,8 @@ func (v *Validator) tryVerifyWithRRSIG(
 
 // verifyAndReturnResult verifies the signature and returns the result based on chain status
 func (v *Validator) verifyAndReturnResult(
-	rrset []dns.RR, matchingSig *dns.RRSIG, matchingKey *dns.DNSKEY,
-	nsRecords []dns.RR, qname, domain string, chainResult ValidationResult,
+	rrset []dnsv1.RR, matchingSig *dnsv1.RRSIG, matchingKey *dnsv1.DNSKEY,
+	nsRecords []dnsv1.RR, qname, domain string, chainResult ValidationResult,
 ) (bool, error) {
 	// Verify the signature cryptographically (even if chain is Insecure)
 	if err := v.verifyRRSIG(rrset, matchingSig, matchingKey, nsRecords, qname); err != nil {
@@ -717,7 +717,7 @@ func (v *Validator) handleMissingRRSIG(ctx context.Context, rrType uint16, rrset
 // A zone is secure if DS records exist.
 // Returns: Secure, Insecure, or Indeterminate
 func (v *Validator) checkZoneSecurityStatus(ctx context.Context, domain string) ValidationResult {
-	domain = dns.Fqdn(domain)
+	domain = dnsv1.Fqdn(domain)
 
 	// Check cache first - we may have already validated this zone
 	if cached, found := v.getCachedValidation(ctx, domain); found {
@@ -746,7 +746,7 @@ func (v *Validator) checkZoneSecurityStatus(ctx context.Context, domain string) 
 	}
 
 	// Query DS records for this domain from the parent zone
-	ctx, dsResponse, err := v.queryRecords(ctx, domain, dns.TypeDS)
+	ctx, dsResponse, err := v.queryRecords(ctx, domain, dnsv1.TypeDS)
 	if err != nil {
 		// Could not reach the upstream (e.g. answering from cache after the upstream is
 		// gone). Fail closed if the name lives under a trust anchor; we must not serve an
@@ -757,7 +757,7 @@ func (v *Validator) checkZoneSecurityStatus(ctx context.Context, domain string) 
 	}
 
 	// Check if DS records exist
-	dsRecords, extractErr := extractTypedRecords[*dns.DS](dsResponse.Answer, dsResponse.Ns)
+	dsRecords, extractErr := extractTypedRecords[*dnsv1.DS](dsResponse.Answer, dsResponse.Ns)
 	if extractErr != nil {
 		// No DS records - handle based on proof of absence
 		return v.handleNoDSRecords(ctx, domain, parentDomain, dsResponse)
@@ -797,7 +797,7 @@ func (v *Validator) checkZoneSecurityStatus(ctx context.Context, domain string) 
 // unsigned-answer bypass (GHSA-x845-2f78-7v36 finding 1): a forged unsigned answer can no
 // longer pass merely because the attacker also strips the DS/DNSKEY chain.
 func (v *Validator) isUnderTrustAnchor(domain string) bool {
-	for d := dns.Fqdn(domain); d != ""; d = v.getParentDomain(d) {
+	for d := dnsv1.Fqdn(domain); d != ""; d = v.getParentDomain(d) {
 		if v.trustAnchors.HasTrustAnchor(d) {
 			return true
 		}
@@ -831,7 +831,7 @@ func (v *Validator) classifyUndetermined(domain string) ValidationResult {
 // AUTHENTICATED denial of the DS type (a signed NSEC/NSEC3 that chains to a trust
 // anchor); the mere presence of NSEC/NSEC3 records is not proof.
 func (v *Validator) handleNoDSRecords(
-	ctx context.Context, domain, parentDomain string, dsResponse *dns.Msg,
+	ctx context.Context, domain, parentDomain string, dsResponse *dnsv1.Msg,
 ) ValidationResult {
 	hasNSEC := len(extractNSECRecords(dsResponse.Ns)) > 0
 	hasNSEC3 := len(extractNSEC3Records(dsResponse.Ns)) > 0
@@ -886,7 +886,7 @@ func (v *Validator) handleNoDSRecords(
 // (a signed NSEC/NSEC3 chaining to a trust anchor) that the DS type is absent for
 // domain - i.e. a genuine insecure delegation. Mere presence of NSEC/NSEC3 is not
 // sufficient; the records must be cryptographically validated.
-func (v *Validator) isAuthenticatedDSDenial(ctx context.Context, domain string, dsResponse *dns.Msg) bool {
+func (v *Validator) isAuthenticatedDSDenial(ctx context.Context, domain string, dsResponse *dnsv1.Msg) bool {
 	// First require the authority section (the NSEC/NSEC3 records and their RRSIGs) to
 	// cryptographically validate and chain to a trust anchor. An unsigned or forged denial
 	// proves nothing and must never downgrade a zone to insecure.

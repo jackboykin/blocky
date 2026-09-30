@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // FuzzParseIPFromArpaAddr exercises ParseIPFromArpaAddr, which parses reverse-DNS
@@ -42,7 +42,7 @@ func FuzzParseIPFromArpaAddrRoundtrip(f *testing.F) {
 			return // only 4- and 16-byte inputs map to a concrete IP
 		}
 
-		arpa, err := dns.ReverseAddr(ip.String())
+		arpa, err := dnsv1.ReverseAddr(ip.String())
 		if err != nil {
 			t.Fatalf("dns.ReverseAddr(%s) failed: %v", ip, err)
 		}

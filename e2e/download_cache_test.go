@@ -13,7 +13,7 @@ import (
 
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -143,7 +143,7 @@ var _ = Describe("Download cache", func() {
 
 			By("still blocking the domain, served from the cache", func() {
 				msg := util.NewMsgWithQuestion("blockeddomain.com.", A)
-				Eventually(func(ctx context.Context) (*dns.Msg, error) {
+				Eventually(func(ctx context.Context) (*dnsv1.Msg, error) {
 					return doDNSRequest(ctx, blocky, msg)
 				}).WithContext(ctx).WithTimeout(time.Minute).WithPolling(time.Second).
 					Should(BeDNSRecord("blockeddomain.com.", A, "0.0.0.0"))
@@ -244,7 +244,7 @@ var _ = Describe("Download cache", func() {
 		It("blocks from the seeded cache on fast start even though the source returns 404", func(ctx context.Context) {
 			By("blocking the seeded domain", func() {
 				msg := util.NewMsgWithQuestion("seededblock.com.", A)
-				Eventually(func(ctx context.Context) (*dns.Msg, error) {
+				Eventually(func(ctx context.Context) (*dnsv1.Msg, error) {
 					return doDNSRequest(ctx, blocky, msg)
 				}).WithContext(ctx).WithTimeout(time.Minute).WithPolling(time.Second).
 					Should(BeDNSRecord("seededblock.com.", A, "0.0.0.0"))

@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // connPool is an io.Closer; Close releases all idle connections.
@@ -18,7 +18,7 @@ var _ io.Closer = (*connPool)(nil)
 // pooledConn is an idle connection waiting in the pool together with the time it
 // was last returned, used to enforce the idle TTL.
 type pooledConn struct {
-	conn     *dns.Conn
+	conn     *dnsv1.Conn
 	returned time.Time
 }
 
@@ -37,7 +37,7 @@ type pooledConn struct {
 //     out to be stale (a server-closed connection can't be detected up front),
 //     so reuse never surfaces a spurious error to the caller.
 type connPool struct {
-	client  *dns.Client
+	client  *dnsv1.Client
 	maxIdle int
 	idleTTL time.Duration
 
@@ -62,7 +62,7 @@ type connPoolStats struct {
 	retried     int64
 }
 
-func newConnPool(client *dns.Client, maxIdle int, idleTTL time.Duration) *connPool {
+func newConnPool(client *dnsv1.Client, maxIdle int, idleTTL time.Duration) *connPool {
 	return &connPool{
 		client:  client,
 		maxIdle: maxIdle,
@@ -97,10 +97,10 @@ func (p *connPool) idleCount() int {
 // acquire returns a healthy pooled connection for addr (most-recently-returned
 // first), or nil if none is available. Connections idle longer than idleTTL are
 // closed and skipped.
-func (p *connPool) acquire(addr string) *dns.Conn {
+func (p *connPool) acquire(addr string) *dnsv1.Conn {
 	var (
-		found *dns.Conn
-		stale []*dns.Conn
+		found *dnsv1.Conn
+		stale []*dnsv1.Conn
 	)
 
 	now := p.now()
@@ -141,7 +141,7 @@ func (p *connPool) acquire(addr string) *dns.Conn {
 }
 
 // putBack returns conn to the pool for addr, or closes it if the pool is full.
-func (p *connPool) putBack(addr string, conn *dns.Conn) {
+func (p *connPool) putBack(addr string, conn *dnsv1.Conn) {
 	p.mu.Lock()
 
 	conns := p.idle[addr]
@@ -159,7 +159,7 @@ func (p *connPool) putBack(addr string, conn *dns.Conn) {
 }
 
 // dial opens a new connection to addr and counts it.
-func (p *connPool) dial(ctx context.Context, addr string) (*dns.Conn, error) {
+func (p *connPool) dial(ctx context.Context, addr string) (*dnsv1.Conn, error) {
 	conn, err := p.client.DialContext(ctx, addr)
 	if err != nil {
 		return nil, err
@@ -174,8 +174,8 @@ func (p *connPool) dial(ctx context.Context, addr string) (*dns.Conn, error) {
 // pooled connection is transparently replaced by a single fresh dial, so callers
 // never see an error caused purely by connection reuse.
 func (p *connPool) exchange(
-	ctx context.Context, msg *dns.Msg, addr string,
-) (*dns.Msg, time.Duration, error) {
+	ctx context.Context, msg *dnsv1.Msg, addr string,
+) (*dnsv1.Msg, time.Duration, error) {
 	if conn := p.acquire(addr); conn != nil {
 		resp, rtt, err := p.client.ExchangeWithConnContext(ctx, msg, conn)
 		if err == nil {

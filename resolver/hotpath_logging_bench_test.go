@@ -8,7 +8,7 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -55,7 +55,7 @@ func BenchmarkChainLoggingPlumbing(b *testing.B) {
 	sut := Chain(resolvers...)
 
 	req := &model.Request{
-		Req:      util.NewMsgWithQuestion("example.com.", dns.Type(dns.TypeA)),
+		Req:      util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA)),
 		Protocol: model.RequestProtocolUDP,
 	}
 
@@ -81,7 +81,7 @@ func BenchmarkChainLoggingPlumbing(b *testing.B) {
 //
 //	go test -run=^$ -bench=BenchmarkDebugFieldBuild_Avoided -benchmem ./resolver/
 func BenchmarkDebugFieldBuild_Avoided(b *testing.B) {
-	answer := []dns.RR{
+	answer := []dnsv1.RR{
 		mustRR("example.com. 3600 IN A 1.2.3.4"),
 		mustRR("example.com. 3600 IN A 5.6.7.8"),
 	}
@@ -93,8 +93,8 @@ func BenchmarkDebugFieldBuild_Avoided(b *testing.B) {
 	}
 }
 
-func mustRR(s string) dns.RR {
-	rr, err := dns.NewRR(s)
+func mustRR(s string) dnsv1.RR {
+	rr, err := dnsv1.NewRR(s)
 	if err != nil {
 		panic(err)
 	}

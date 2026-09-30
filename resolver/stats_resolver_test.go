@@ -13,7 +13,7 @@ import (
 	. "github.com/0xERR0R/blocky/helpertest"
 	. "github.com/0xERR0R/blocky/model"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -70,7 +70,7 @@ var _ = Describe("StatsResolver", func() {
 		It("records a resolved query", func(ctx context.Context) {
 			start(ctx)
 			m.On("Resolve", mock.Anything).Return(
-				&Response{Res: new(dns.Msg), RType: ResponseTypeRESOLVED, Reason: "RESOLVED"}, nil)
+				&Response{Res: new(dnsv1.Msg), RType: ResponseTypeRESOLVED, Reason: "RESOLVED"}, nil)
 
 			_, err := sut.Resolve(ctx, newRequestWithClient("example.com.", A, "1.2.3.4", "client1"))
 			Expect(err).Should(Succeed())
@@ -138,7 +138,7 @@ var _ = Describe("StatsResolver", func() {
 	Context("when disabled", func() {
 		BeforeEach(func() {
 			m = &mockResolver{}
-			m.On("Resolve", mock.Anything).Return(&Response{Res: new(dns.Msg), RType: ResponseTypeRESOLVED}, nil)
+			m.On("Resolve", mock.Anything).Return(&Response{Res: new(dnsv1.Msg), RType: ResponseTypeRESOLVED}, nil)
 		})
 
 		It("is a pass-through and reports disabled", func(ctx context.Context) {

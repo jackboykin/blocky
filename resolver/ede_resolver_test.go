@@ -14,7 +14,7 @@ import (
 
 	. "github.com/0xERR0R/blocky/model"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -25,7 +25,7 @@ var _ = Describe("EdeResolver", func() {
 		sut        *EDEResolver
 		sutConfig  config.EDE
 		m          *mockResolver
-		mockAnswer *dns.Msg
+		mockAnswer *dnsv1.Msg
 
 		ctx      context.Context
 		cancelFn context.CancelFunc
@@ -41,7 +41,7 @@ var _ = Describe("EdeResolver", func() {
 		ctx, cancelFn = context.WithCancel(context.Background())
 		DeferCleanup(cancelFn)
 
-		mockAnswer = new(dns.Msg)
+		mockAnswer = new(dnsv1.Msg)
 
 		// Reset the mock: it is a closure variable, so a resolver installed by one spec's
 		// BeforeEach would otherwise survive into the next and be reused by the guard below,
@@ -75,8 +75,8 @@ var _ = Describe("EdeResolver", func() {
 					SatisfyAll(
 						HaveNoAnswer(),
 						HaveResponseType(ResponseTypeCUSTOMDNS),
-						HaveReturnCode(dns.RcodeSuccess),
-						Not(HaveEdnsOption(dns.EDNS0EDE)),
+						HaveReturnCode(dnsv1.RcodeSuccess),
+						Not(HaveEdnsOption(dnsv1.EDNS0EDE)),
 					))
 
 			// delegated to next resolver
@@ -97,8 +97,8 @@ var _ = Describe("EdeResolver", func() {
 			}
 		})
 
-		extractEdeOption := func(res *Response) dns.EDNS0_EDE {
-			return *util.GetEdns0Option[*dns.EDNS0_EDE](res.Res)
+		extractEdeOption := func(res *Response) dnsv1.EDNS0_EDE {
+			return *util.GetEdns0Option[*dnsv1.EDNS0_EDE](res.Res)
 		}
 
 		It("should add EDE information", func() {
@@ -107,11 +107,11 @@ var _ = Describe("EdeResolver", func() {
 					SatisfyAll(
 						HaveNoAnswer(),
 						HaveResponseType(ResponseTypeCUSTOMDNS),
-						HaveReturnCode(dns.RcodeSuccess),
-						HaveEdnsOption(dns.EDNS0EDE),
+						HaveReturnCode(dnsv1.RcodeSuccess),
+						HaveEdnsOption(dnsv1.EDNS0EDE),
 						WithTransform(extractEdeOption,
 							SatisfyAll(
-								HaveField("InfoCode", Equal(dns.ExtendedErrorCodeForgedAnswer)),
+								HaveField("InfoCode", Equal(dnsv1.ExtendedErrorCodeForgedAnswer)),
 								HaveField("ExtraText", Equal("Test")),
 							)),
 					))
@@ -131,10 +131,10 @@ var _ = Describe("EdeResolver", func() {
 				Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
 					Should(
 						SatisfyAll(
-							HaveEdnsOption(dns.EDNS0EDE),
+							HaveEdnsOption(dnsv1.EDNS0EDE),
 							WithTransform(extractEdeOption,
 								SatisfyAll(
-									HaveField("InfoCode", Equal(dns.ExtendedErrorCodeBlocked)),
+									HaveField("InfoCode", Equal(dnsv1.ExtendedErrorCodeBlocked)),
 									HaveField("ExtraText", Equal("BLOCKED CNAME (ads: *.docler.com)")),
 								)),
 						))
@@ -155,9 +155,9 @@ var _ = Describe("EdeResolver", func() {
 				Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
 					Should(
 						SatisfyAll(
-							HaveEdnsOption(dns.EDNS0EDE),
+							HaveEdnsOption(dnsv1.EDNS0EDE),
 							WithTransform(extractEdeOption,
-								HaveField("InfoCode", Equal(dns.ExtendedErrorCodeBlocked)),
+								HaveField("InfoCode", Equal(dnsv1.ExtendedErrorCodeBlocked)),
 							),
 						))
 			})
@@ -180,9 +180,9 @@ var _ = Describe("EdeResolver", func() {
 				Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
 					Should(
 						SatisfyAll(
-							HaveEdnsOption(dns.EDNS0EDE),
+							HaveEdnsOption(dnsv1.EDNS0EDE),
 							WithTransform(extractEdeOption,
-								HaveField("InfoCode", Equal(dns.ExtendedErrorCodeDNSBogus)),
+								HaveField("InfoCode", Equal(dnsv1.ExtendedErrorCodeDNSBogus)),
 							),
 						))
 			})
@@ -204,9 +204,9 @@ var _ = Describe("EdeResolver", func() {
 				Expect(sut.Resolve(ctx, newRequest("example.com.", A))).
 					Should(
 						SatisfyAll(
-							HaveEdnsOption(dns.EDNS0EDE),
+							HaveEdnsOption(dnsv1.EDNS0EDE),
 							WithTransform(extractEdeOption,
-								WithTransform(func(o dns.EDNS0_EDE) int { return len(o.ExtraText) },
+								WithTransform(func(o dnsv1.EDNS0_EDE) int { return len(o.ExtraText) },
 									BeNumerically("<=", maxEDETextLength))),
 						))
 			})
@@ -227,8 +227,8 @@ var _ = Describe("EdeResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveNoAnswer(),
-							HaveReturnCode(dns.RcodeSuccess),
-							Not(HaveEdnsOption(dns.EDNS0EDE)),
+							HaveReturnCode(dnsv1.RcodeSuccess),
+							Not(HaveEdnsOption(dnsv1.EDNS0EDE)),
 						))
 
 				// delegated to next resolver

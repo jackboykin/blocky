@@ -9,7 +9,7 @@ import (
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/onsi/ginkgo/v2"
 )
 
@@ -24,7 +24,7 @@ type MockDoTUpstreamServer struct {
 	closeAfter atomic.Int32
 
 	listener net.Listener
-	answerFn func(request *dns.Msg) (response *dns.Msg)
+	answerFn func(request *dnsv1.Msg) (response *dnsv1.Msg)
 
 	// mu guards conns, the set of accepted connections Close must tear down so
 	// their handleConn goroutines don't block forever on ReadMsg.
@@ -142,7 +142,7 @@ func (t *MockDoTUpstreamServer) handleConn(conn net.Conn) {
 	t.openConns.Add(1)
 	defer t.openConns.Add(-1)
 
-	dnsConn := &dns.Conn{Conn: conn}
+	dnsConn := &dnsv1.Conn{Conn: conn}
 
 	var served int32
 

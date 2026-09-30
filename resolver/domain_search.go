@@ -1,6 +1,6 @@
 package resolver
 
-import "github.com/miekg/dns"
+import dnsv1 "github.com/miekg/dns"
 
 // searchDomainOrParent returns the entry of m whose key equals domain or is its
 // closest parent domain. Label boundaries are walked with dns.NextLabel, so
@@ -11,7 +11,7 @@ func searchDomainOrParent[T any](m map[string]T, domain string) (match string, v
 		return "", value, false
 	}
 
-	for offset, end := 0, false; !end; offset, end = dns.NextLabel(domain, offset) {
+	for offset, end := 0, false; !end; offset, end = dnsv1.NextLabel(domain, offset) {
 		match = domain[offset:]
 		if value, found = m[match]; found {
 			return match, value, true

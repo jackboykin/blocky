@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -152,13 +152,13 @@ func queryDoTViaProxy(ctx context.Context, nginx testcontainers.Container, quest
 		return err
 	}
 
-	c := &dns.Client{
+	c := &dnsv1.Client{
 		Net:       "tcp-tls",
 		Timeout:   5 * time.Second,
 		TLSConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 
-	_, _, err = c.Exchange(util.NewMsgWithQuestion(question, dns.Type(dns.TypeA)), net.JoinHostPort(host, port))
+	_, _, err = c.Exchange(util.NewMsgWithQuestion(question, dnsv1.Type(dnsv1.TypeA)), net.JoinHostPort(host, port))
 
 	return err
 }
@@ -171,7 +171,7 @@ func queryDoHViaProxy(ctx context.Context, nginx testcontainers.Container, quest
 		return err
 	}
 
-	packed, err := util.NewMsgWithQuestion(question, dns.Type(dns.TypeA)).Pack()
+	packed, err := util.NewMsgWithQuestion(question, dnsv1.Type(dnsv1.TypeA)).Pack()
 	if err != nil {
 		return err
 	}

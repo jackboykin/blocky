@@ -5,7 +5,7 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/spf13/cobra"
 )
 
@@ -50,10 +50,10 @@ func healthcheck(cmd *cobra.Command, args []string) error {
 		bindIP = dnsHost
 	}
 
-	c := new(dns.Client)
+	c := new(dnsv1.Client)
 	c.Net = "tcp"
-	m := new(dns.Msg)
-	m.SetQuestion("healthcheck.blocky.", dns.TypeA)
+	m := new(dnsv1.Msg)
+	m.SetQuestion("healthcheck.blocky.", dnsv1.TypeA)
 
 	addr := net.JoinHostPort(bindIP, strconv.FormatUint(uint64(port), 10))
 	_, _, err := c.Exchange(m, addr)

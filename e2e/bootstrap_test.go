@@ -5,7 +5,7 @@ import (
 
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -137,7 +137,7 @@ var _ = Describe("Bootstrap DNS tests", Label("e2e"), func() {
 					msg := util.NewMsgWithQuestion("ipv6-stamp-test.com.", A)
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 				})
 			})
 		})
@@ -189,10 +189,10 @@ var _ = Describe("Bootstrap DNS tests", Label("e2e"), func() {
 					msg := util.NewMsgWithQuestion("multi-stamp-test.com.", A)
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dns.RcodeSuccess))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
 					Expect(resp.Answer).Should(HaveLen(1))
 
-					aRecord, ok := resp.Answer[0].(*dns.A)
+					aRecord, ok := resp.Answer[0].(*dnsv1.A)
 					Expect(ok).Should(BeTrue())
 					// Should get response from one of the upstreams
 					ip := aRecord.A.String()

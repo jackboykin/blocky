@@ -7,7 +7,7 @@ import (
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/resolver/dnssec"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 const (
@@ -159,19 +159,19 @@ func (r *DNSSECResolver) Resolve(ctx context.Context, request *model.Request) (*
 // sits above this resolver and rewrites the EDE option from the response type — from
 // overwriting the Bogus code set below with "Blocked".
 func createServFailResponseDNSSEC(request *model.Request, reason string) *model.Response {
-	modelResp := model.NewResponseWithRcode(request, dns.RcodeServerFailure, model.ResponseTypeBOGUS, reason)
+	modelResp := model.NewResponseWithRcode(request, dnsv1.RcodeServerFailure, model.ResponseTypeBOGUS, reason)
 
 	// Add EDE (Extended DNS Error) code for DNSSEC Bogus
 	// RFC 8914: https://www.rfc-editor.org/rfc/rfc8914.html#section-5.2
-	edeOption := &dns.EDNS0_EDE{
-		InfoCode:  dns.ExtendedErrorCodeDNSBogus,
+	edeOption := &dnsv1.EDNS0_EDE{
+		InfoCode:  dnsv1.ExtendedErrorCodeDNSBogus,
 		ExtraText: reason,
 	}
 
 	// Add EDNS0 OPT record with EDE option
-	opt := new(dns.OPT)
+	opt := new(dnsv1.OPT)
 	opt.Hdr.Name = "."
-	opt.Hdr.Rrtype = dns.TypeOPT
+	opt.Hdr.Rrtype = dnsv1.TypeOPT
 	opt.SetUDPSize(ednsUDPSize)
 	opt.Option = append(opt.Option, edeOption)
 	modelResp.Res.Extra = append(modelResp.Res.Extra, opt)

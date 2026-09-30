@@ -5,7 +5,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // ResponseType represents the type of the response ENUM(
@@ -27,43 +27,43 @@ type ResponseType int
 func (t ResponseType) ToExtendedErrorCode() uint16 {
 	switch t {
 	case ResponseTypeRESOLVED:
-		return dns.ExtendedErrorCodeOther
+		return dnsv1.ExtendedErrorCodeOther
 	case ResponseTypeCACHED:
-		return dns.ExtendedErrorCodeCachedError
+		return dnsv1.ExtendedErrorCodeCachedError
 	case ResponseTypeCONDITIONAL:
-		return dns.ExtendedErrorCodeForgedAnswer
+		return dnsv1.ExtendedErrorCodeForgedAnswer
 	case ResponseTypeCUSTOMDNS:
-		return dns.ExtendedErrorCodeForgedAnswer
+		return dnsv1.ExtendedErrorCodeForgedAnswer
 	case ResponseTypeHOSTSFILE:
-		return dns.ExtendedErrorCodeForgedAnswer
+		return dnsv1.ExtendedErrorCodeForgedAnswer
 	case ResponseTypeNOTFQDN:
-		return dns.ExtendedErrorCodeBlocked
+		return dnsv1.ExtendedErrorCodeBlocked
 	case ResponseTypeBLOCKED:
-		return dns.ExtendedErrorCodeBlocked
+		return dnsv1.ExtendedErrorCodeBlocked
 	// RFC 8914: "Blocked" is blocking due to an internal security policy of the
 	// operator, "Filtered" is blocking requested by the client. Rebinding
 	// protection is operator policy, so it reports as Blocked.
 	case ResponseTypeREBIND:
-		return dns.ExtendedErrorCodeBlocked
+		return dnsv1.ExtendedErrorCodeBlocked
 	// EdeResolver sits above the DNSSEC resolver and rewrites the EDE option from
 	// the response type, so this must reproduce the code the DNSSEC resolver sets
 	// on its SERVFAIL; mapping it to anything else would overwrite Bogus (6).
 	case ResponseTypeBOGUS:
-		return dns.ExtendedErrorCodeDNSBogus
+		return dnsv1.ExtendedErrorCodeDNSBogus
 	case ResponseTypeFILTERED:
-		return dns.ExtendedErrorCodeFiltered
+		return dnsv1.ExtendedErrorCodeFiltered
 	case ResponseTypeSPECIAL:
-		return dns.ExtendedErrorCodeFiltered
+		return dnsv1.ExtendedErrorCodeFiltered
 	case ResponseTypeSYNTHESIZED:
-		return dns.ExtendedErrorCodeForgedAnswer
+		return dnsv1.ExtendedErrorCodeForgedAnswer
 	default:
-		return dns.ExtendedErrorCodeOther
+		return dnsv1.ExtendedErrorCodeOther
 	}
 }
 
 // Response represents the response of a DNS query
 type Response struct {
-	Res    *dns.Msg
+	Res    *dnsv1.Msg
 	Reason string
 	// ReasonLabel is a low-cardinality variant of Reason, used as a Prometheus
 	// metric label. When empty, metrics fall back to Reason. Blocked responses
@@ -85,6 +85,6 @@ type Request struct {
 	RequestClientID string
 	Protocol        RequestProtocol
 	ClientNames     []string
-	Req             *dns.Msg
+	Req             *dnsv1.Msg
 	RequestTS       time.Time
 }

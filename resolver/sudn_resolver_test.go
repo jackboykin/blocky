@@ -8,7 +8,7 @@ import (
 	. "github.com/0xERR0R/blocky/helpertest"
 	. "github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -76,14 +76,14 @@ var _ = Describe("SudnResolver", Label("sudnResolver"), func() {
 
 	Describe("Resolve", func() {
 		//nolint:unparam // linter thinks `qName` is always `A` because of "RFC 6762 Appendix G" table
-		entry := func(qType dns.Type, qName string, expectedRCode int, extraMatchers ...any) TableEntry {
+		entry := func(qType dnsv1.Type, qName string, expectedRCode int, extraMatchers ...any) TableEntry {
 			GinkgoHelper()
 
 			var verb string
 			switch expectedRCode {
-			case dns.RcodeSuccess:
+			case dnsv1.RcodeSuccess:
 				verb = "resolve"
-			case dns.RcodeNameError:
+			case dnsv1.RcodeNameError:
 				verb = "block"
 			}
 
@@ -115,7 +115,7 @@ var _ = Describe("SudnResolver", Label("sudnResolver"), func() {
 		})
 
 		DescribeTable("handled domains",
-			func(qType dns.Type, qName string, expectedRCode int, extraMatchers ...types.GomegaMatcher) {
+			func(qType dnsv1.Type, qName string, expectedRCode int, extraMatchers ...types.GomegaMatcher) {
 				resp, err := sut.Resolve(ctx, newRequest(qName, qType))
 				Expect(err).Should(Succeed())
 				Expect(resp).Should(SatisfyAll(
@@ -125,36 +125,36 @@ var _ = Describe("SudnResolver", Label("sudnResolver"), func() {
 				))
 
 				switch expectedRCode {
-				case dns.RcodeSuccess:
+				case dnsv1.RcodeSuccess:
 					Expect(resp).Should(HaveTTL(BeNumerically("==", 0)))
-				case dns.RcodeNameError:
+				case dnsv1.RcodeNameError:
 					Expect(resp).Should(HaveNoAnswer())
 				}
 
 				Expect(resp).Should(SatisfyAll(extraMatchers...))
 			},
 
-			entry(A, "1.0.0.10.in-addr.arpa.", dns.RcodeNameError),
-			entry(A, "something.test.", dns.RcodeNameError),
-			entry(A, "something.localhost.", dns.RcodeSuccess, BeDNSRecord("something.localhost.", A, loopbackV4.String())),
-			entry(AAAA, "thing.localhost.", dns.RcodeSuccess, BeDNSRecord("thing.localhost.", AAAA, loopbackV6.String())),
-			entry(HTTPS, "something.localhost.", dns.RcodeNameError),
-			entry(A, "something.invalid.", dns.RcodeNameError),
-			entry(A, "something.local.", dns.RcodeNameError),
-			entry(HTTPS, "something.local.", dns.RcodeNameError),
-			entry(A, "1.0.254.169.in-addr.arpa.", dns.RcodeNameError),
-			entry(A, "something.intranet.", dns.RcodeNameError),
-			entry(A, "something.internal.", dns.RcodeNameError),
-			entry(A, "something.private.", dns.RcodeNameError),
-			entry(A, "something.corp.", dns.RcodeNameError),
-			entry(A, "something.home.", dns.RcodeNameError),
-			entry(A, "something.lan.", dns.RcodeNameError),
-			entry(A, "something.onion.", dns.RcodeNameError),
+			entry(A, "1.0.0.10.in-addr.arpa.", dnsv1.RcodeNameError),
+			entry(A, "something.test.", dnsv1.RcodeNameError),
+			entry(A, "something.localhost.", dnsv1.RcodeSuccess, BeDNSRecord("something.localhost.", A, loopbackV4.String())),
+			entry(AAAA, "thing.localhost.", dnsv1.RcodeSuccess, BeDNSRecord("thing.localhost.", AAAA, loopbackV6.String())),
+			entry(HTTPS, "something.localhost.", dnsv1.RcodeNameError),
+			entry(A, "something.invalid.", dnsv1.RcodeNameError),
+			entry(A, "something.local.", dnsv1.RcodeNameError),
+			entry(HTTPS, "something.local.", dnsv1.RcodeNameError),
+			entry(A, "1.0.254.169.in-addr.arpa.", dnsv1.RcodeNameError),
+			entry(A, "something.intranet.", dnsv1.RcodeNameError),
+			entry(A, "something.internal.", dnsv1.RcodeNameError),
+			entry(A, "something.private.", dnsv1.RcodeNameError),
+			entry(A, "something.corp.", dnsv1.RcodeNameError),
+			entry(A, "something.home.", dnsv1.RcodeNameError),
+			entry(A, "something.lan.", dnsv1.RcodeNameError),
+			entry(A, "something.onion.", dnsv1.RcodeNameError),
 
 			// DNS names are case-insensitive (RFC 4343): mixed-case queries
 			// (clients, dns0x20 randomization) must not skip special-use handling
-			entry(A, "LOCALHOST.", dns.RcodeSuccess, BeDNSRecord("LOCALHOST.", A, loopbackV4.String())),
-			entry(A, "SoMeThInG.TeSt.", dns.RcodeNameError),
+			entry(A, "LOCALHOST.", dnsv1.RcodeSuccess, BeDNSRecord("LOCALHOST.", A, loopbackV4.String())),
+			entry(A, "SoMeThInG.TeSt.", dnsv1.RcodeNameError),
 		)
 
 		When("RFC 6762 Appendix G is disabled", func() {
@@ -163,20 +163,20 @@ var _ = Describe("SudnResolver", Label("sudnResolver"), func() {
 			})
 
 			DescribeTable("",
-				func(qType dns.Type, qName string, expectedRCode int) {
+				func(qType dnsv1.Type, qName string, expectedRCode int) {
 					resp, err := sut.Resolve(ctx, newRequest(qName, qType))
 					Expect(err).Should(Succeed())
 					Expect(resp).Should(HaveReturnCode(expectedRCode))
 					Expect(resp).ShouldNot(HaveResponseType(ResponseTypeSPECIAL))
 				},
 
-				entry(A, "something.intranet.", dns.RcodeSuccess),
-				entry(A, "something.intranet.", dns.RcodeSuccess),
-				entry(A, "something.internal.", dns.RcodeSuccess),
-				entry(A, "something.private.", dns.RcodeSuccess),
-				entry(A, "something.corp.", dns.RcodeSuccess),
-				entry(A, "something.home.", dns.RcodeSuccess),
-				entry(A, "something.lan.", dns.RcodeSuccess),
+				entry(A, "something.intranet.", dnsv1.RcodeSuccess),
+				entry(A, "something.intranet.", dnsv1.RcodeSuccess),
+				entry(A, "something.internal.", dnsv1.RcodeSuccess),
+				entry(A, "something.private.", dnsv1.RcodeSuccess),
+				entry(A, "something.corp.", dnsv1.RcodeSuccess),
+				entry(A, "something.home.", dnsv1.RcodeSuccess),
+				entry(A, "something.lan.", dnsv1.RcodeSuccess),
 			)
 		})
 
@@ -187,7 +187,7 @@ var _ = Describe("SudnResolver", Label("sudnResolver"), func() {
 						BeDNSRecord("example.com.", A, "123.145.123.145"),
 						HaveTTL(BeNumerically("==", 300)),
 						HaveResponseType(ResponseTypeRESOLVED),
-						HaveReturnCode(dns.RcodeSuccess),
+						HaveReturnCode(dnsv1.RcodeSuccess),
 					))
 		})
 
@@ -199,7 +199,7 @@ var _ = Describe("SudnResolver", Label("sudnResolver"), func() {
 						BeDNSRecord("example.com.", A, "123.145.123.145"),
 						HaveTTL(BeNumerically("==", 300)),
 						HaveResponseType(ResponseTypeRESOLVED),
-						HaveReturnCode(dns.RcodeSuccess),
+						HaveReturnCode(dnsv1.RcodeSuccess),
 					))
 		})
 
@@ -214,17 +214,17 @@ var _ = Describe("SudnResolver", Label("sudnResolver"), func() {
 		// and MUST NOT forward queries for `resolver.arpa.` upstream. Reply
 		// NODATA (NOERROR + empty Answer) for every QTYPE across the zone.
 		DescribeTable("RFC 9462 resolver.arpa zone (NODATA)",
-			func(qType dns.Type, qName string) {
+			func(qType dnsv1.Type, qName string) {
 				resp, err := sut.Resolve(ctx, newRequest(qName, qType))
 				Expect(err).Should(Succeed())
 				Expect(resp).Should(SatisfyAll(
 					HaveResponseType(ResponseTypeSPECIAL),
 					HaveReason("Special-Use Domain Name"),
-					HaveReturnCode(dns.RcodeSuccess),
+					HaveReturnCode(dnsv1.RcodeSuccess),
 					HaveNoAnswer(),
 				))
 			},
-			Entry("SVCB for _dns.resolver.arpa.", dns.Type(dns.TypeSVCB), "_dns.resolver.arpa."),
+			Entry("SVCB for _dns.resolver.arpa.", dnsv1.Type(dnsv1.TypeSVCB), "_dns.resolver.arpa."),
 			Entry("A for _dns.resolver.arpa.", A, "_dns.resolver.arpa."),
 			Entry("AAAA for _dns.resolver.arpa.", AAAA, "_dns.resolver.arpa."),
 			Entry("A for the zone apex resolver.arpa.", A, "resolver.arpa."),

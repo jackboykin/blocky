@@ -6,7 +6,7 @@ import (
 
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -14,12 +14,12 @@ import (
 
 // addECSOption adds a full-prefix EDNS0 CLIENT-SUBNET option (the only form the ECS e2e
 // tests need) to the given DNS message.
-func addECSOption(msg *dns.Msg, ip net.IP) {
-	o := new(dns.OPT)
+func addECSOption(msg *dnsv1.Msg, ip net.IP) {
+	o := new(dnsv1.OPT)
 	o.Hdr.Name = "."
-	o.Hdr.Rrtype = dns.TypeOPT
+	o.Hdr.Rrtype = dnsv1.TypeOPT
 
-	e := new(dns.EDNS0_SUBNET)
+	e := new(dnsv1.EDNS0_SUBNET)
 	if ip.To4() != nil {
 		e.Family = 1                      // IPv4
 		e.SourceNetmask = net.IPv4len * 8 // /32

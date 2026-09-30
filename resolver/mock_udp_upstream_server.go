@@ -8,14 +8,14 @@ import (
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/onsi/ginkgo/v2"
 )
 
 type MockUDPUpstreamServer struct {
 	callCount atomic.Int32
 	ln        *net.UDPConn
-	answerFn  func(request *dns.Msg) (response *dns.Msg)
+	answerFn  func(request *dnsv1.Msg) (response *dnsv1.Msg)
 }
 
 func NewMockUDPUpstreamServer() *MockUDPUpstreamServer {
@@ -32,8 +32,8 @@ func (t *MockUDPUpstreamServer) WithAnswerRR(answers ...string) *MockUDPUpstream
 	return t
 }
 
-func (t *MockUDPUpstreamServer) WithAnswerMsg(answer *dns.Msg) *MockUDPUpstreamServer {
-	t.answerFn = func(request *dns.Msg) (response *dns.Msg) {
+func (t *MockUDPUpstreamServer) WithAnswerMsg(answer *dnsv1.Msg) *MockUDPUpstreamServer {
+	t.answerFn = func(request *dnsv1.Msg) (response *dnsv1.Msg) {
 		return answer
 	}
 
@@ -46,7 +46,7 @@ func (t *MockUDPUpstreamServer) WithAnswerError(errorCode int) *MockUDPUpstreamS
 	return t
 }
 
-func (t *MockUDPUpstreamServer) WithAnswerFn(fn func(request *dns.Msg) (response *dns.Msg)) *MockUDPUpstreamServer {
+func (t *MockUDPUpstreamServer) WithAnswerFn(fn func(request *dnsv1.Msg) (response *dnsv1.Msg)) *MockUDPUpstreamServer {
 	t.answerFn = fn
 
 	return t
@@ -58,7 +58,7 @@ func (t *MockUDPUpstreamServer) WithDelay(delay time.Duration) *MockUDPUpstreamS
 		panic("WithDelay must be called after a WithAnswer function")
 	}
 
-	t.answerFn = func(request *dns.Msg) *dns.Msg {
+	t.answerFn = func(request *dnsv1.Msg) *dnsv1.Msg {
 		time.Sleep(delay)
 
 		return answerFn(request)
@@ -117,7 +117,7 @@ func (t *MockUDPUpstreamServer) Start() config.Upstream {
 
 			go func() {
 				defer ginkgo.GinkgoRecover()
-				msg := new(dns.Msg)
+				msg := new(dnsv1.Msg)
 				err = msg.Unpack(buffer[0:n])
 
 				util.FatalOnError("can't deserialize message: ", err)

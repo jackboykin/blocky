@@ -19,7 +19,7 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 	"github.com/hashicorp/go-multierror"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -205,7 +205,7 @@ func (b *Bootstrap) dialContext(ctx context.Context, network, addr string) (net.
 		return nil, fmt.Errorf("failed to parse dial address '%s': %w", addr, err)
 	}
 
-	var qTypes []dns.Type
+	var qTypes []dnsv1.Type
 
 	switch {
 	case b.cfg.connectIPVersion != config.IPVersionDual: // ignore `network` if a specific version is configured
@@ -252,7 +252,7 @@ func (b *Bootstrap) dialContext(ctx context.Context, network, addr string) (net.
 	return nil, fmt.Errorf("failed to dial '%s' (resolved from '%s'): %w", addr, host, dialErr.ErrorOrNil())
 }
 
-func (b *Bootstrap) resolve(ctx context.Context, hostname string, qTypes []dns.Type) (ips []netip.Addr, err error) {
+func (b *Bootstrap) resolve(ctx context.Context, hostname string, qTypes []dnsv1.Type) (ips []netip.Addr, err error) {
 	ips = make([]netip.Addr, 0, len(qTypes))
 
 	for _, qType := range qTypes {
@@ -277,7 +277,7 @@ func (b *Bootstrap) resolve(ctx context.Context, hostname string, qTypes []dns.T
 	return ips, nil
 }
 
-func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType dns.Type) (ips []netip.Addr, err error) {
+func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType dnsv1.Type) (ips []netip.Addr, err error) {
 	if ip := util.ParseIP(hostname); ip.IsValid() {
 		return []netip.Addr{ip}, nil
 	}
@@ -293,7 +293,7 @@ func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType dns.
 		return nil, fmt.Errorf("DNS query failed for %s (type %s): %w", hostname, qType, err)
 	}
 
-	if rsp.Res.Rcode != dns.RcodeSuccess {
+	if rsp.Res.Rcode != dnsv1.RcodeSuccess {
 		return nil, nil
 	}
 
@@ -301,9 +301,9 @@ func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType dns.
 
 	for _, a := range rsp.Res.Answer {
 		switch rr := a.(type) {
-		case *dns.A:
+		case *dnsv1.A:
 			ips = append(ips, util.AddrFromIP(rr.A))
-		case *dns.AAAA:
+		case *dnsv1.AAAA:
 			ips = append(ips, util.AddrFromIP(rr.AAAA))
 		}
 	}
@@ -395,7 +395,7 @@ func (b *Bootstrap) addResolvFileUpstreams(
 
 	path := upstreamCfg.ResolvFile
 
-	cc, err := dns.ClientConfigFromFile(path)
+	cc, err := dnsv1.ClientConfigFromFile(path)
 	if err != nil {
 		return fmt.Errorf("resolvFile '%s': %w", path, err)
 	}

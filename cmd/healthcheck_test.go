@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/0xERR0R/blocky/helpertest"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -51,21 +51,21 @@ var _ = Describe("Healthcheck command", func() {
 	})
 })
 
-func createMockServer(hostPort string) *dns.Server {
-	res := &dns.Server{
+func createMockServer(hostPort string) *dnsv1.Server {
+	res := &dnsv1.Server{
 		Addr:    hostPort,
 		Net:     "tcp",
-		Handler: dns.NewServeMux(),
+		Handler: dnsv1.NewServeMux(),
 		NotifyStartedFunc: func() {
 			fmt.Printf("Mock healthcheck server is up: %s\n", hostPort)
 		},
 	}
 
-	th := res.Handler.(*dns.ServeMux)
-	th.HandleFunc("healthcheck.blocky", func(w dns.ResponseWriter, request *dns.Msg) {
-		resp := new(dns.Msg)
+	th := res.Handler.(*dnsv1.ServeMux)
+	th.HandleFunc("healthcheck.blocky", func(w dnsv1.ResponseWriter, request *dnsv1.Msg) {
+		resp := new(dnsv1.Msg)
 		resp.SetReply(request)
-		resp.Rcode = dns.RcodeSuccess
+		resp.Rcode = dnsv1.RcodeSuccess
 
 		err := w.WriteMsg(resp)
 		Expect(err).Should(Succeed())

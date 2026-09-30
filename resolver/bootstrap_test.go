@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	. "github.com/0xERR0R/blocky/helpertest"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -395,7 +395,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 
 				bootstrapUpstream.On("Resolve", mock.Anything).Return(&model.Response{Res: bootstrapResponse}, nil)
 
-				ips, err := sut.resolve(ctx, "localhost", []dns.Type{AAAA})
+				ips, err := sut.resolve(ctx, "localhost", []dnsv1.Type{AAAA})
 
 				Expect(err).Should(Succeed())
 				Expect(ips).Should(HaveLen(1))
@@ -409,7 +409,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 
 				bootstrapUpstream.On("Resolve", mock.Anything).Return(nil, resolveErr)
 
-				ips, err := sut.resolve(ctx, "localhost", []dns.Type{A})
+				ips, err := sut.resolve(ctx, "localhost", []dnsv1.Type{A})
 
 				Expect(err).Should(HaveOccurred())
 				Expect(err.Error()).Should(ContainSubstring(resolveErr.Error()))
@@ -419,11 +419,11 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 
 		When("upstream returns an error response", func() {
 			It("an error is returned", func() {
-				bootstrapResponse := &dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure}}
+				bootstrapResponse := &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeServerFailure}}
 
 				bootstrapUpstream.On("Resolve", mock.Anything).Return(&model.Response{Res: bootstrapResponse}, nil)
 
-				ips, err := sut.resolve(ctx, "unknownhost.invalid", []dns.Type{A})
+				ips, err := sut.resolve(ctx, "unknownhost.invalid", []dnsv1.Type{A})
 
 				Expect(err).Should(HaveOccurred())
 				Expect(err.Error()).Should(ContainSubstring("no such host"))
@@ -538,7 +538,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 			})
 
 			It("errors for unknown host", func() {
-				bootstrapResponse := &dns.Msg{MsgHdr: dns.MsgHdr{Rcode: dns.RcodeServerFailure}}
+				bootstrapResponse := &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeServerFailure}}
 
 				bootstrapUpstream.On("Resolve", mock.Anything).Return(&model.Response{Res: bootstrapResponse}, nil)
 
@@ -572,7 +572,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 					req, ok := args.Get(0).(*model.Request)
 					Expect(ok).Should(BeTrue())
 
-					qType := dns.Type(req.Req.Question[0].Qtype)
+					qType := dnsv1.Type(req.Req.Question[0].Qtype)
 
 					if sutConfig.ConnectIPVersion != config.IPVersionDual {
 						Expect(qType).Should(BeElementOf(sutConfig.ConnectIPVersion.QTypes()))
@@ -769,7 +769,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 		})
 
 		It("uses both", func() {
-			_, err := sut.resolve(ctx, "example.com.", []dns.Type{dns.Type(dns.TypeA)})
+			_, err := sut.resolve(ctx, "example.com.", []dnsv1.Type{dnsv1.Type(dnsv1.TypeA)})
 
 			Expect(err).To(Succeed())
 

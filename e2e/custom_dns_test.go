@@ -5,7 +5,7 @@ import (
 
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -293,7 +293,7 @@ var _ = Describe("Custom DNS tests", func() {
 			It("Should resolve PTR records for defined IP addresses", func(ctx context.Context) {
 				By("Resolving PTR record for a single IP mapping", func() {
 					// Create a PTR query for 192.168.178.3
-					ptrName, err := dns.ReverseAddr("192.168.178.3")
+					ptrName, err := dnsv1.ReverseAddr("192.168.178.3")
 					Expect(err).Should(Succeed())
 
 					msg := util.NewMsgWithQuestion(ptrName, PTR)
@@ -307,7 +307,7 @@ var _ = Describe("Custom DNS tests", func() {
 
 				By("Resolving PTR record for an IP with multiple domains", func() {
 					// Create a PTR query for 192.168.178.4
-					ptrName, err := dns.ReverseAddr("192.168.178.4")
+					ptrName, err := dnsv1.ReverseAddr("192.168.178.4")
 					Expect(err).Should(Succeed())
 
 					msg := util.NewMsgWithQuestion(ptrName, PTR)
@@ -321,7 +321,7 @@ var _ = Describe("Custom DNS tests", func() {
 
 				By("Returning empty result for undefined IP address", func() {
 					// Create a PTR query for 192.168.178.10 (not defined)
-					ptrName, err := dns.ReverseAddr("192.168.178.10")
+					ptrName, err := dnsv1.ReverseAddr("192.168.178.10")
 					Expect(err).Should(Succeed())
 
 					msg := util.NewMsgWithQuestion(ptrName, PTR)

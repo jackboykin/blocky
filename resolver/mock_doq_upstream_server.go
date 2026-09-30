@@ -17,7 +17,7 @@ import (
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/quic-go/quic-go"
 )
@@ -29,7 +29,7 @@ type MockDoQUpstreamServer struct {
 	listener  *quic.Listener
 	transport *quic.Transport
 	udpConn   *net.UDPConn
-	answerFn  func(request *dns.Msg) (response *dns.Msg)
+	answerFn  func(request *dnsv1.Msg) (response *dnsv1.Msg)
 }
 
 func NewMockDoQUpstreamServer() *MockDoQUpstreamServer {
@@ -165,7 +165,7 @@ func (t *MockDoQUpstreamServer) handleStream(stream *quic.Stream) {
 		return
 	}
 
-	msg := new(dns.Msg)
+	msg := new(dnsv1.Msg)
 	if err := msg.Unpack(data[2:]); err != nil {
 		return
 	}

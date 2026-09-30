@@ -7,14 +7,14 @@ import (
 	"net"
 	"time"
 
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 // DNSSECTestData holds generated DNSSEC test data for e2e tests
 type DNSSECTestData struct {
-	ARecord    *dns.A
-	RRSIG      *dns.RRSIG
-	DNSKEY     *dns.DNSKEY
+	ARecord    *dnsv1.A
+	RRSIG      *dnsv1.RRSIG
+	DNSKEY     *dnsv1.DNSKEY
 	PrivateKey *ecdsa.PrivateKey
 }
 
@@ -22,27 +22,27 @@ type DNSSECTestData struct {
 type DNSSECChainData struct {
 	// Parent zone (e.g., "example.")
 	ParentZone       string
-	ParentDNSKEY     *dns.DNSKEY
+	ParentDNSKEY     *dnsv1.DNSKEY
 	ParentPrivateKey *ecdsa.PrivateKey
 
 	// Child zone (e.g., "child.example.")
 	ChildZone       string
-	ChildDNSKEY     *dns.DNSKEY
+	ChildDNSKEY     *dnsv1.DNSKEY
 	ChildPrivateKey *ecdsa.PrivateKey
 
 	// DS record linking child to parent
-	DS *dns.DS
+	DS *dnsv1.DS
 
 	// DS RRSIG (parent signs the DS record)
-	DSRRSIG *dns.RRSIG
+	DSRRSIG *dnsv1.RRSIG
 
 	// Child's A record and signature
-	ARecord *dns.A
-	ARRRSIG *dns.RRSIG
+	ARecord *dnsv1.A
+	ARRRSIG *dnsv1.RRSIG
 
 	// DNSKEY RRSIGs (self-signed per RFC 4035 §5.2)
-	ChildDNSKEYRRSIG  *dns.RRSIG
-	ParentDNSKEYRRSIG *dns.RRSIG
+	ChildDNSKEYRRSIG  *dnsv1.RRSIG
+	ParentDNSKEYRRSIG *dnsv1.RRSIG
 }
 
 // GenerateValidDNSSEC generates a valid DNSSEC-signed A record with matching DNSKEY
@@ -51,16 +51,16 @@ type DNSSECChainData struct {
 //nolint:mnd // Test helper function with DNS TTL and key size constants
 func GenerateValidDNSSEC(zone, hostname, ipAddr string) (*DNSSECTestData, error) {
 	// Create DNSKEY with ECDSA P-256 (fast and modern)
-	key := new(dns.DNSKEY)
-	key.Hdr = dns.RR_Header{
+	key := new(dnsv1.DNSKEY)
+	key.Hdr = dnsv1.RR_Header{
 		Name:   zone,
-		Rrtype: dns.TypeDNSKEY,
-		Class:  dns.ClassINET,
+		Rrtype: dnsv1.TypeDNSKEY,
+		Class:  dnsv1.ClassINET,
 		Ttl:    3600,
 	}
 	key.Flags = 257 // Key Signing Key (KSK) with SEP flag for use as trust anchor
 	key.Protocol = 3
-	key.Algorithm = dns.ECDSAP256SHA256
+	key.Algorithm = dnsv1.ECDSAP256SHA256
 
 	// Generate ECDSA keypair (256 bits for P-256)
 	privkeyIface, err := key.Generate(256)
@@ -74,27 +74,27 @@ func GenerateValidDNSSEC(zone, hostname, ipAddr string) (*DNSSECTestData, error)
 	}
 
 	// Create A record to sign
-	aRecord := &dns.A{
-		Hdr: dns.RR_Header{
+	aRecord := &dnsv1.A{
+		Hdr: dnsv1.RR_Header{
 			Name:   hostname,
-			Rrtype: dns.TypeA,
-			Class:  dns.ClassINET,
+			Rrtype: dnsv1.TypeA,
+			Class:  dnsv1.ClassINET,
 			Ttl:    300,
 		},
 		A: net.ParseIP(ipAddr),
 	}
 
 	// Create RRSIG for the A record
-	sig := new(dns.RRSIG)
-	sig.Hdr = dns.RR_Header{
+	sig := new(dnsv1.RRSIG)
+	sig.Hdr = dnsv1.RR_Header{
 		Name:   hostname,
-		Rrtype: dns.TypeRRSIG,
-		Class:  dns.ClassINET,
+		Rrtype: dnsv1.TypeRRSIG,
+		Class:  dnsv1.ClassINET,
 		Ttl:    300,
 	}
-	sig.TypeCovered = dns.TypeA
-	sig.Algorithm = dns.ECDSAP256SHA256
-	sig.Labels = uint8(dns.CountLabel(aRecord.Hdr.Name)) //nolint:gosec // DNS label count is bounded by protocol (max 127)
+	sig.TypeCovered = dnsv1.TypeA
+	sig.Algorithm = dnsv1.ECDSAP256SHA256
+	sig.Labels = uint8(dnsv1.CountLabel(aRecord.Hdr.Name)) //nolint:gosec // DNS label count is bounded by protocol (max 127)
 	sig.OrigTtl = aRecord.Hdr.Ttl
 	sig.Expiration = uint32(time.Now().Add(30 * 24 * time.Hour).Unix()) //nolint:gosec // DNSSEC uses uint32 timestamps per RFC 4034
 	sig.Inception = uint32(time.Now().Add(-1 * time.Hour).Unix())       //nolint:gosec // DNSSEC uses uint32 timestamps per RFC 4034
@@ -102,7 +102,7 @@ func GenerateValidDNSSEC(zone, hostname, ipAddr string) (*DNSSECTestData, error)
 	sig.SignerName = key.Hdr.Name
 
 	// Sign the A record with the private key
-	if err := sig.Sign(privkey, []dns.RR{aRecord}); err != nil {
+	if err := sig.Sign(privkey, []dnsv1.RR{aRecord}); err != nil {
 		return nil, fmt.Errorf("failed to sign A record: %w", err)
 	}
 
@@ -118,7 +118,7 @@ func GenerateValidDNSSEC(zone, hostname, ipAddr string) (*DNSSECTestData, error)
 // The A record is signed with keyA, but a different keyB is returned for DNSKEY queries
 //
 //nolint:mnd // Test helper function with DNS TTL and key size constants
-func GenerateMismatchedDNSSEC(zone, hostname, ipAddr string) (*DNSSECTestData, *dns.DNSKEY, error) {
+func GenerateMismatchedDNSSEC(zone, hostname, ipAddr string) (*DNSSECTestData, *dnsv1.DNSKEY, error) {
 	// Generate the first key and sign with it
 	validData, err := GenerateValidDNSSEC(zone, hostname, ipAddr)
 	if err != nil {
@@ -126,16 +126,16 @@ func GenerateMismatchedDNSSEC(zone, hostname, ipAddr string) (*DNSSECTestData, *
 	}
 
 	// Generate a second, different DNSKEY
-	wrongKey := new(dns.DNSKEY)
-	wrongKey.Hdr = dns.RR_Header{
+	wrongKey := new(dnsv1.DNSKEY)
+	wrongKey.Hdr = dnsv1.RR_Header{
 		Name:   zone,
-		Rrtype: dns.TypeDNSKEY,
-		Class:  dns.ClassINET,
+		Rrtype: dnsv1.TypeDNSKEY,
+		Class:  dnsv1.ClassINET,
 		Ttl:    3600,
 	}
 	wrongKey.Flags = 257
 	wrongKey.Protocol = 3
-	wrongKey.Algorithm = dns.ECDSAP256SHA256
+	wrongKey.Algorithm = dnsv1.ECDSAP256SHA256
 
 	// Generate different keypair
 	_, err = wrongKey.Generate(256)
@@ -158,16 +158,16 @@ func GenerateDNSSECChain(parentZone, childZone, hostname, ipAddr string) (*DNSSE
 	}
 
 	// Generate parent DNSKEY (KSK)
-	parentKey := new(dns.DNSKEY)
-	parentKey.Hdr = dns.RR_Header{
+	parentKey := new(dnsv1.DNSKEY)
+	parentKey.Hdr = dnsv1.RR_Header{
 		Name:   parentZone,
-		Rrtype: dns.TypeDNSKEY,
-		Class:  dns.ClassINET,
+		Rrtype: dnsv1.TypeDNSKEY,
+		Class:  dnsv1.ClassINET,
 		Ttl:    3600,
 	}
 	parentKey.Flags = 257 // KSK with SEP flag
 	parentKey.Protocol = 3
-	parentKey.Algorithm = dns.ECDSAP256SHA256
+	parentKey.Algorithm = dnsv1.ECDSAP256SHA256
 
 	parentPrivkeyIface, err := parentKey.Generate(256)
 	if err != nil {
@@ -183,16 +183,16 @@ func GenerateDNSSECChain(parentZone, childZone, hostname, ipAddr string) (*DNSSE
 	chain.ParentPrivateKey = parentPrivkey
 
 	// Generate child DNSKEY (KSK)
-	childKey := new(dns.DNSKEY)
-	childKey.Hdr = dns.RR_Header{
+	childKey := new(dnsv1.DNSKEY)
+	childKey.Hdr = dnsv1.RR_Header{
 		Name:   childZone,
-		Rrtype: dns.TypeDNSKEY,
-		Class:  dns.ClassINET,
+		Rrtype: dnsv1.TypeDNSKEY,
+		Class:  dnsv1.ClassINET,
 		Ttl:    3600,
 	}
 	childKey.Flags = 257 // KSK with SEP flag
 	childKey.Protocol = 3
-	childKey.Algorithm = dns.ECDSAP256SHA256
+	childKey.Algorithm = dnsv1.ECDSAP256SHA256
 
 	childPrivkeyIface, err := childKey.Generate(256)
 	if err != nil {
@@ -209,19 +209,19 @@ func GenerateDNSSECChain(parentZone, childZone, hostname, ipAddr string) (*DNSSE
 
 	// Generate DS record for child zone (signed by parent)
 	// DS = hash(DNSKEY)
-	chain.DS = childKey.ToDS(dns.SHA256)
+	chain.DS = childKey.ToDS(dnsv1.SHA256)
 
 	// Create RRSIG for DS record (parent signs the DS)
-	dsRRSIG := new(dns.RRSIG)
-	dsRRSIG.Hdr = dns.RR_Header{
+	dsRRSIG := new(dnsv1.RRSIG)
+	dsRRSIG.Hdr = dnsv1.RR_Header{
 		Name:   childZone,
-		Rrtype: dns.TypeRRSIG,
-		Class:  dns.ClassINET,
+		Rrtype: dnsv1.TypeRRSIG,
+		Class:  dnsv1.ClassINET,
 		Ttl:    3600,
 	}
-	dsRRSIG.TypeCovered = dns.TypeDS
-	dsRRSIG.Algorithm = dns.ECDSAP256SHA256
-	dsRRSIG.Labels = uint8(dns.CountLabel(chain.DS.Hdr.Name)) //nolint:gosec // DNS label count is bounded by protocol (max 127)
+	dsRRSIG.TypeCovered = dnsv1.TypeDS
+	dsRRSIG.Algorithm = dnsv1.ECDSAP256SHA256
+	dsRRSIG.Labels = uint8(dnsv1.CountLabel(chain.DS.Hdr.Name)) //nolint:gosec // DNS label count is bounded by protocol (max 127)
 	dsRRSIG.OrigTtl = chain.DS.Hdr.Ttl
 	dsRRSIG.Expiration = uint32(time.Now().Add(30 * 24 * time.Hour).Unix()) //nolint:gosec // DNSSEC uses uint32 timestamps per RFC 4034
 	dsRRSIG.Inception = uint32(time.Now().Add(-1 * time.Hour).Unix())       //nolint:gosec // DNSSEC uses uint32 timestamps per RFC 4034
@@ -229,18 +229,18 @@ func GenerateDNSSECChain(parentZone, childZone, hostname, ipAddr string) (*DNSSE
 	dsRRSIG.SignerName = parentZone
 
 	// Parent signs the DS record
-	if err := dsRRSIG.Sign(parentPrivkey, []dns.RR{chain.DS}); err != nil {
+	if err := dsRRSIG.Sign(parentPrivkey, []dnsv1.RR{chain.DS}); err != nil {
 		return nil, fmt.Errorf("failed to sign DS record: %w", err)
 	}
 
 	chain.DSRRSIG = dsRRSIG
 
 	// Create A record in child zone
-	aRecord := &dns.A{
-		Hdr: dns.RR_Header{
+	aRecord := &dnsv1.A{
+		Hdr: dnsv1.RR_Header{
 			Name:   hostname,
-			Rrtype: dns.TypeA,
-			Class:  dns.ClassINET,
+			Rrtype: dnsv1.TypeA,
+			Class:  dnsv1.ClassINET,
 			Ttl:    300,
 		},
 		A: net.ParseIP(ipAddr),
@@ -248,16 +248,16 @@ func GenerateDNSSECChain(parentZone, childZone, hostname, ipAddr string) (*DNSSE
 	chain.ARecord = aRecord
 
 	// Create RRSIG for A record (child signs its own A record)
-	aRRSIG := new(dns.RRSIG)
-	aRRSIG.Hdr = dns.RR_Header{
+	aRRSIG := new(dnsv1.RRSIG)
+	aRRSIG.Hdr = dnsv1.RR_Header{
 		Name:   hostname,
-		Rrtype: dns.TypeRRSIG,
-		Class:  dns.ClassINET,
+		Rrtype: dnsv1.TypeRRSIG,
+		Class:  dnsv1.ClassINET,
 		Ttl:    300,
 	}
-	aRRSIG.TypeCovered = dns.TypeA
-	aRRSIG.Algorithm = dns.ECDSAP256SHA256
-	aRRSIG.Labels = uint8(dns.CountLabel(aRecord.Hdr.Name)) //nolint:gosec // DNS label count is bounded by protocol (max 127)
+	aRRSIG.TypeCovered = dnsv1.TypeA
+	aRRSIG.Algorithm = dnsv1.ECDSAP256SHA256
+	aRRSIG.Labels = uint8(dnsv1.CountLabel(aRecord.Hdr.Name)) //nolint:gosec // DNS label count is bounded by protocol (max 127)
 	aRRSIG.OrigTtl = aRecord.Hdr.Ttl
 	aRRSIG.Expiration = uint32(time.Now().Add(30 * 24 * time.Hour).Unix()) //nolint:gosec // DNSSEC uses uint32 timestamps per RFC 4034
 	aRRSIG.Inception = uint32(time.Now().Add(-1 * time.Hour).Unix())       //nolint:gosec // DNSSEC uses uint32 timestamps per RFC 4034
@@ -265,23 +265,23 @@ func GenerateDNSSECChain(parentZone, childZone, hostname, ipAddr string) (*DNSSE
 	aRRSIG.SignerName = childZone
 
 	// Child signs the A record
-	if err := aRRSIG.Sign(childPrivkey, []dns.RR{aRecord}); err != nil {
+	if err := aRRSIG.Sign(childPrivkey, []dnsv1.RR{aRecord}); err != nil {
 		return nil, fmt.Errorf("failed to sign A record: %w", err)
 	}
 
 	chain.ARRRSIG = aRRSIG
 
 	// Generate RRSIG for child DNSKEY RRset (self-signed per RFC 4035 §5.2)
-	childDNSKEYRRSIG := new(dns.RRSIG)
-	childDNSKEYRRSIG.Hdr = dns.RR_Header{
+	childDNSKEYRRSIG := new(dnsv1.RRSIG)
+	childDNSKEYRRSIG.Hdr = dnsv1.RR_Header{
 		Name:   childZone,
-		Rrtype: dns.TypeRRSIG,
-		Class:  dns.ClassINET,
+		Rrtype: dnsv1.TypeRRSIG,
+		Class:  dnsv1.ClassINET,
 		Ttl:    3600,
 	}
-	childDNSKEYRRSIG.TypeCovered = dns.TypeDNSKEY
-	childDNSKEYRRSIG.Algorithm = dns.ECDSAP256SHA256
-	childDNSKEYRRSIG.Labels = uint8(dns.CountLabel(childKey.Hdr.Name)) //nolint:gosec // DNS label count is bounded by protocol (max 127)
+	childDNSKEYRRSIG.TypeCovered = dnsv1.TypeDNSKEY
+	childDNSKEYRRSIG.Algorithm = dnsv1.ECDSAP256SHA256
+	childDNSKEYRRSIG.Labels = uint8(dnsv1.CountLabel(childKey.Hdr.Name)) //nolint:gosec // DNS label count is bounded by protocol (max 127)
 	childDNSKEYRRSIG.OrigTtl = childKey.Hdr.Ttl
 	childDNSKEYRRSIG.Expiration = uint32(time.Now().Add(30 * 24 * time.Hour).Unix()) //nolint:gosec // DNSSEC uses uint32 timestamps per RFC 4034
 	childDNSKEYRRSIG.Inception = uint32(time.Now().Add(-1 * time.Hour).Unix())       //nolint:gosec // DNSSEC uses uint32 timestamps per RFC 4034
@@ -289,23 +289,23 @@ func GenerateDNSSECChain(parentZone, childZone, hostname, ipAddr string) (*DNSSE
 	childDNSKEYRRSIG.SignerName = childZone
 
 	// Child signs its own DNSKEY (self-signed)
-	if err := childDNSKEYRRSIG.Sign(childPrivkey, []dns.RR{childKey}); err != nil {
+	if err := childDNSKEYRRSIG.Sign(childPrivkey, []dnsv1.RR{childKey}); err != nil {
 		return nil, fmt.Errorf("failed to sign child DNSKEY: %w", err)
 	}
 
 	chain.ChildDNSKEYRRSIG = childDNSKEYRRSIG
 
 	// Generate RRSIG for parent DNSKEY RRset (self-signed per RFC 4035 §5.2)
-	parentDNSKEYRRSIG := new(dns.RRSIG)
-	parentDNSKEYRRSIG.Hdr = dns.RR_Header{
+	parentDNSKEYRRSIG := new(dnsv1.RRSIG)
+	parentDNSKEYRRSIG.Hdr = dnsv1.RR_Header{
 		Name:   parentZone,
-		Rrtype: dns.TypeRRSIG,
-		Class:  dns.ClassINET,
+		Rrtype: dnsv1.TypeRRSIG,
+		Class:  dnsv1.ClassINET,
 		Ttl:    3600,
 	}
-	parentDNSKEYRRSIG.TypeCovered = dns.TypeDNSKEY
-	parentDNSKEYRRSIG.Algorithm = dns.ECDSAP256SHA256
-	parentDNSKEYRRSIG.Labels = uint8(dns.CountLabel(parentKey.Hdr.Name)) //nolint:gosec // DNS label count is bounded by protocol (max 127)
+	parentDNSKEYRRSIG.TypeCovered = dnsv1.TypeDNSKEY
+	parentDNSKEYRRSIG.Algorithm = dnsv1.ECDSAP256SHA256
+	parentDNSKEYRRSIG.Labels = uint8(dnsv1.CountLabel(parentKey.Hdr.Name)) //nolint:gosec // DNS label count is bounded by protocol (max 127)
 	parentDNSKEYRRSIG.OrigTtl = parentKey.Hdr.Ttl
 	parentDNSKEYRRSIG.Expiration = uint32(time.Now().Add(30 * 24 * time.Hour).Unix()) //nolint:gosec // DNSSEC uses uint32 timestamps per RFC 4034
 	parentDNSKEYRRSIG.Inception = uint32(time.Now().Add(-1 * time.Hour).Unix())       //nolint:gosec // DNSSEC uses uint32 timestamps per RFC 4034
@@ -313,7 +313,7 @@ func GenerateDNSSECChain(parentZone, childZone, hostname, ipAddr string) (*DNSSE
 	parentDNSKEYRRSIG.SignerName = parentZone
 
 	// Parent signs its own DNSKEY (self-signed)
-	if err := parentDNSKEYRRSIG.Sign(parentPrivkey, []dns.RR{parentKey}); err != nil {
+	if err := parentDNSKEYRRSIG.Sign(parentPrivkey, []dnsv1.RR{parentKey}); err != nil {
 		return nil, fmt.Errorf("failed to sign parent DNSKEY: %w", err)
 	}
 
@@ -325,17 +325,17 @@ func GenerateDNSSECChain(parentZone, childZone, hostname, ipAddr string) (*DNSSE
 // FormatRecordForMokka formats a DNS RR for use in dns-mokka configuration
 // Returns the format: "TYPE rdata TTL"
 // Example: "A 192.0.2.1 300"
-func FormatRecordForMokka(rr dns.RR) string {
+func FormatRecordForMokka(rr dnsv1.RR) string {
 	hdr := rr.Header()
 
 	// Type-specific formatting for mokka
 	switch r := rr.(type) {
-	case *dns.A:
+	case *dnsv1.A:
 		return fmt.Sprintf("A %s %d", r.A.String(), hdr.Ttl)
-	case *dns.RRSIG:
+	case *dnsv1.RRSIG:
 		// RRSIG format for mokka: "RRSIG typecovered alg labels origttl exp inc keytag signer signature TTL"
 		return fmt.Sprintf("RRSIG %s %d %d %d %d %d %d %s %s %d",
-			dns.TypeToString[r.TypeCovered],
+			dnsv1.TypeToString[r.TypeCovered],
 			r.Algorithm,
 			r.Labels,
 			r.OrigTtl,
@@ -346,7 +346,7 @@ func FormatRecordForMokka(rr dns.RR) string {
 			r.Signature,
 			hdr.Ttl,
 		)
-	case *dns.DNSKEY:
+	case *dnsv1.DNSKEY:
 		// DNSKEY format for mokka: "DNSKEY flags protocol alg publickey TTL"
 		return fmt.Sprintf("DNSKEY %d %d %d %s %d",
 			r.Flags,
@@ -355,7 +355,7 @@ func FormatRecordForMokka(rr dns.RR) string {
 			r.PublicKey,
 			hdr.Ttl,
 		)
-	case *dns.DS:
+	case *dnsv1.DS:
 		// DS format for mokka: "DS keytag alg digesttype digest TTL"
 		return fmt.Sprintf("DS %d %d %d %s %d",
 			r.KeyTag,

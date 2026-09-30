@@ -6,7 +6,7 @@ import (
 
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -228,7 +228,7 @@ var _ = Describe("Caching configuration tests", func() {
 				By("Excluded domain should return SERVFAIL (not cached)", func() {
 					resp, err := doDNSRequest(ctx, blocky, msgNocache)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dns.RcodeServerFailure))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure))
 				})
 			})
 		})
@@ -261,7 +261,7 @@ var _ = Describe("Caching configuration tests", func() {
 				By("First query should return NXDOMAIN", func() {
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dns.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
 				})
 
 				By("Terminate upstream to ensure cache is used", func() {
@@ -271,7 +271,7 @@ var _ = Describe("Caching configuration tests", func() {
 				By("Second query should return cached NXDOMAIN", func() {
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dns.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
 				})
 
 				By("No warnings/errors in log", func() {
@@ -342,7 +342,7 @@ var _ = Describe("Caching configuration tests", func() {
 					for _, d := range domains[:3] {
 						resp, err := doDNSRequest(ctx, blocky, util.NewMsgWithQuestion(d.name, A))
 						Expect(err).Should(Succeed())
-						if resp.Rcode == dns.RcodeSuccess && len(resp.Answer) > 0 {
+						if resp.Rcode == dnsv1.RcodeSuccess && len(resp.Answer) > 0 {
 							cached++
 						}
 					}

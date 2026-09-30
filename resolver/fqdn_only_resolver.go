@@ -7,7 +7,7 @@ import (
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 type FQDNOnlyResolver struct {
@@ -27,7 +27,7 @@ func (r *FQDNOnlyResolver) Resolve(ctx context.Context, request *model.Request) 
 	if r.IsEnabled() {
 		domainFromQuestion := util.ExtractDomain(request.Req.Question[0])
 		if !strings.Contains(domainFromQuestion, ".") {
-			return model.NewResponseWithRcode(request, dns.RcodeNameError, model.ResponseTypeNOTFQDN, "NOTFQDN"), nil
+			return model.NewResponseWithRcode(request, dnsv1.RcodeNameError, model.ResponseTypeNOTFQDN, "NOTFQDN"), nil
 		}
 	}
 

@@ -17,7 +17,7 @@ import (
 	"github.com/0xERR0R/blocky/stats"
 	"github.com/0xERR0R/blocky/util"
 	"github.com/go-chi/chi/v5"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 )
 
 type httpReqCtxKey struct{}
@@ -46,7 +46,7 @@ type ListRefresher interface {
 
 type Querier interface {
 	Query(
-		ctx context.Context, serverHost string, clientIP netip.Addr, question string, qType dns.Type,
+		ctx context.Context, serverHost string, clientIP netip.Addr, question string, qType dnsv1.Type,
 	) (*model.Response, error)
 }
 
@@ -165,8 +165,8 @@ func (i *OpenAPIInterfaceImpl) ListRefresh(ctx context.Context,
 }
 
 func (i *OpenAPIInterfaceImpl) Query(ctx context.Context, request QueryRequestObject) (QueryResponseObject, error) {
-	qType := dns.Type(dns.StringToType[request.Body.Type])
-	if qType == dns.Type(dns.TypeNone) {
+	qType := dnsv1.Type(dnsv1.StringToType[request.Body.Type])
+	if qType == dnsv1.Type(dnsv1.TypeNone) {
 		return Query400TextResponse(fmt.Sprintf("unknown query type '%s'", request.Body.Type)), nil
 	}
 
@@ -181,7 +181,7 @@ func (i *OpenAPIInterfaceImpl) Query(ctx context.Context, request QueryRequestOb
 		clientIP = util.HTTPClientIP(httpReq)
 	}
 
-	resp, err := i.querier.Query(ctx, serverHost, clientIP, dns.Fqdn(request.Body.Query), qType)
+	resp, err := i.querier.Query(ctx, serverHost, clientIP, dnsv1.Fqdn(request.Body.Query), qType)
 	if err != nil {
 		return nil, fmt.Errorf("query failed for '%s' (type %s): %w", request.Body.Query, request.Body.Type, err)
 	}
@@ -190,7 +190,7 @@ func (i *OpenAPIInterfaceImpl) Query(ctx context.Context, request QueryRequestOb
 		Reason:       resp.Reason,
 		ResponseType: resp.RType.String(),
 		Response:     util.AnswerToString(resp.Res.Answer),
-		ReturnCode:   dns.RcodeToString[resp.Res.Rcode],
+		ReturnCode:   dnsv1.RcodeToString[resp.Res.Rcode],
 	}), nil
 }
 

@@ -7,7 +7,7 @@ import (
 
 	"github.com/0xERR0R/blocky/log"
 	"github.com/0xERR0R/blocky/model"
-	"github.com/miekg/dns"
+	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -32,32 +32,32 @@ var _ = Describe("RRset validation functions", func() {
 
 	Describe("getAlgorithmStrength", func() {
 		It("should return highest strength for ED448", func() {
-			strength := sut.getAlgorithmStrength(dns.ED448)
+			strength := sut.getAlgorithmStrength(dnsv1.ED448)
 			Expect(strength).Should(Equal(algorithmStrengthED448))
 		})
 
 		It("should return very high strength for ED25519", func() {
-			strength := sut.getAlgorithmStrength(dns.ED25519)
+			strength := sut.getAlgorithmStrength(dnsv1.ED25519)
 			Expect(strength).Should(Equal(algorithmStrengthED25519))
 		})
 
 		It("should return high strength for ECDSA algorithms", func() {
-			strength1 := sut.getAlgorithmStrength(dns.ECDSAP384SHA384)
-			strength2 := sut.getAlgorithmStrength(dns.ECDSAP256SHA256)
+			strength1 := sut.getAlgorithmStrength(dnsv1.ECDSAP384SHA384)
+			strength2 := sut.getAlgorithmStrength(dnsv1.ECDSAP256SHA256)
 			Expect(strength1).Should(Equal(algorithmStrengthECDSAP384SHA384))
 			Expect(strength2).Should(Equal(algorithmStrengthECDSAP256SHA256))
 			Expect(strength1).Should(BeNumerically(">", strength2))
 		})
 
 		It("should return moderate strength for RSA algorithms", func() {
-			strength1 := sut.getAlgorithmStrength(dns.RSASHA512)
-			strength2 := sut.getAlgorithmStrength(dns.RSASHA256)
+			strength1 := sut.getAlgorithmStrength(dnsv1.RSASHA512)
+			strength2 := sut.getAlgorithmStrength(dnsv1.RSASHA256)
 			Expect(strength1).Should(Equal(algorithmStrengthRSASHA512))
 			Expect(strength2).Should(Equal(algorithmStrengthRSASHA256))
 		})
 
 		It("should return low strength for deprecated RSASHA1", func() {
-			strength := sut.getAlgorithmStrength(dns.RSASHA1)
+			strength := sut.getAlgorithmStrength(dnsv1.RSASHA1)
 			Expect(strength).Should(Equal(algorithmStrengthRSASHA1))
 		})
 
@@ -68,10 +68,10 @@ var _ = Describe("RRset validation functions", func() {
 
 		It("should rank algorithms correctly", func() {
 			// Verify ED448 > ED25519 > ECDSA > RSA > unsupported
-			ed448 := sut.getAlgorithmStrength(dns.ED448)
-			ed25519 := sut.getAlgorithmStrength(dns.ED25519)
-			ecdsa := sut.getAlgorithmStrength(dns.ECDSAP256SHA256)
-			rsa := sut.getAlgorithmStrength(dns.RSASHA256)
+			ed448 := sut.getAlgorithmStrength(dnsv1.ED448)
+			ed25519 := sut.getAlgorithmStrength(dnsv1.ED25519)
+			ecdsa := sut.getAlgorithmStrength(dnsv1.ECDSAP256SHA256)
+			rsa := sut.getAlgorithmStrength(dnsv1.RSASHA256)
 			unsupported := sut.getAlgorithmStrength(255)
 
 			Expect(ed448).Should(BeNumerically(">", ed25519))
@@ -83,80 +83,80 @@ var _ = Describe("RRset validation functions", func() {
 
 	Describe("selectBestRRSIG", func() {
 		It("should return nil for empty list", func() {
-			result := sut.selectBestRRSIG([]*dns.RRSIG{})
+			result := sut.selectBestRRSIG([]*dnsv1.RRSIG{})
 			Expect(result).Should(BeNil())
 		})
 
 		It("should return single RRSIG", func() {
-			rrsig := &dns.RRSIG{Algorithm: dns.RSASHA256}
-			result := sut.selectBestRRSIG([]*dns.RRSIG{rrsig})
+			rrsig := &dnsv1.RRSIG{Algorithm: dnsv1.RSASHA256}
+			result := sut.selectBestRRSIG([]*dnsv1.RRSIG{rrsig})
 			Expect(result).Should(Equal(rrsig))
 		})
 
 		It("should select strongest algorithm", func() {
-			weak := &dns.RRSIG{Algorithm: dns.RSASHA256}
-			strong := &dns.RRSIG{Algorithm: dns.ED25519}
-			strongest := &dns.RRSIG{Algorithm: dns.ED448}
+			weak := &dnsv1.RRSIG{Algorithm: dnsv1.RSASHA256}
+			strong := &dnsv1.RRSIG{Algorithm: dnsv1.ED25519}
+			strongest := &dnsv1.RRSIG{Algorithm: dnsv1.ED448}
 
-			result := sut.selectBestRRSIG([]*dns.RRSIG{weak, strong, strongest})
+			result := sut.selectBestRRSIG([]*dnsv1.RRSIG{weak, strong, strongest})
 			Expect(result).Should(Equal(strongest))
 		})
 
 		It("should prefer ED25519 over RSASHA256", func() {
-			rsa := &dns.RRSIG{Algorithm: dns.RSASHA256}
-			ed := &dns.RRSIG{Algorithm: dns.ED25519}
+			rsa := &dnsv1.RRSIG{Algorithm: dnsv1.RSASHA256}
+			ed := &dnsv1.RRSIG{Algorithm: dnsv1.ED25519}
 
-			result := sut.selectBestRRSIG([]*dns.RRSIG{rsa, ed})
+			result := sut.selectBestRRSIG([]*dnsv1.RRSIG{rsa, ed})
 			Expect(result).Should(Equal(ed))
 		})
 
 		It("should handle multiple RRSIGs with same algorithm", func() {
-			rrsig1 := &dns.RRSIG{Algorithm: dns.RSASHA256, KeyTag: 1}
-			rrsig2 := &dns.RRSIG{Algorithm: dns.RSASHA256, KeyTag: 2}
+			rrsig1 := &dnsv1.RRSIG{Algorithm: dnsv1.RSASHA256, KeyTag: 1}
+			rrsig2 := &dnsv1.RRSIG{Algorithm: dnsv1.RSASHA256, KeyTag: 2}
 
-			result := sut.selectBestRRSIG([]*dns.RRSIG{rrsig1, rrsig2})
+			result := sut.selectBestRRSIG([]*dnsv1.RRSIG{rrsig1, rrsig2})
 			Expect(result).Should(Equal(rrsig1)) // Returns first one
 		})
 
 		It("should prevent algorithm downgrade attacks", func() {
 			// Attacker provides weak algorithm first
-			weak := &dns.RRSIG{Algorithm: dns.RSASHA1}
-			strong := &dns.RRSIG{Algorithm: dns.ED25519}
+			weak := &dnsv1.RRSIG{Algorithm: dnsv1.RSASHA1}
+			strong := &dnsv1.RRSIG{Algorithm: dnsv1.ED25519}
 
-			result := sut.selectBestRRSIG([]*dns.RRSIG{weak, strong})
+			result := sut.selectBestRRSIG([]*dnsv1.RRSIG{weak, strong})
 			Expect(result).Should(Equal(strong)) // Must select stronger
 		})
 	})
 
 	Describe("findMatchingRRSIGsForType", func() {
 		It("should find matching RRSIG for type", func() {
-			rrsigA := &dns.RRSIG{TypeCovered: dns.TypeA}
-			rrsigAAAA := &dns.RRSIG{TypeCovered: dns.TypeAAAA}
-			rrsigDNSKEY := &dns.RRSIG{TypeCovered: dns.TypeDNSKEY}
+			rrsigA := &dnsv1.RRSIG{TypeCovered: dnsv1.TypeA}
+			rrsigAAAA := &dnsv1.RRSIG{TypeCovered: dnsv1.TypeAAAA}
+			rrsigDNSKEY := &dnsv1.RRSIG{TypeCovered: dnsv1.TypeDNSKEY}
 
-			sigs := []*dns.RRSIG{rrsigA, rrsigAAAA, rrsigDNSKEY}
+			sigs := []*dnsv1.RRSIG{rrsigA, rrsigAAAA, rrsigDNSKEY}
 
-			result := findMatchingRRSIGsForType(sigs, dns.TypeA)
+			result := findMatchingRRSIGsForType(sigs, dnsv1.TypeA)
 			Expect(result).Should(HaveLen(1))
 			Expect(result[0]).Should(Equal(rrsigA))
 		})
 
 		It("should return empty slice when no match", func() {
-			rrsigAAAA := &dns.RRSIG{TypeCovered: dns.TypeAAAA}
-			result := findMatchingRRSIGsForType([]*dns.RRSIG{rrsigAAAA}, dns.TypeA)
+			rrsigAAAA := &dnsv1.RRSIG{TypeCovered: dnsv1.TypeAAAA}
+			result := findMatchingRRSIGsForType([]*dnsv1.RRSIG{rrsigAAAA}, dnsv1.TypeA)
 			Expect(result).Should(BeEmpty())
 		})
 
 		It("should return multiple matching RRSIGs", func() {
-			rrsig1 := &dns.RRSIG{TypeCovered: dns.TypeA, Algorithm: dns.RSASHA256}
-			rrsig2 := &dns.RRSIG{TypeCovered: dns.TypeA, Algorithm: dns.ED25519}
+			rrsig1 := &dnsv1.RRSIG{TypeCovered: dnsv1.TypeA, Algorithm: dnsv1.RSASHA256}
+			rrsig2 := &dnsv1.RRSIG{TypeCovered: dnsv1.TypeA, Algorithm: dnsv1.ED25519}
 
-			result := findMatchingRRSIGsForType([]*dns.RRSIG{rrsig1, rrsig2}, dns.TypeA)
+			result := findMatchingRRSIGsForType([]*dnsv1.RRSIG{rrsig1, rrsig2}, dnsv1.TypeA)
 			Expect(result).Should(HaveLen(2))
 		})
 
 		It("should handle empty input", func() {
-			result := findMatchingRRSIGsForType([]*dns.RRSIG{}, dns.TypeA)
+			result := findMatchingRRSIGsForType([]*dnsv1.RRSIG{}, dnsv1.TypeA)
 			Expect(result).Should(BeEmpty())
 		})
 	})
@@ -195,72 +195,72 @@ var _ = Describe("RRset validation functions", func() {
 
 	Describe("findMatchingDNSKEY", func() {
 		It("should find key with matching key tag", func() {
-			key1 := &dns.DNSKEY{
-				Hdr:       dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeDNSKEY},
+			key1 := &dnsv1.DNSKEY{
+				Hdr:       dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeDNSKEY},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.ECDSAP256SHA256,
+				Algorithm: dnsv1.ECDSAP256SHA256,
 				PublicKey: "key1",
 			}
-			key2 := &dns.DNSKEY{
-				Hdr:       dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeDNSKEY},
+			key2 := &dnsv1.DNSKEY{
+				Hdr:       dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeDNSKEY},
 				Flags:     256,
 				Protocol:  3,
-				Algorithm: dns.ECDSAP256SHA256,
+				Algorithm: dnsv1.ECDSAP256SHA256,
 				PublicKey: "key2",
 			}
 
-			keys := []*dns.DNSKEY{key1, key2}
+			keys := []*dnsv1.DNSKEY{key1, key2}
 			result := findMatchingDNSKEY(keys, key1.KeyTag(), key1.Algorithm)
 			Expect(result).Should(Equal(key1))
 		})
 
 		It("should return nil when no match", func() {
-			key := &dns.DNSKEY{
-				Hdr:       dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeDNSKEY},
+			key := &dnsv1.DNSKEY{
+				Hdr:       dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeDNSKEY},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.ECDSAP256SHA256,
+				Algorithm: dnsv1.ECDSAP256SHA256,
 				PublicKey: "key1",
 			}
 
-			result := findMatchingDNSKEY([]*dns.DNSKEY{key}, 12345, dns.ECDSAP256SHA256)
+			result := findMatchingDNSKEY([]*dnsv1.DNSKEY{key}, 12345, dnsv1.ECDSAP256SHA256)
 			Expect(result).Should(BeNil())
 		})
 
 		It("should handle empty key list", func() {
-			result := findMatchingDNSKEY([]*dns.DNSKEY{}, 12345, dns.ECDSAP256SHA256)
+			result := findMatchingDNSKEY([]*dnsv1.DNSKEY{}, 12345, dnsv1.ECDSAP256SHA256)
 			Expect(result).Should(BeNil())
 		})
 	})
 
 	Describe("isSupportedAlgorithm", func() {
 		It("should support RSASHA1", func() {
-			Expect(sut.isSupportedAlgorithm(dns.RSASHA1)).Should(BeTrue())
+			Expect(sut.isSupportedAlgorithm(dnsv1.RSASHA1)).Should(BeTrue())
 		})
 
 		It("should support RSASHA256", func() {
-			Expect(sut.isSupportedAlgorithm(dns.RSASHA256)).Should(BeTrue())
+			Expect(sut.isSupportedAlgorithm(dnsv1.RSASHA256)).Should(BeTrue())
 		})
 
 		It("should support RSASHA512", func() {
-			Expect(sut.isSupportedAlgorithm(dns.RSASHA512)).Should(BeTrue())
+			Expect(sut.isSupportedAlgorithm(dnsv1.RSASHA512)).Should(BeTrue())
 		})
 
 		It("should support ECDSAP256SHA256", func() {
-			Expect(sut.isSupportedAlgorithm(dns.ECDSAP256SHA256)).Should(BeTrue())
+			Expect(sut.isSupportedAlgorithm(dnsv1.ECDSAP256SHA256)).Should(BeTrue())
 		})
 
 		It("should support ECDSAP384SHA384", func() {
-			Expect(sut.isSupportedAlgorithm(dns.ECDSAP384SHA384)).Should(BeTrue())
+			Expect(sut.isSupportedAlgorithm(dnsv1.ECDSAP384SHA384)).Should(BeTrue())
 		})
 
 		It("should support ED25519", func() {
-			Expect(sut.isSupportedAlgorithm(dns.ED25519)).Should(BeTrue())
+			Expect(sut.isSupportedAlgorithm(dnsv1.ED25519)).Should(BeTrue())
 		})
 
 		It("should support ED448", func() {
-			Expect(sut.isSupportedAlgorithm(dns.ED448)).Should(BeTrue())
+			Expect(sut.isSupportedAlgorithm(dnsv1.ED448)).Should(BeTrue())
 		})
 
 		It("should reject unsupported algorithms", func() {
@@ -271,21 +271,21 @@ var _ = Describe("RRset validation functions", func() {
 
 	Describe("verifyRRSIG", func() {
 		It("should reject unsupported algorithms", func() {
-			rrset := []dns.RR{
-				&dns.A{
-					Hdr: dns.RR_Header{
+			rrset := []dnsv1.RR{
+				&dnsv1.A{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeA,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					A: []byte{192, 0, 2, 1},
 				},
 			}
 
-			rrsig := &dns.RRSIG{
-				Hdr:         dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeRRSIG},
-				TypeCovered: dns.TypeA,
+			rrsig := &dnsv1.RRSIG{
+				Hdr:         dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeRRSIG},
+				TypeCovered: dnsv1.TypeA,
 				Algorithm:   255, // Unsupported
 				Labels:      2,
 				SignerName:  "example.com.",
@@ -293,8 +293,8 @@ var _ = Describe("RRset validation functions", func() {
 				Expiration:  uint32(time.Now().Add(1 * time.Hour).Unix()),
 			}
 
-			key := &dns.DNSKEY{
-				Hdr:       dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeDNSKEY},
+			key := &dnsv1.DNSKEY{
+				Hdr:       dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeDNSKEY},
 				Flags:     257,
 				Protocol:  3,
 				Algorithm: 255,
@@ -307,33 +307,33 @@ var _ = Describe("RRset validation functions", func() {
 		})
 
 		It("should reject algorithm mismatch between RRSIG and DNSKEY", func() {
-			rrset := []dns.RR{
-				&dns.A{
-					Hdr: dns.RR_Header{
+			rrset := []dnsv1.RR{
+				&dnsv1.A{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeA,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					A: []byte{192, 0, 2, 1},
 				},
 			}
 
-			rrsig := &dns.RRSIG{
-				Hdr:         dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeRRSIG},
-				TypeCovered: dns.TypeA,
-				Algorithm:   dns.RSASHA256,
+			rrsig := &dnsv1.RRSIG{
+				Hdr:         dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeRRSIG},
+				TypeCovered: dnsv1.TypeA,
+				Algorithm:   dnsv1.RSASHA256,
 				Labels:      2,
 				SignerName:  "example.com.",
 				Inception:   uint32(time.Now().Add(-1 * time.Hour).Unix()),
 				Expiration:  uint32(time.Now().Add(1 * time.Hour).Unix()),
 			}
 
-			key := &dns.DNSKEY{
-				Hdr:       dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeDNSKEY},
+			key := &dnsv1.DNSKEY{
+				Hdr:       dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeDNSKEY},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.ECDSAP256SHA256, // Different algorithm
+				Algorithm: dnsv1.ECDSAP256SHA256,
 				PublicKey: "test-key",
 			}
 
@@ -343,33 +343,33 @@ var _ = Describe("RRset validation functions", func() {
 		})
 
 		It("should reject signature not yet valid (before inception)", func() {
-			rrset := []dns.RR{
-				&dns.A{
-					Hdr: dns.RR_Header{
+			rrset := []dnsv1.RR{
+				&dnsv1.A{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeA,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					A: []byte{192, 0, 2, 1},
 				},
 			}
 
-			rrsig := &dns.RRSIG{
-				Hdr:         dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeRRSIG},
-				TypeCovered: dns.TypeA,
-				Algorithm:   dns.RSASHA256,
+			rrsig := &dnsv1.RRSIG{
+				Hdr:         dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeRRSIG},
+				TypeCovered: dnsv1.TypeA,
+				Algorithm:   dnsv1.RSASHA256,
 				Labels:      2,
 				SignerName:  "example.com.",
 				Inception:   uint32(time.Now().Add(2 * time.Hour).Unix()), // Future
 				Expiration:  uint32(time.Now().Add(3 * time.Hour).Unix()),
 			}
 
-			key := &dns.DNSKEY{
-				Hdr:       dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeDNSKEY},
+			key := &dnsv1.DNSKEY{
+				Hdr:       dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeDNSKEY},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.RSASHA256,
+				Algorithm: dnsv1.RSASHA256,
 				PublicKey: "test-key",
 			}
 
@@ -379,33 +379,33 @@ var _ = Describe("RRset validation functions", func() {
 		})
 
 		It("should reject expired signature", func() {
-			rrset := []dns.RR{
-				&dns.A{
-					Hdr: dns.RR_Header{
+			rrset := []dnsv1.RR{
+				&dnsv1.A{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeA,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					A: []byte{192, 0, 2, 1},
 				},
 			}
 
-			rrsig := &dns.RRSIG{
-				Hdr:         dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeRRSIG},
-				TypeCovered: dns.TypeA,
-				Algorithm:   dns.RSASHA256,
+			rrsig := &dnsv1.RRSIG{
+				Hdr:         dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeRRSIG},
+				TypeCovered: dnsv1.TypeA,
+				Algorithm:   dnsv1.RSASHA256,
 				Labels:      2,
 				SignerName:  "example.com.",
 				Inception:   uint32(time.Now().Add(-3 * time.Hour).Unix()),
 				Expiration:  uint32(time.Now().Add(-2 * time.Hour).Unix()), // Past
 			}
 
-			key := &dns.DNSKEY{
-				Hdr:       dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeDNSKEY},
+			key := &dnsv1.DNSKEY{
+				Hdr:       dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeDNSKEY},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.RSASHA256,
+				Algorithm: dnsv1.RSASHA256,
 				PublicKey: "test-key",
 			}
 
@@ -416,33 +416,33 @@ var _ = Describe("RRset validation functions", func() {
 
 		It("should apply clock skew tolerance", func() {
 			// With default 3600s tolerance, signature slightly in the future should be accepted
-			rrset := []dns.RR{
-				&dns.A{
-					Hdr: dns.RR_Header{
+			rrset := []dnsv1.RR{
+				&dnsv1.A{
+					Hdr: dnsv1.RR_Header{
 						Name:   "example.com.",
-						Rrtype: dns.TypeA,
-						Class:  dns.ClassINET,
+						Rrtype: dnsv1.TypeA,
+						Class:  dnsv1.ClassINET,
 						Ttl:    300,
 					},
 					A: []byte{192, 0, 2, 1},
 				},
 			}
 
-			rrsig := &dns.RRSIG{
-				Hdr:         dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeRRSIG},
-				TypeCovered: dns.TypeA,
-				Algorithm:   dns.RSASHA256,
+			rrsig := &dnsv1.RRSIG{
+				Hdr:         dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeRRSIG},
+				TypeCovered: dnsv1.TypeA,
+				Algorithm:   dnsv1.RSASHA256,
 				Labels:      2,
 				SignerName:  "example.com.",
 				Inception:   uint32(time.Now().Add(30 * time.Minute).Unix()), // Within tolerance
 				Expiration:  uint32(time.Now().Add(2 * time.Hour).Unix()),
 			}
 
-			key := &dns.DNSKEY{
-				Hdr:       dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeDNSKEY},
+			key := &dnsv1.DNSKEY{
+				Hdr:       dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeDNSKEY},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.RSASHA256,
+				Algorithm: dnsv1.RSASHA256,
 				PublicKey: "test-key",
 			}
 
@@ -457,23 +457,23 @@ var _ = Describe("RRset validation functions", func() {
 		It("should query and find matching DNSKEY", func() {
 			ctx := context.WithValue(context.Background(), queryBudgetKey{}, 10)
 
-			dnskey := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			dnskey := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.ECDSAP256SHA256,
+				Algorithm: dnsv1.ECDSAP256SHA256,
 				PublicKey: "test-key",
 			}
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: &dns.Msg{
-						Answer: []dns.RR{dnskey},
+					Res: &dnsv1.Msg{
+						Answer: []dnsv1.RR{dnskey},
 					},
 				}, nil
 			}
@@ -487,28 +487,28 @@ var _ = Describe("RRset validation functions", func() {
 		It("should fail when DNSKEY with matching key tag not found", func() {
 			ctx := context.WithValue(context.Background(), queryBudgetKey{}, 10)
 
-			dnskey := &dns.DNSKEY{
-				Hdr: dns.RR_Header{
+			dnskey := &dnsv1.DNSKEY{
+				Hdr: dnsv1.RR_Header{
 					Name:   "example.com.",
-					Rrtype: dns.TypeDNSKEY,
-					Class:  dns.ClassINET,
+					Rrtype: dnsv1.TypeDNSKEY,
+					Class:  dnsv1.ClassINET,
 					Ttl:    3600,
 				},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dns.ECDSAP256SHA256,
+				Algorithm: dnsv1.ECDSAP256SHA256,
 				PublicKey: "test-key",
 			}
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: &dns.Msg{
-						Answer: []dns.RR{dnskey},
+					Res: &dnsv1.Msg{
+						Answer: []dnsv1.RR{dnskey},
 					},
 				}, nil
 			}
 
-			_, _, err := sut.queryAndMatchDNSKEY(ctx, "example.com.", 12345, dns.ECDSAP256SHA256) // Wrong key tag
+			_, _, err := sut.queryAndMatchDNSKEY(ctx, "example.com.", 12345, dnsv1.ECDSAP256SHA256) // Wrong key tag
 			Expect(err).Should(HaveOccurred())
 			Expect(err.Error()).Should(ContainSubstring("no DNSKEY with key tag"))
 		})
@@ -520,7 +520,7 @@ var _ = Describe("RRset validation functions", func() {
 				return nil, errors.New("query failed")
 			}
 
-			_, _, err := sut.queryAndMatchDNSKEY(ctx, "example.com.", 12345, dns.ECDSAP256SHA256)
+			_, _, err := sut.queryAndMatchDNSKEY(ctx, "example.com.", 12345, dnsv1.ECDSAP256SHA256)
 			Expect(err).Should(HaveOccurred())
 			Expect(err.Error()).Should(ContainSubstring("failed to query DNSKEY"))
 		})

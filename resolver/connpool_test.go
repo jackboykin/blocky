@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -43,22 +42,22 @@ var _ = Describe("connPool", Label("connPool"), func() {
 
 	var pool *connPool
 
-	// newPipeConn returns a *dns.Conn backed by an in-memory pipe plus the
+	// newPipeConn returns a connection backed by an in-memory pipe plus the
 	// counting wrapper so the test can observe closes. The far end is closed on
 	// cleanup.
-	newPipeConn := func() (*dnsv1.Conn, *countingConn) {
+	newPipeConn := func() (net.Conn, *countingConn) {
 		near, far := net.Pipe()
 		DeferCleanup(func() { _ = far.Close() })
 
 		cc := &countingConn{Conn: near}
 
-		return &dnsv1.Conn{Conn: cc}, cc
+		return cc, cc
 	}
 
 	BeforeEach(func() {
 		// client is unused by the acquire/putBack/close unit tests; exchange is
 		// covered by the integration tests against the mock DoT server.
-		pool = newConnPool(&dnsv1.Client{Net: "tcp-tls"}, 2, time.Minute)
+		pool = newConnPool(&dnsTransport{Net: transportTCPTLS}, 2, time.Minute)
 	})
 
 	Describe("acquire", func() {
@@ -195,7 +194,7 @@ var _ = Describe("connPool", Label("connPool"), func() {
 					near, far := net.Pipe()
 					defer func() { _ = far.Close() }()
 
-					pool.putBack(addr, &dnsv1.Conn{Conn: near})
+					pool.putBack(addr, near)
 					_ = pool.acquire(addr)
 				}()
 			}

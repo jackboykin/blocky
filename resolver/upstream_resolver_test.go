@@ -21,7 +21,6 @@ import (
 	"github.com/0xERR0R/blocky/log"
 	. "github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -953,7 +952,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 		It("falls back to the tcp client instead of nil-dereferencing the pool", func() {
 			// A connection-oriented client with neither a udp client nor a pool
 			// (e.g. a future tcp-only client) must surface an error, not panic.
-			client := &dnsUpstreamClient{tcpClient: &dnsv1.Client{Net: transportTCP}}
+			client := &dnsUpstreamClient{tcpClient: &dnsTransport{Net: transportTCP}}
 
 			_, _, err := client.callExternal(ctx, newRequest("example.com.", A).Req, "127.0.0.1:0")
 			Expect(err).Should(HaveOccurred())
@@ -1040,7 +1039,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 				)
 				upstream := mockUpstream.StartTCPOnly()
 
-				client := &dnsUpstreamClient{tcpClient: &dnsv1.Client{Net: transportTCP}}
+				client := &dnsUpstreamClient{tcpClient: &dnsTransport{Net: transportTCP}}
 				url := client.fmtURL(netip.MustParseAddr(upstream.Host), upstream.Port, "")
 
 				_, _, err := client.callExternal(ctx, newRequest("example.com.", A).Req, url)

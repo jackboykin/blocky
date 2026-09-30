@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/helpertest"
-	dnsv1 "github.com/miekg/dns"
+	"github.com/0xERR0R/blocky/model"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -51,25 +53,21 @@ var _ = Describe("Healthcheck command", func() {
 	})
 })
 
-func createMockServer(hostPort string) *dnsv1.Server {
-	res := &dnsv1.Server{
-		Addr:    hostPort,
-		Net:     "tcp",
-		Handler: dnsv1.NewServeMux(),
-		NotifyStartedFunc: func() {
+func createMockServer(hostPort string) *dns.Server {
+	res := &dns.Server{
+		Addr: hostPort,
+		Net:  "tcp",
+		Handler: dns.HandlerFunc(func(_ context.Context, w dns.ResponseWriter, request *dns.Msg) {
+			resp := model.SetReply(new(dns.Msg), request)
+			resp.Rcode = dns.RcodeSuccess
+
+			_, err := resp.WriteTo(w)
+			Expect(err).Should(Succeed())
+		}),
+		NotifyStartedFunc: func(context.Context) {
 			fmt.Printf("Mock healthcheck server is up: %s\n", hostPort)
 		},
 	}
-
-	th := res.Handler.(*dnsv1.ServeMux)
-	th.HandleFunc("healthcheck.blocky", func(w dnsv1.ResponseWriter, request *dnsv1.Msg) {
-		resp := new(dnsv1.Msg)
-		resp.SetReply(request)
-		resp.Rcode = dnsv1.RcodeSuccess
-
-		err := w.WriteMsg(resp)
-		Expect(err).Should(Succeed())
-	})
 
 	DeferCleanup(res.Shutdown)
 

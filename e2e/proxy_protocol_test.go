@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"codeberg.org/miekg/dns"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -153,16 +152,8 @@ func queryDoTViaProxy(ctx context.Context, nginx testcontainers.Container, quest
 		return err
 	}
 
-	c := &dnsv1.Client{
-		Net:       "tcp-tls",
-		Timeout:   5 * time.Second,
-		TLSConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-
-	_, _, err = util.ExchangeV1(util.NewMsgWithQuestion(question, dns.TypeA),
-		func(m1 *dnsv1.Msg) (*dnsv1.Msg, time.Duration, error) {
-			return c.Exchange(m1, net.JoinHostPort(host, port))
-		})
+	_, err = exchange(ctx, util.NewMsgWithQuestion(question, dns.TypeA), "tcp", net.JoinHostPort(host, port),
+		&tls.Config{InsecureSkipVerify: true})
 
 	return err
 }

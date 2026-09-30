@@ -4,10 +4,10 @@ import (
 	"context"
 	"unicode/utf8"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 )
 
 // maxEDETextLength bounds the EDE extra text. The reason now embeds the matched
@@ -55,12 +55,12 @@ func (r *EDEResolver) Resolve(ctx context.Context, request *model.Request) (*mod
 func (r *EDEResolver) addExtraReasoning(res *model.Response) {
 	infocode := res.RType.ToExtendedErrorCode()
 
-	if infocode == dnsv1.ExtendedErrorCodeOther {
+	if infocode == dns.ExtendedErrorOther {
 		// dns.ExtendedErrorCodeOther seams broken in some clients
 		return
 	}
 
-	edeOption := new(dnsv1.EDNS0_EDE)
+	edeOption := new(dns.EDE)
 	edeOption.InfoCode = infocode
 	edeOption.ExtraText = truncateText(res.Reason, maxEDETextLength)
 

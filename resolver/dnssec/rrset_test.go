@@ -470,9 +470,9 @@ var _ = Describe("RRset validation functions", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{dnskey},
-					}),
+					},
 				}, nil
 			}
 
@@ -499,9 +499,9 @@ var _ = Describe("RRset validation functions", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{dnskey},
-					}),
+					},
 				}, nil
 			}
 

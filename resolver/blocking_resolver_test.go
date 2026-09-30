@@ -14,7 +14,7 @@ import (
 	. "github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -41,7 +41,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 		sut        *BlockingResolver
 		sutConfig  config.Blocking
 		m          *mockResolver
-		mockAnswer *dnsv1.Msg
+		mockAnswer *dns.Msg
 		ctx        context.Context
 		cancelFn   context.CancelFunc
 	)
@@ -61,7 +61,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 			BlockTTL:  config.Duration(time.Minute),
 		}
 
-		mockAnswer = new(dnsv1.Msg)
+		mockAnswer = new(dns.Msg)
 	})
 
 	JustBeforeEach(func() {
@@ -87,7 +87,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 				Should(
 					SatisfyAll(
 						HaveResponseType(ResponseTypeRESOLVED),
-						HaveReturnCode(dnsv1.RcodeSuccess),
+						HaveReturnCode(dns.RcodeSuccess),
 					))
 
 			m.AssertExpectations(GinkgoT())
@@ -175,7 +175,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 				// IPs via the general upstreams; the rebinding resolver sits ABOVE
 				// blocking in the server chain (see createQueryResolver), so the
 				// internal lookups enter the chain below it and bypass it
-				mockAnswer.Answer = []dnsv1.RR{rebindTestA("nas.ddns.example.com.", "192.168.1.5")}
+				mockAnswer.Answer = []dns.RR{rebindTestA("nas.ddns.example.com.", "192.168.1.5")}
 				rebinding := NewRebindingProtectionResolver(config.RebindingProtection{Enable: true})
 				chain := Chain(rebinding, sut, m)
 
@@ -209,8 +209,8 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 
 		When("Full-qualified group name is used", func() {
 			It("should block request", func() {
-				m.AnswerFn = func(t dnsv1.Type, qName string) (*dnsv1.Msg, error) {
-					if t == dnsv1.Type(dnsv1.TypeA) && qName == "full.qualified.com." {
+				m.AnswerFn = func(t uint16, qName string) (*dns.Msg, error) {
+					if t == dns.TypeA && qName == "full.qualified.com." {
 						return util.NewMsgWithAnswer(qName, 60*60, A, "192.168.178.39")
 					}
 
@@ -223,7 +223,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							BeDNSRecord("blocked2.com.", A, "0.0.0.0"),
 							HaveTTL(BeNumerically("==", 60)),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 				}, "3s", "100ms").Should(Succeed())
 			})
@@ -251,13 +251,13 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 			It("should block request", func() {
 				Eventually(sut.Resolve).
 					WithContext(ctx).
-					WithArguments(newRequestWithClient("regex.com.", dnsv1.Type(dnsv1.TypeA), "1.2.1.2", "client1")).
+					WithArguments(newRequestWithClient("regex.com.", dns.TypeA, "1.2.1.2", "client1")).
 					Should(
 						SatisfyAll(
 							BeDNSRecord("regex.com.", A, "0.0.0.0"),
 							HaveTTL(BeNumerically("==", 60)),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -295,7 +295,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (gr1: domain1.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("should set a group-only ReasonLabel while keeping the detailed Reason", func() {
@@ -315,7 +315,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (gr1: domain1.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("should block the A query if domain is on the denylist (multipart 2)", func() {
@@ -326,7 +326,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (gr1: domain1.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("should block the A query if domain is on the denylist (merged)", func() {
@@ -337,7 +337,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (gr2: blocked2.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("should block the AAAA query if domain is on the denylist", func() {
@@ -348,16 +348,16 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (gr1: domain1.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("should block the HTTPS query if domain is on the denylist", func() {
 				Expect(sut.Resolve(ctx, newRequestWithClient("domain1.com.", HTTPS, "1.2.1.2", "client1"))).
-					Should(HaveReturnCode(dnsv1.RcodeNameError))
+					Should(HaveReturnCode(dns.RcodeNameError))
 			})
 			It("should block the MX query if domain is on the denylist", func() {
 				Expect(sut.Resolve(ctx, newRequestWithClient("domain1.com.", MX, "1.2.1.2", "client1"))).
-					Should(HaveReturnCode(dnsv1.RcodeNameError))
+					Should(HaveReturnCode(dns.RcodeNameError))
 			})
 		})
 
@@ -370,7 +370,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (gr1: domain1.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -381,7 +381,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				// was delegated to next resolver
@@ -393,7 +393,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				// was delegated to next resolver
@@ -410,7 +410,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (gr1: domain1.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("should block the query for 10.43.8.79 if domain is on the denylist", func() {
@@ -421,7 +421,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (gr1: domain1.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -435,7 +435,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (gr1: domain1.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("should block query if domain is in another group too", func() {
@@ -446,7 +446,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (gr2: blocked2.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -459,7 +459,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (gr1: domain1.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -473,7 +473,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
 							HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -498,7 +498,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeNameError),
+							HaveReturnCode(dns.RcodeNameError),
 							HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
 							HaveAuthority(),
 							HaveSOARecord(60, 60), // 1 minute = 60 seconds
@@ -527,7 +527,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							HaveNoAnswer(),
 							WithTransform(ToAuthority, BeEmpty()),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeRefused),
+							HaveReturnCode(dns.RcodeRefused),
 							HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
 						))
 			})
@@ -535,14 +535,14 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 			// Unlike zeroIP and custom IPs, which fall back to NXDOMAIN for anything
 			// but A/AAAA, refused answers every query type the same way.
 			DescribeTable("should return REFUSED for every query type",
-				func(qType dnsv1.Type) {
+				func(qType uint16) {
 					Expect(sut.Resolve(ctx, newRequestWithClient("blocked3.com.", qType, "1.2.1.2", "unknown"))).
 						Should(
 							SatisfyAll(
 								HaveNoAnswer(),
 								WithTransform(ToAuthority, BeEmpty()),
 								HaveResponseType(ResponseTypeBLOCKED),
-								HaveReturnCode(dnsv1.RcodeRefused),
+								HaveReturnCode(dns.RcodeRefused),
 								HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
 							))
 				},
@@ -573,7 +573,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeNameError),
+							HaveReturnCode(dns.RcodeNameError),
 							HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
 							HaveAuthority(),
 							HaveSOARecord(7200, 7200), // 2 hours in seconds
@@ -602,7 +602,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							BeDNSRecord("blocked3.com.", A, "0.0.0.0"),
 							HaveTTL(BeNumerically("==", 1234)),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
 						))
 			})
@@ -619,7 +619,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("blocked3.com.", A, "12.12.12.12"),
 								HaveTTL(BeNumerically("==", 1234)),
 								HaveResponseType(ResponseTypeBLOCKED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 								HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
 							))
 				})
@@ -647,7 +647,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							BeDNSRecord("blocked3.com.", A, "12.12.12.12"),
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
 						))
 			})
@@ -659,7 +659,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							BeDNSRecord("blocked3.com.", AAAA, "2001:db8:85a3::8a2e:370:7334"),
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
 						))
 			})
@@ -686,7 +686,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							BeDNSRecord("blocked3.com.", AAAA, "::"),
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
 						))
 			})
@@ -705,7 +705,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("example.com.", A, "0.0.0.0"),
 								HaveTTL(BeNumerically("==", 21600)),
 								HaveResponseType(ResponseTypeBLOCKED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 								HaveReason("BLOCKED IP (defaultGroup: 123.145.123.145)"),
 							))
 				})
@@ -725,7 +725,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("example.com.", AAAA, "::"),
 								HaveTTL(BeNumerically("==", 21600)),
 								HaveResponseType(ResponseTypeBLOCKED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 								HaveReason("BLOCKED IP (defaultGroup: 2001:db8:85a3:8d3::370:7344)"),
 							))
 				})
@@ -735,11 +735,11 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 		When("denylist contains domain which is CNAME in response", func() {
 			BeforeEach(func() {
 				// reconfigure mock, to return CNAMEs
-				rr1, _ := dnsv1.NewRR("example.com 300 IN CNAME domain.com")
-				rr2, _ := dnsv1.NewRR("domain.com 300 IN CNAME badcnamedomain.com")
-				rr3, _ := dnsv1.NewRR("badcnamedomain.com 300 IN A 125.125.125.125")
-				mockAnswer = new(dnsv1.Msg)
-				mockAnswer.Answer = []dnsv1.RR{rr1, rr2, rr3}
+				rr1, _ := dns.New("example.com 300 IN CNAME domain.com")
+				rr2, _ := dns.New("domain.com 300 IN CNAME badcnamedomain.com")
+				rr3, _ := dns.New("badcnamedomain.com 300 IN A 125.125.125.125")
+				mockAnswer = new(dns.Msg)
+				mockAnswer.Answer = []dns.RR{rr1, rr2, rr3}
 			})
 			It("should block the query, if response contains a CNAME with domain on a denylist", func() {
 				Expect(sut.Resolve(ctx, newRequestWithClient("example.com.", A, "1.2.1.2", "unknown"))).
@@ -748,7 +748,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							BeDNSRecord("example.com.", A, "0.0.0.0"),
 							HaveTTL(BeNumerically("==", 21600)),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("BLOCKED CNAME (defaultGroup: badcnamedomain.com)"),
 						))
 			})
@@ -794,7 +794,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							BeDNSRecord("blocked3.com.", A, "0.0.0.0"),
 							HaveTTL(BeNumerically("==", 60)),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -832,7 +832,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -871,7 +871,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							BeDNSRecord("domain1.com.", A, "0.0.0.0"),
 							HaveTTL(BeNumerically("==", 60)),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 
@@ -880,7 +880,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -931,7 +931,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							BeDNSRecord("domain1.com.", A, "0.0.0.0"),
 							HaveTTL(BeNumerically("==", 60)),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 
@@ -940,7 +940,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -989,7 +989,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							BeDNSRecord("blocked3.com.", A, "0.0.0.0"),
 							HaveTTL(BeNumerically("==", 60)),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -1017,7 +1017,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -1042,7 +1042,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				// was delegated to next resolver
@@ -1074,7 +1074,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// was delegated to next resolver
@@ -1088,7 +1088,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("google.com.", A, "0.0.0.0"),
 								HaveTTL(BeNumerically("==", 60)),
 								HaveResponseType(ResponseTypeBLOCKED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 								HaveReason("BLOCKED (ALLOWLIST ONLY)"),
 							))
 
@@ -1103,7 +1103,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// was delegated to next resolver
@@ -1117,7 +1117,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("blocked2.com.", A, "0.0.0.0"),
 								HaveTTL(BeNumerically("==", 60)),
 								HaveResponseType(ResponseTypeBLOCKED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 								HaveReason("BLOCKED (ALLOWLIST ONLY)"),
 							))
 					Expect(m.Calls).Should(HaveLen(1))
@@ -1131,7 +1131,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// was delegated to next resolver
@@ -1144,7 +1144,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 					Expect(m.Calls).Should(HaveLen(2))
 				})
@@ -1183,7 +1183,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				m.AssertExpectations(GinkgoT())
@@ -1195,7 +1195,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("ads.example.com.", A, "0.0.0.0"),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("BLOCKED (ads: ads.example.com)"),
 						))
 			})
@@ -1206,7 +1206,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				m.AssertExpectations(GinkgoT())
@@ -1218,7 +1218,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("social.example.com.", A, "0.0.0.0"),
 							HaveResponseType(ResponseTypeBLOCKED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("BLOCKED (ads: social.example.com)"),
 						))
 			})
@@ -1233,7 +1233,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				m.AssertExpectations(GinkgoT())
@@ -1259,7 +1259,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, "123.145.123.145"),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 				// was delegated to next resolver
 				m.AssertExpectations(GinkgoT())
@@ -1289,7 +1289,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -1306,7 +1306,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -1334,7 +1334,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("blocked3.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 
@@ -1345,7 +1345,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("domain1.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (group1: domain1.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 
@@ -1361,7 +1361,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					m.AssertExpectations(GinkgoT())
@@ -1375,7 +1375,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					m.AssertExpectations(GinkgoT())
@@ -1394,7 +1394,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					m.AssertExpectations(GinkgoT())
@@ -1408,7 +1408,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("domain1.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (group1: domain1.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 			})
@@ -1423,7 +1423,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("blocked3.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 				By("Perform query to ensure that the blocking status is active (group1)", func() {
@@ -1433,7 +1433,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("domain1.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (group1: domain1.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 
@@ -1455,7 +1455,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					m.AssertExpectations(GinkgoT())
@@ -1468,7 +1468,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					m.AssertExpectations(GinkgoT())
@@ -1489,7 +1489,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("blocked3.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					Expect(sut.Resolve(ctx, newRequestWithClient("domain1.com.", A, "1.2.1.2", "unknown"))).
@@ -1498,7 +1498,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("domain1.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (group1: domain1.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 			})
@@ -1513,7 +1513,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("blocked3.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 				By("Perform query to ensure that the blocking status is active (group1)", func() {
@@ -1523,7 +1523,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("domain1.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (group1: domain1.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 
@@ -1546,7 +1546,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("blocked3.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 				By("perform the same query again to ensure that this query will not be blocked (group1)", func() {
@@ -1556,7 +1556,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					m.AssertExpectations(GinkgoT())
@@ -1577,7 +1577,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("blocked3.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (defaultGroup: blocked3.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					Expect(sut.Resolve(ctx, newRequestWithClient("domain1.com.", A, "1.2.1.2", "unknown"))).
@@ -1586,7 +1586,7 @@ var _ = Describe("BlockingResolver", Label("blockingResolver"), func() {
 								BeDNSRecord("domain1.com.", A, "0.0.0.0"),
 								HaveResponseType(ResponseTypeBLOCKED),
 								HaveReason("BLOCKED (group1: domain1.com)"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 			})

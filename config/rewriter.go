@@ -1,8 +1,7 @@
 package config
 
 import (
-	"strings"
-
+	"github.com/0xERR0R/blocky/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -20,7 +19,7 @@ func (c *RewriterConfig) NormalizeRewrites() {
 	if len(c.Rewrite) > 0 {
 		normalized := make(map[string]string, len(c.Rewrite))
 		for k, v := range c.Rewrite {
-			normalized[strings.ToLower(k)] = strings.ToLower(v)
+			normalized[util.LowerName(k)] = util.LowerName(v)
 		}
 		c.Rewrite = normalized
 	}

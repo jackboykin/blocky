@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/log"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 
 	"github.com/sirupsen/logrus"
 )
@@ -25,14 +25,14 @@ const (
 	loopbackIPv4Str  = "127.0.0.1"
 )
 
-func newRequest(question string, rType dnsv1.Type) *model.Request {
+func newRequest(question string, rType uint16) *model.Request {
 	return &model.Request{
 		Req:      util.NewMsgWithQuestion(question, rType),
 		Protocol: model.RequestProtocolUDP,
 	}
 }
 
-func newRequestWithClient(question string, rType dnsv1.Type, ip string, clientNames ...string) *model.Request {
+func newRequestWithClient(question string, rType uint16, ip string, clientNames ...string) *model.Request {
 	return &model.Request{
 		ClientIP:    util.ParseIP(ip),
 		ClientNames: clientNames,
@@ -43,9 +43,9 @@ func newRequestWithClient(question string, rType dnsv1.Type, ip string, clientNa
 }
 
 // newResponse creates a response to the given request
-func newResponse(request *model.Request, rcode int, rtype model.ResponseType, reason string) *model.Response {
-	response := new(dnsv1.Msg)
-	response.SetReply(request.Req)
+func newResponse(request *model.Request, rcode uint16, rtype model.ResponseType, reason string) *model.Response {
+	response := new(dns.Msg)
+	model.SetReply(response, request.Req)
 	response.Rcode = rcode
 
 	return &model.Response{
@@ -55,7 +55,7 @@ func newResponse(request *model.Request, rcode int, rtype model.ResponseType, re
 	}
 }
 
-func newRequestWithClientID(question string, rType dnsv1.Type, ip, requestClientID string) *model.Request {
+func newRequestWithClientID(question string, rType uint16, ip, requestClientID string) *model.Request {
 	return &model.Request{
 		ClientIP:        util.ParseIP(ip),
 		RequestClientID: requestClientID,

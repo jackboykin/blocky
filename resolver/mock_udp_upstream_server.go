@@ -6,16 +6,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/onsi/ginkgo/v2"
 )
 
 type MockUDPUpstreamServer struct {
 	callCount atomic.Int32
 	ln        *net.UDPConn
-	answerFn  func(request *dnsv1.Msg) (response *dnsv1.Msg)
+	answerFn  func(request *dns.Msg) (response *dns.Msg)
 }
 
 func NewMockUDPUpstreamServer() *MockUDPUpstreamServer {
@@ -32,21 +32,21 @@ func (t *MockUDPUpstreamServer) WithAnswerRR(answers ...string) *MockUDPUpstream
 	return t
 }
 
-func (t *MockUDPUpstreamServer) WithAnswerMsg(answer *dnsv1.Msg) *MockUDPUpstreamServer {
-	t.answerFn = func(request *dnsv1.Msg) (response *dnsv1.Msg) {
+func (t *MockUDPUpstreamServer) WithAnswerMsg(answer *dns.Msg) *MockUDPUpstreamServer {
+	t.answerFn = func(request *dns.Msg) (response *dns.Msg) {
 		return answer
 	}
 
 	return t
 }
 
-func (t *MockUDPUpstreamServer) WithAnswerError(errorCode int) *MockUDPUpstreamServer {
+func (t *MockUDPUpstreamServer) WithAnswerError(errorCode uint16) *MockUDPUpstreamServer {
 	t.answerFn = errorAnswerFn(errorCode)
 
 	return t
 }
 
-func (t *MockUDPUpstreamServer) WithAnswerFn(fn func(request *dnsv1.Msg) (response *dnsv1.Msg)) *MockUDPUpstreamServer {
+func (t *MockUDPUpstreamServer) WithAnswerFn(fn func(request *dns.Msg) (response *dns.Msg)) *MockUDPUpstreamServer {
 	t.answerFn = fn
 
 	return t
@@ -58,7 +58,7 @@ func (t *MockUDPUpstreamServer) WithDelay(delay time.Duration) *MockUDPUpstreamS
 		panic("WithDelay must be called after a WithAnswer function")
 	}
 
-	t.answerFn = func(request *dnsv1.Msg) *dnsv1.Msg {
+	t.answerFn = func(request *dns.Msg) *dns.Msg {
 		time.Sleep(delay)
 
 		return answerFn(request)
@@ -117,8 +117,7 @@ func (t *MockUDPUpstreamServer) Start() config.Upstream {
 
 			go func() {
 				defer ginkgo.GinkgoRecover()
-				msg := new(dnsv1.Msg)
-				err = msg.Unpack(buffer[0:n])
+				msg, err := util.UnpackMsg(buffer[0:n])
 
 				util.FatalOnError("can't deserialize message: ", err)
 
@@ -132,7 +131,7 @@ func (t *MockUDPUpstreamServer) Start() config.Upstream {
 					return
 				}
 
-				b, err := mockReply(msg, response).Pack()
+				b, err := util.PackMsg(mockReply(msg, response))
 				util.FatalOnError("can't serialize message: ", err)
 
 				_, _ = ln.WriteToUDP(b, addr)

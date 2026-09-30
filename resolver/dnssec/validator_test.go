@@ -12,6 +12,7 @@ import (
 	"codeberg.org/miekg/dns/rdata"
 	"github.com/0xERR0R/blocky/log"
 	"github.com/0xERR0R/blocky/model"
+	"github.com/0xERR0R/blocky/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -55,10 +56,10 @@ func unsignedDSDenial(name string) *model.Response {
 	}
 
 	return &model.Response{
-		Res: toV1(&dns.Msg{
+		Res: &dns.Msg{
 			Rcode: dns.RcodeSuccess,
 			Ns:    []dns.RR{nsec},
-		}),
+		},
 	}
 }
 
@@ -116,17 +117,17 @@ func authenticatedInsecureDelegation(
 	fn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 		q := req.Req.Question[0]
 		switch {
-		case q.Qtype == dns.TypeDS && dnsutil.Fqdn(q.Name) == dnsutil.Fqdn(childName):
+		case dns.RRToType(q) == dns.TypeDS && dnsutil.Fqdn(q.Header().Name) == dnsutil.Fqdn(childName):
 			return &model.Response{
-				Res: toV1(&dns.Msg{
+				Res: &dns.Msg{
 					Rcode: dns.RcodeSuccess,
 					Ns:    []dns.RR{nsec, nsecSig},
-				}),
+				},
 			}, nil
-		case q.Qtype == dns.TypeDNSKEY && dnsutil.Fqdn(q.Name) == dnsutil.Fqdn(parentZone):
-			return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{key, dnskeySig}})}, nil
+		case dns.RRToType(q) == dns.TypeDNSKEY && dnsutil.Fqdn(q.Header().Name) == dnsutil.Fqdn(parentZone):
+			return &model.Response{Res: &dns.Msg{Answer: []dns.RR{key, dnskeySig}}}, nil
 		default:
-			return &model.Response{Res: toV1(&dns.Msg{Rcode: dns.RcodeSuccess})}, nil
+			return &model.Response{Res: &dns.Msg{Rcode: dns.RcodeSuccess}}, nil
 		}
 	}
 
@@ -166,17 +167,17 @@ func authenticatedOptOutDelegation(
 	fn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 		q := req.Req.Question[0]
 		switch {
-		case q.Qtype == dns.TypeDS && dnsutil.Fqdn(q.Name) == dnsutil.Fqdn(childName):
+		case dns.RRToType(q) == dns.TypeDS && dnsutil.Fqdn(q.Header().Name) == dnsutil.Fqdn(childName):
 			return &model.Response{
-				Res: toV1(&dns.Msg{
+				Res: &dns.Msg{
 					Rcode: dns.RcodeSuccess,
 					Ns:    []dns.RR{nsec3, nsec3Sig},
-				}),
+				},
 			}, nil
-		case q.Qtype == dns.TypeDNSKEY && dnsutil.Fqdn(q.Name) == dnsutil.Fqdn(parentZone):
-			return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{key, dnskeySig}})}, nil
+		case dns.RRToType(q) == dns.TypeDNSKEY && dnsutil.Fqdn(q.Header().Name) == dnsutil.Fqdn(parentZone):
+			return &model.Response{Res: &dns.Msg{Answer: []dns.RR{key, dnskeySig}}}, nil
 		default:
-			return &model.Response{Res: toV1(&dns.Msg{Rcode: dns.RcodeSuccess})}, nil
+			return &model.Response{Res: &dns.Msg{Rcode: dns.RcodeSuccess}}, nil
 		}
 	}
 
@@ -196,7 +197,7 @@ func dummyAnchorStore() *TrustAnchorStore {
 // benignEmptyResolve is a ResolveFn that returns an empty NOERROR for any query, so the
 // validator's sub-queries do not panic an unconfigured testify mock.
 func benignEmptyResolve(_ context.Context, _ *model.Request) (*model.Response, error) {
-	return &model.Response{Res: toV1(&dns.Msg{Rcode: dns.RcodeSuccess})}, nil
+	return &model.Response{Res: &dns.Msg{Rcode: dns.RcodeSuccess}}, nil
 }
 
 var _ = Describe("DNSSECValidator", func() {
@@ -257,13 +258,13 @@ var _ = Describe("DNSSECValidator", func() {
 			mockUpstream.ResolveFn = benignEmptyResolve
 			v := NewValidator(ctx, store, logger, mockUpstream, 1, 10, 150, 30, 3600)
 
-			question := newQuestion("cloudflare.com.", dns.TypeA)
+			question := util.NewQuestion("cloudflare.com.", dns.TypeA)
 			response := &dns.Msg{Answer: []dns.RR{&dns.A{
 				Hdr:  dns.Header{Name: "cloudflare.com.", Class: dns.ClassINET, TTL: 300},
 				Addr: netip.MustParseAddr("203.0.113.77"),
 			}}}
 
-			Expect(validateAsV1(ctx, v, response, question)).
+			Expect(v.ValidateResponse(ctx, response, question)).
 				Should(Equal(ValidationResultBogus),
 					"forged unsigned answer under the root anchor was accepted instead of rejected as bogus")
 		})
@@ -289,7 +290,7 @@ var _ = Describe("DNSSECValidator", func() {
 			budgetCtx := context.WithValue(ctx, queryBudgetKey{}, 30)
 
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDS {
+				if dns.RRToType(req.Req.Question[0]) == dns.TypeDS {
 					return unsignedDSDenial(victim), nil
 				}
 
@@ -309,7 +310,7 @@ var _ = Describe("DNSSECValidator", func() {
 
 			// First lookup is answered with the unauthenticated insecure proof.
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDS {
+				if dns.RRToType(req.Req.Question[0]) == dns.TypeDS {
 					return unsignedDSDenial(victim), nil
 				}
 
@@ -330,8 +331,8 @@ var _ = Describe("DNSSECValidator", func() {
 				Digest:     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			}
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDS {
-					return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{realDS}})}, nil
+				if dns.RRToType(req.Req.Question[0]) == dns.TypeDS {
+					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{realDS}}}, nil
 				}
 
 				return nil, errors.New("unexpected query type")
@@ -384,8 +385,8 @@ var _ = Describe("DNSSECValidator", func() {
 				return nil, errors.New("i/o timeout")
 			}
 
-			question := newQuestion("host.signed.example.", dns.TypeA)
-			Expect(validateAsV1(ctx, sut, response, question)).
+			question := util.NewQuestion("host.signed.example.", dns.TypeA)
+			Expect(sut.ValidateResponse(ctx, response, question)).
 				Should(Equal(ValidationResultIndeterminate),
 					"a transient chain-of-trust failure for a signed answer was reported as Bogus (SERVFAIL) instead of Indeterminate")
 		})
@@ -411,14 +412,14 @@ var _ = Describe("DNSSECValidator", func() {
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 				q := req.Req.Question[0]
 				switch {
-				case q.Qtype == dns.TypeDS && dnsutil.Fqdn(q.Name) == "signed.example.":
+				case dns.RRToType(q) == dns.TypeDS && dnsutil.Fqdn(q.Header().Name) == "signed.example.":
 					return nil, errors.New("i/o timeout") // the transient blip on one ancestor sub-query
-				case q.Qtype == dns.TypeDNSKEY && dnsutil.Fqdn(q.Name) == "example.":
-					return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{parentKey, parentDNSKEYSig}})}, nil
-				case q.Qtype == dns.TypeDNSKEY && dnsutil.Fqdn(q.Name) == "signed.example.":
-					return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{childKey, childDNSKEYSig}})}, nil
+				case dns.RRToType(q) == dns.TypeDNSKEY && dnsutil.Fqdn(q.Header().Name) == "example.":
+					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{parentKey, parentDNSKEYSig}}}, nil
+				case dns.RRToType(q) == dns.TypeDNSKEY && dnsutil.Fqdn(q.Header().Name) == "signed.example.":
+					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{childKey, childDNSKEYSig}}}, nil
 				default:
-					return &model.Response{Res: toV1(&dns.Msg{Rcode: dns.RcodeSuccess})}, nil
+					return &model.Response{Res: &dns.Msg{Rcode: dns.RcodeSuccess}}, nil
 				}
 			}
 
@@ -426,8 +427,8 @@ var _ = Describe("DNSSECValidator", func() {
 			Expect(err).Should(Succeed())
 			v := NewValidator(ctx, store, logger, mockUpstream, 1, 10, 150, 30, 3600)
 
-			question := newQuestion("host.signed.example.", dns.TypeA)
-			Expect(validateAsV1(ctx, v, response, question)).
+			question := util.NewQuestion("host.signed.example.", dns.TypeA)
+			Expect(v.ValidateResponse(ctx, response, question)).
 				Should(Equal(ValidationResultIndeterminate),
 					"an unreachable ancestor DS sub-query (Indeterminate chain) was reported as Bogus (SERVFAIL)")
 		})
@@ -455,14 +456,14 @@ var _ = Describe("DNSSECValidator", func() {
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 				q := req.Req.Question[0]
 				switch {
-				case q.Qtype == dns.TypeDNSKEY && dnsutil.Fqdn(q.Name) == "example.":
-					return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{parentKey, parentDNSKEYSig}})}, nil
-				case q.Qtype == dns.TypeDNSKEY && dnsutil.Fqdn(q.Name) == "signed.example.":
-					return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{childKey, childDNSKEYSig}})}, nil
-				case q.Qtype == dns.TypeDS && dnsutil.Fqdn(q.Name) == "signed.example.":
-					return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{childDS, childDSSig}})}, nil
+				case dns.RRToType(q) == dns.TypeDNSKEY && dnsutil.Fqdn(q.Header().Name) == "example.":
+					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{parentKey, parentDNSKEYSig}}}, nil
+				case dns.RRToType(q) == dns.TypeDNSKEY && dnsutil.Fqdn(q.Header().Name) == "signed.example.":
+					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{childKey, childDNSKEYSig}}}, nil
+				case dns.RRToType(q) == dns.TypeDS && dnsutil.Fqdn(q.Header().Name) == "signed.example.":
+					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{childDS, childDSSig}}}, nil
 				default:
-					return &model.Response{Res: toV1(&dns.Msg{Rcode: dns.RcodeSuccess})}, nil
+					return &model.Response{Res: &dns.Msg{Rcode: dns.RcodeSuccess}}, nil
 				}
 			}
 
@@ -470,8 +471,8 @@ var _ = Describe("DNSSECValidator", func() {
 			Expect(err).Should(Succeed())
 			v := NewValidator(ctx, store, logger, mockUpstream, 1, 10, 150, 30, 3600)
 
-			question := newQuestion("host.signed.example.", dns.TypeA)
-			Expect(validateAsV1(ctx, v, response, question)).
+			question := util.NewQuestion("host.signed.example.", dns.TypeA)
+			Expect(v.ValidateResponse(ctx, response, question)).
 				Should(Equal(ValidationResultBogus),
 					"a forged signature with a reachable chain must remain Bogus, not be relaxed to Indeterminate")
 		})
@@ -500,14 +501,14 @@ var _ = Describe("DNSSECValidator", func() {
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
 				q := req.Req.Question[0]
 				switch {
-				case q.Qtype == dns.TypeDNSKEY && dnsutil.Fqdn(q.Name) == "example.":
-					return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{parentKey, parentDNSKEYSig}})}, nil
-				case q.Qtype == dns.TypeDNSKEY && dnsutil.Fqdn(q.Name) == "signed.example.":
-					return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{childKey, childDNSKEYSig}})}, nil
-				case q.Qtype == dns.TypeDS && dnsutil.Fqdn(q.Name) == "signed.example.":
-					return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{childDS, childDSSig}})}, nil
+				case dns.RRToType(q) == dns.TypeDNSKEY && dnsutil.Fqdn(q.Header().Name) == "example.":
+					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{parentKey, parentDNSKEYSig}}}, nil
+				case dns.RRToType(q) == dns.TypeDNSKEY && dnsutil.Fqdn(q.Header().Name) == "signed.example.":
+					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{childKey, childDNSKEYSig}}}, nil
+				case dns.RRToType(q) == dns.TypeDS && dnsutil.Fqdn(q.Header().Name) == "signed.example.":
+					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{childDS, childDSSig}}}, nil
 				default:
-					return &model.Response{Res: toV1(&dns.Msg{Rcode: dns.RcodeSuccess})}, nil
+					return &model.Response{Res: &dns.Msg{Rcode: dns.RcodeSuccess}}, nil
 				}
 			}
 
@@ -515,8 +516,8 @@ var _ = Describe("DNSSECValidator", func() {
 			Expect(err).Should(Succeed())
 			v := NewValidator(ctx, store, logger, mockUpstream, 1, 10, 150, 30, 3600)
 
-			question := newQuestion("host.signed.example.", dns.TypeA)
-			Expect(validateAsV1(ctx, v, response, question)).
+			question := util.NewQuestion("host.signed.example.", dns.TypeA)
+			Expect(v.ValidateResponse(ctx, response, question)).
 				Should(Equal(ValidationResultBogus),
 					"a DS digest mismatch (provably bogus chain) must be Bogus, not Indeterminate")
 		})
@@ -528,10 +529,10 @@ var _ = Describe("DNSSECValidator", func() {
 
 			var captured *model.Request
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDNSKEY {
+				if dns.RRToType(req.Req.Question[0]) == dns.TypeDNSKEY {
 					captured = req
 
-					return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{}})}, nil
+					return &model.Response{Res: &dns.Msg{Answer: []dns.RR{}}}, nil
 				}
 
 				return nil, errors.New("unexpected query type")
@@ -560,14 +561,14 @@ var _ = Describe("DNSSECValidator", func() {
 
 			var capturedDNSKEY, capturedDS *model.Request
 			mockUpstream.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
-				switch req.Req.Question[0].Qtype {
+				switch dns.RRToType(req.Req.Question[0]) {
 				case dns.TypeDNSKEY:
 					capturedDNSKEY = req
 				case dns.TypeDS:
 					capturedDS = req
 				}
 
-				return &model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{}})}, nil
+				return &model.Response{Res: &dns.Msg{Answer: []dns.RR{}}}, nil
 			}
 
 			_, _, _ = sut.queryDNSKEY(budgetCtx, "signed.example.")
@@ -651,7 +652,7 @@ var _ = Describe("DNSSECValidator", func() {
 		)
 
 		BeforeEach(func() {
-			question = newQuestion("example.com.", dns.TypeA)
+			question = util.NewQuestion("example.com.", dns.TypeA)
 		})
 
 		When("response has no DNSSEC records", func() {
@@ -680,7 +681,7 @@ var _ = Describe("DNSSECValidator", func() {
 				mockUpstream.ResolveFn = fn
 
 				v := NewValidator(ctx, store, logger, mockUpstream, 1, 10, 150, 30, 3600)
-				result := validateAsV1(ctx, v, response, question)
+				result := v.ValidateResponse(ctx, response, question)
 				Expect(result).Should(Equal(ValidationResultInsecure))
 			})
 		})
@@ -719,11 +720,11 @@ var _ = Describe("DNSSECValidator", func() {
 				// Mock the DNSKEY query to return empty (no keys available)
 				dnskeyResp := new(dns.Msg)
 				dnsutil.SetReply(dnskeyResp, &dns.Msg{})
-				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: toV1(dnskeyResp)}, nil)
+				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil)
 			})
 
 			It("should return Bogus when DNSKEY cannot be retrieved", func() {
-				result := validateAsV1(ctx, sut, response, question)
+				result := sut.ValidateResponse(ctx, response, question)
 				// Should be Bogus per RFC 4035: RRSIG present indicates DNSSEC is intended,
 				// so missing DNSKEY means the chain of trust cannot be established
 				Expect(result).Should(Equal(ValidationResultBogus))
@@ -764,11 +765,11 @@ var _ = Describe("DNSSECValidator", func() {
 				// Mock upstream to return empty DNSKEY response
 				dnskeyResp := new(dns.Msg)
 				dnsutil.SetReply(dnskeyResp, &dns.Msg{})
-				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: toV1(dnskeyResp)}, nil)
+				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil)
 			})
 
 			It("should return Bogus when cannot verify expired signature", func() {
-				result := validateAsV1(ctx, sut, response, question)
+				result := sut.ValidateResponse(ctx, response, question)
 				// Returns Bogus per RFC 4035: RRSIG present + missing DNSKEY = Bogus
 				// (Even though signature is expired, the missing DNSKEY makes it Bogus)
 				Expect(result).Should(Equal(ValidationResultBogus))
@@ -809,11 +810,11 @@ var _ = Describe("DNSSECValidator", func() {
 				// Mock upstream to return empty DNSKEY response
 				dnskeyResp := new(dns.Msg)
 				dnsutil.SetReply(dnskeyResp, &dns.Msg{})
-				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: toV1(dnskeyResp)}, nil)
+				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil)
 			})
 
 			It("should return Bogus when cannot verify future signature", func() {
-				result := validateAsV1(ctx, sut, response, question)
+				result := sut.ValidateResponse(ctx, response, question)
 				// Returns Bogus per RFC 4035: RRSIG present + missing DNSKEY = Bogus
 				// (Even though signature is not yet valid, the missing DNSKEY makes it Bogus)
 				Expect(result).Should(Equal(ValidationResultBogus))
@@ -1106,7 +1107,7 @@ var _ = Describe("DNSSECValidator", func() {
 				Ns:    []dns.RR{nsec3},
 			}
 
-			question := newQuestion("nonexistent.example.com.", dns.TypeA)
+			question := util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -1147,7 +1148,7 @@ var _ = Describe("DNSSECValidator", func() {
 				Ns:    []dns.RR{nsec3a, nsec3b},
 			}
 
-			question := newQuestion("nonexistent.example.com.", dns.TypeA)
+			question := util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -1174,7 +1175,7 @@ var _ = Describe("DNSSECValidator", func() {
 				Ns:    []dns.RR{nsec3},
 			}
 
-			question := newQuestion("nonexistent.example.com.", dns.TypeA)
+			question := util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -1186,7 +1187,7 @@ var _ = Describe("DNSSECValidator", func() {
 				Ns:    []dns.RR{},
 			}
 
-			question := newQuestion("nonexistent.example.com.", dns.TypeA)
+			question := util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultInsecure))
@@ -1216,7 +1217,7 @@ var _ = Describe("DNSSECValidator", func() {
 				Ns:    []dns.RR{nsec3},
 			}
 
-			question := newQuestion("unsigned.example.com.", dns.TypeA)
+			question := util.NewQuestion("unsigned.example.com.", dns.TypeA)
 
 			// Call the validation function - it should at least detect the Opt-Out flag
 			// Note: This may return Bogus due to incomplete NXDOMAIN proof, but
@@ -1334,7 +1335,7 @@ var _ = Describe("DNSSECValidator", func() {
 				Ns:    []dns.RR{nsec3},
 			}
 
-			question := newQuestion("test.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.example.com.", dns.TypeA)
 
 			// Call should detect and log the Opt-Out flag
 			_ = sut.validateNSEC3DenialOfExistence(response, question)
@@ -1497,9 +1498,9 @@ var _ = Describe("DNSSECValidator", func() {
 
 			// Mock upstream
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{
-				Res: toV1(&dns.Msg{
+				Res: &dns.Msg{
 					Answer: []dns.RR{},
-				}),
+				},
 			}, nil)
 
 			// Run multiple validations concurrently
@@ -1795,7 +1796,7 @@ var _ = Describe("DNSSECValidator", func() {
 			validator := NewValidator(ctx, dummyAnchorStore(), logger, mockUpstream, 1, 10, 150, 5, 3600)
 
 			// Start validation - this initializes budget in context
-			question := newQuestion("example.com.", dns.TypeA)
+			question := util.NewQuestion("example.com.", dns.TypeA)
 
 			// Create unsigned response (to avoid complex mock setup)
 			response := &dns.Msg{
@@ -1811,7 +1812,7 @@ var _ = Describe("DNSSECValidator", func() {
 				},
 			}
 
-			result := validateAsV1(ctx, validator, response, question)
+			result := validator.ValidateResponse(ctx, response, question)
 
 			// Unsigned response, domain not under a trust anchor -> accepted as Indeterminate.
 			Expect(result).Should(Equal(ValidationResultIndeterminate))
@@ -1824,9 +1825,9 @@ var _ = Describe("DNSSECValidator", func() {
 			// Mock upstream to return signed responses that will trigger chain building
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(
 				&model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Rcode: dns.RcodeServerFailure,
-					}),
+					},
 				}, nil)
 
 			// Create a response that has RRSIG (will trigger validation chain)
@@ -1859,9 +1860,9 @@ var _ = Describe("DNSSECValidator", func() {
 				},
 			}
 
-			question := newQuestion("deep.chain.example.com.", dns.TypeA)
+			question := util.NewQuestion("deep.chain.example.com.", dns.TypeA)
 
-			result := validateAsV1(ctx, validator, response, question)
+			result := validator.ValidateResponse(ctx, response, question)
 
 			// Should return Indeterminate or Bogus when budget exhausted
 			// (The exact result depends on where the budget runs out)
@@ -1892,7 +1893,7 @@ var _ = Describe("DNSSECValidator", func() {
 			validator := NewValidator(ctx, dummyAnchorStore(), logger, mockUpstream, 1, 10, 150, 30, 3600)
 
 			// Create domain with 5 labels (within limit)
-			question := newQuestion("one.two.three.four.five.", dns.TypeA)
+			question := util.NewQuestion("one.two.three.four.five.", dns.TypeA)
 
 			// Create unsigned response
 			response := &dns.Msg{
@@ -1908,7 +1909,7 @@ var _ = Describe("DNSSECValidator", func() {
 				},
 			}
 
-			result := validateAsV1(ctx, validator, response, question)
+			result := validator.ValidateResponse(ctx, response, question)
 
 			// Processed normally; not under a trust anchor -> accepted as Indeterminate.
 			Expect(result).Should(Equal(ValidationResultIndeterminate))
@@ -1921,13 +1922,13 @@ var _ = Describe("DNSSECValidator", func() {
 			// Mock upstream to avoid actual queries
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(
 				&model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Rcode: dns.RcodeServerFailure,
-					}),
+					},
 				}, nil)
 
 			// Create domain with 8 labels (exceeds limit of 5)
-			question := newQuestion("a.b.c.d.e.f.g.h.", dns.TypeA)
+			question := util.NewQuestion("a.b.c.d.e.f.g.h.", dns.TypeA)
 
 			// Create response with RRSIG to trigger validation
 			response := &dns.Msg{
@@ -1959,7 +1960,7 @@ var _ = Describe("DNSSECValidator", func() {
 				},
 			}
 
-			result := validateAsV1(ctx, validator, response, question)
+			result := validator.ValidateResponse(ctx, response, question)
 
 			// Should reject as Bogus due to excessive chain depth
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -1972,7 +1973,7 @@ var _ = Describe("DNSSECValidator", func() {
 			validator := NewValidator(ctx, dummyAnchorStore(), logger, mockUpstream, 1, 6, 150, 30, 3600)
 
 			// Create domain with exactly 6 labels (at limit)
-			question := newQuestion("a.b.c.d.e.f.", dns.TypeA)
+			question := util.NewQuestion("a.b.c.d.e.f.", dns.TypeA)
 
 			// Create unsigned response
 			response := &dns.Msg{
@@ -1988,7 +1989,7 @@ var _ = Describe("DNSSECValidator", func() {
 				},
 			}
 
-			result := validateAsV1(ctx, validator, response, question)
+			result := validator.ValidateResponse(ctx, response, question)
 
 			// Processed normally (exactly at limit); not under a trust anchor -> Indeterminate.
 			Expect(result).Should(Equal(ValidationResultIndeterminate))
@@ -2482,7 +2483,7 @@ var _ = Describe("DNSSECValidator", func() {
 	Describe("Time-based replay attacks", func() {
 		It("should reject replayed responses with expired signatures", func() {
 			// Simulate replayed response from cache/attacker with old signature
-			question := newQuestion("example.com.", dns.TypeA)
+			question := util.NewQuestion("example.com.", dns.TypeA)
 
 			// Response with signature that expired 1 week ago
 			response := &dns.Msg{
@@ -2517,12 +2518,12 @@ var _ = Describe("DNSSECValidator", func() {
 			// Mock upstream to return no DNSKEY (simplify test)
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(
 				&model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Rcode: dns.RcodeSuccess,
-					}),
+					},
 				}, nil)
 
-			result := validateAsV1(ctx, sut, response, question)
+			result := sut.ValidateResponse(ctx, response, question)
 
 			// Should be rejected as Bogus due to expired signature
 			// (Can't establish chain of trust with expired signature)
@@ -2578,7 +2579,7 @@ var _ = Describe("DNSSECValidator", func() {
 			rrset := []dns.RR{dnskey}
 
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(
-				&model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{}})}, nil,
+				&model.Response{Res: &dns.Msg{Answer: []dns.RR{}}}, nil,
 			)
 
 			err := validator.verifyRRSIG(rrset, rrsig, dnskey, []dns.RR{}, "example.com.")
@@ -2619,7 +2620,7 @@ var _ = Describe("DNSSECValidator", func() {
 			rrset := []dns.RR{dnskey}
 
 			mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(
-				&model.Response{Res: toV1(&dns.Msg{Answer: []dns.RR{}})}, nil,
+				&model.Response{Res: &dns.Msg{Answer: []dns.RR{}}}, nil,
 			)
 
 			err := validator.verifyRRSIG(rrset, rrsig, dnskey, []dns.RR{}, "example.com.")
@@ -2735,7 +2736,7 @@ var _ = Describe("DNSSECValidator", func() {
 		var question dns.RR
 
 		BeforeEach(func() {
-			question = newQuestion("nonexistent.example.com.", dns.TypeA)
+			question = util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 		})
 
 		When("response is NXDOMAIN with NSEC records", func() {
@@ -2785,7 +2786,7 @@ var _ = Describe("DNSSECValidator", func() {
 						PublicKey: "test",
 					},
 				}
-				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: toV1(dnskeyResp)}, nil)
+				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil)
 
 				result := sut.validateNegativeResponse(ctx, response, question)
 				// Will be Bogus because we can't validate the chain of trust in this mock setup
@@ -2823,7 +2824,7 @@ var _ = Describe("DNSSECValidator", func() {
 
 		When("response is NODATA with NSEC records", func() {
 			It("should validate denial of type existence", func() {
-				question = newQuestion(question.Header().Name, dns.TypeAAAA)
+				question = util.NewQuestion(question.Header().Name, dns.TypeAAAA)
 				response := &dns.Msg{
 					Rcode:    dns.RcodeSuccess,
 					Question: []dns.RR{question},
@@ -2869,7 +2870,7 @@ var _ = Describe("DNSSECValidator", func() {
 						Algorithm: 8,
 					},
 				}
-				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: toV1(dnskeyResp)}, nil)
+				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil)
 
 				result := sut.validateNegativeResponse(ctx, response, question)
 				// Will be Bogus/Indeterminate because we can't validate the full chain
@@ -2882,7 +2883,7 @@ var _ = Describe("DNSSECValidator", func() {
 		var question dns.RR
 
 		BeforeEach(func() {
-			question = newQuestion("nonexistent.example.com.", dns.TypeA)
+			question = util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 		})
 
 		When("NSEC records prove NXDOMAIN", func() {
@@ -2931,7 +2932,7 @@ var _ = Describe("DNSSECValidator", func() {
 						Algorithm: 8,
 					},
 				}
-				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: toV1(dnskeyResp)}, nil)
+				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil)
 
 				result := sut.validateDenialOfExistence(ctx, response, question)
 				// Will be Bogus/Indeterminate due to mock setup limitations
@@ -3022,7 +3023,7 @@ var _ = Describe("DNSSECValidator", func() {
 		var question dns.RR
 
 		BeforeEach(func() {
-			question = newQuestion("example.com.", dns.TypeA)
+			question = util.NewQuestion("example.com.", dns.TypeA)
 		})
 
 		When("authority section has signed records", func() {
@@ -3069,7 +3070,7 @@ var _ = Describe("DNSSECValidator", func() {
 						Algorithm: 8,
 					},
 				}
-				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: toV1(dnskeyResp)}, nil)
+				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil)
 
 				result := sut.validateAuthorityOrAdditional(ctx, response, question)
 				// Will be Bogus due to mock limitations
@@ -3281,7 +3282,7 @@ var _ = Describe("DNSSECValidator", func() {
 						PublicKey: "test",
 					},
 				}
-				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: toV1(dnskeyResp)}, nil).Once()
+				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil).Once()
 
 				// Don't add any trust anchor
 				result := sut.verifyDomainAgainstTrustAnchor(ctx, "example.com.")
@@ -3318,7 +3319,7 @@ var _ = Describe("DNSSECValidator", func() {
 				// Mock the DNSKEY query to return a key
 				dnskeyResp := new(dns.Msg)
 				dnskeyResp.Answer = []dns.RR{dnskey}
-				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: toV1(dnskeyResp)}, nil).Once()
+				mockUpstream.On("Resolve", mock.Anything, mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil).Once()
 
 				result := sut.verifyDomainAgainstTrustAnchor(ctx, "example.com.")
 				// In unit tests with mocked upstream, result may vary
@@ -3541,9 +3542,9 @@ var _ = Describe("Additional Validator Coverage", func() {
 		It("should validate response with CNAME chain", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{},
-					}),
+					},
 				}, nil
 			}
 
@@ -3556,7 +3557,7 @@ var _ = Describe("Additional Validator Coverage", func() {
 				Target: "target.example.com.",
 			}
 
-			question := newQuestion("www.example.com.", dns.TypeA)
+			question := util.NewQuestion("www.example.com.", dns.TypeA)
 
 			response := &dns.Msg{
 				Rcode:    dns.RcodeSuccess,
@@ -3564,7 +3565,7 @@ var _ = Describe("Additional Validator Coverage", func() {
 				Answer:   []dns.RR{cname},
 			}
 
-			result := validateAsV1(ctx, sut, response, question)
+			result := sut.ValidateResponse(ctx, response, question)
 			Expect(result).ShouldNot(BeNil())
 		})
 
@@ -3605,7 +3606,7 @@ var _ = Describe("Additional Validator Coverage", func() {
 				Addr: netip.AddrFrom4([4]byte{192, 0, 2, 1}),
 			}
 
-			question := newQuestion("www.unsigned.net.", dns.TypeA)
+			question := util.NewQuestion("www.unsigned.net.", dns.TypeA)
 
 			response := &dns.Msg{
 				Rcode:    dns.RcodeSuccess,
@@ -3616,7 +3617,7 @@ var _ = Describe("Additional Validator Coverage", func() {
 			// This test checks that when a response contains only unsigned CNAME and A records (no RRSIGs)
 			// in an unsigned zone, the validator returns Insecure (acceptable per RFC 4035).
 			// This ensures that unsigned responses in unsigned zones are not incorrectly marked as Bogus.
-			result := validateAsV1(ctx, validator, response, question)
+			result := validator.ValidateResponse(ctx, response, question)
 
 			// The key assertion: should be Insecure since the response has no DNSSEC signatures
 			Expect(result).Should(Equal(ValidationResultInsecure))
@@ -3627,9 +3628,9 @@ var _ = Describe("Additional Validator Coverage", func() {
 		It("should validate multiple different types in answer", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{},
-					}),
+					},
 				}, nil
 			}
 
@@ -3651,7 +3652,7 @@ var _ = Describe("Additional Validator Coverage", func() {
 				Addr: netip.AddrFrom4([4]byte{192, 0, 2, 2}),
 			}
 
-			question := newQuestion("example.com.", dns.TypeA)
+			question := util.NewQuestion("example.com.", dns.TypeA)
 
 			response := &dns.Msg{
 				Question: []dns.RR{question},
@@ -3667,9 +3668,9 @@ var _ = Describe("Additional Validator Coverage", func() {
 		It("should handle NXDOMAIN with SOA in authority", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{},
-					}),
+					},
 				}, nil
 			}
 
@@ -3684,7 +3685,7 @@ var _ = Describe("Additional Validator Coverage", func() {
 			response := &dns.Msg{
 				Rcode: dns.RcodeNameError,
 				Question: []dns.RR{
-					newQuestion("nonexistent.example.com.", dns.TypeA),
+					util.NewQuestion("nonexistent.example.com.", dns.TypeA),
 				},
 				Ns: []dns.RR{soa},
 			}

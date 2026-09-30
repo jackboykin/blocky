@@ -13,8 +13,9 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
 	expirationcache "github.com/0xERR0R/expiration-cache"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -110,9 +111,9 @@ func (r *ClientNamesResolver) getClientNames(ctx context.Context, request *model
 	return names
 }
 
-func extractClientNamesFromAnswer(answer []dnsv1.RR, fallbackIP netip.Addr) (clientNames []string) {
+func extractClientNamesFromAnswer(answer []dns.RR, fallbackIP netip.Addr) (clientNames []string) {
 	for _, answer := range answer {
-		if t, ok := answer.(*dnsv1.PTR); ok {
+		if t, ok := answer.(*dns.PTR); ok {
 			hostName := strings.TrimSuffix(t.Ptr, ".")
 			clientNames = append(clientNames, hostName)
 		}
@@ -150,10 +151,10 @@ func (r *ClientNamesResolver) resolveClientNames(ctx context.Context, ip netip.A
 		return []string{ip.String()}
 	}
 
-	reverse, _ := dnsv1.ReverseAddr(ip.String())
+	reverse := dnsutil.ReverseAddr(ip.Unmap())
 
 	resp, err := r.externalResolver.Resolve(ctx, &model.Request{
-		Req: util.NewMsgWithQuestion(reverse, dnsv1.Type(dnsv1.TypePTR)),
+		Req: util.NewMsgWithQuestion(reverse, dns.TypePTR),
 	})
 	if err != nil {
 		logger.Error("can't resolve client name: ", err)

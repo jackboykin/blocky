@@ -6,9 +6,9 @@ import (
 	"net"
 	"net/http"
 
+	"codeberg.org/miekg/dns"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -146,7 +146,7 @@ var _ = Describe("Integration tests", func() {
 
 					ips := make([]string, len(resp.Answer))
 					for i, rr := range resp.Answer {
-						if a, ok := rr.(*dnsv1.A); ok {
+						if a, ok := rr.(*dns.A); ok {
 							ips[i] = a.A.String()
 						}
 					}
@@ -177,13 +177,13 @@ var _ = Describe("Integration tests", func() {
 					msg := util.NewMsgWithQuestion("ads.example.com.", A)
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 					Expect(resp.Answer).Should(BeEmpty())
 
 					msg = util.NewMsgWithQuestion("tracker.analytics.com.", A)
 					resp, err = doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 				})
 
 				// Test 5: Blocking with wildcard patterns
@@ -191,7 +191,7 @@ var _ = Describe("Integration tests", func() {
 					msg := util.NewMsgWithQuestion("subdomain.malware.com.", A)
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 				})
 
 				// Test 6: Allowlist overriding denylist
@@ -224,12 +224,12 @@ var _ = Describe("Integration tests", func() {
 					// First query - should hit upstream
 					resp1, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					ttl1 := resp1.Answer[0].Header().Ttl
+					ttl1 := resp1.Answer[0].Header().TTL
 
 					// Second query - should hit cache with decreased TTL
 					resp2, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					ttl2 := resp2.Answer[0].Header().Ttl
+					ttl2 := resp2.Answer[0].Header().TTL
 
 					// TTL should be equal or less (depending on timing)
 					Expect(ttl2).Should(BeNumerically("<=", ttl1))
@@ -252,7 +252,7 @@ var _ = Describe("Integration tests", func() {
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 					// Should be blocked by SUDN resolver
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 				})
 
 				// Test 11: Prometheus metrics exposure
@@ -319,7 +319,7 @@ var _ = Describe("Integration tests", func() {
 					msg = util.NewMsgWithQuestion("tracker.analytics.com.", A)
 					respDNS, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(respDNS.Rcode).Should(Equal(dnsv1.RcodeNameError))
+					Expect(respDNS.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 				})
 
 				// Test 13: Container health check
@@ -367,7 +367,7 @@ var _ = Describe("Integration tests", func() {
 					Expect(resp.Answer).Should(HaveLen(2))
 					ips := make([]string, len(resp.Answer))
 					for i, rr := range resp.Answer {
-						if a, ok := rr.(*dnsv1.A); ok {
+						if a, ok := rr.(*dns.A); ok {
 							ips[i] = a.A.String()
 						}
 					}
@@ -381,12 +381,12 @@ var _ = Describe("Integration tests", func() {
 					// First query - should be blocked
 					resp1, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp1.Rcode).Should(Equal(dnsv1.RcodeNameError))
+					Expect(resp1.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 
 					// Second query - should still be blocked (from cache)
 					resp2, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp2.Rcode).Should(Equal(dnsv1.RcodeNameError))
+					Expect(resp2.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 				})
 
 				// Conditional should take precedence over default upstream
@@ -409,8 +409,8 @@ var _ = Describe("Integration tests", func() {
 					Expect(err).Should(Succeed())
 					// Should propagate NXDOMAIN from upstream
 					Expect(resp.Rcode).Should(Or(
-						Equal(dnsv1.RcodeNameError),
-						Equal(dnsv1.RcodeSuccess),
+						Equal(uint16(dns.RcodeNameError)),
+						Equal(uint16(dns.RcodeSuccess)),
 					))
 				})
 

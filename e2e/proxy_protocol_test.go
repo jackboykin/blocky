@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -158,7 +159,10 @@ func queryDoTViaProxy(ctx context.Context, nginx testcontainers.Container, quest
 		TLSConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 
-	_, _, err = c.Exchange(util.NewMsgWithQuestion(question, dnsv1.Type(dnsv1.TypeA)), net.JoinHostPort(host, port))
+	_, _, err = util.ExchangeV1(util.NewMsgWithQuestion(question, dns.TypeA),
+		func(m1 *dnsv1.Msg) (*dnsv1.Msg, time.Duration, error) {
+			return c.Exchange(m1, net.JoinHostPort(host, port))
+		})
 
 	return err
 }
@@ -171,7 +175,7 @@ func queryDoHViaProxy(ctx context.Context, nginx testcontainers.Container, quest
 		return err
 	}
 
-	packed, err := util.NewMsgWithQuestion(question, dnsv1.Type(dnsv1.TypeA)).Pack()
+	packed, err := util.PackMsg(util.NewMsgWithQuestion(question, dns.TypeA))
 	if err != nil {
 		return err
 	}

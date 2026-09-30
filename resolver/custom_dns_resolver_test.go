@@ -3,15 +3,14 @@ package resolver
 import (
 	"context"
 	"errors"
-	"net"
 	"net/netip"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/log"
 	. "github.com/0xERR0R/blocky/model"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -40,28 +39,28 @@ var _ = Describe("CustomDNSResolver", func() {
 		ctx, cancelFn = context.WithCancel(context.Background())
 		DeferCleanup(cancelFn)
 
-		zoneHdr := dnsv1.RR_Header{Ttl: zoneTTL}
+		zoneHdr := dns.Header{TTL: zoneTTL}
 
 		cfg = config.CustomDNS{
 			Mapping: config.CustomDNSMapping{
-				"custom.domain": {&dnsv1.A{A: net.ParseIP("192.168.143.123")}},
-				"ip6.domain":    {&dnsv1.AAAA{AAAA: net.ParseIP("2001:0db8:85a3:0000:0000:8a2e:0370:7334")}},
+				"custom.domain": {&dns.A{Addr: netip.MustParseAddr("192.168.143.123")}},
+				"ip6.domain":    {&dns.AAAA{Addr: netip.MustParseAddr("2001:0db8:85a3:0000:0000:8a2e:0370:7334")}},
 				"multiple.ips": {
-					&dnsv1.A{A: net.ParseIP("192.168.143.123")},
-					&dnsv1.A{A: net.ParseIP("192.168.143.125")},
-					&dnsv1.AAAA{AAAA: net.ParseIP("2001:0db8:85a3:0000:0000:8a2e:0370:7334")},
+					&dns.A{Addr: netip.MustParseAddr("192.168.143.123")},
+					&dns.A{Addr: netip.MustParseAddr("192.168.143.125")},
+					&dns.AAAA{Addr: netip.MustParseAddr("2001:0db8:85a3:0000:0000:8a2e:0370:7334")},
 				},
 			},
 			Zone: config.ZoneFileDNS{
 				RRs: config.CustomDNSMapping{
-					"example.zone.":    {&dnsv1.A{A: net.ParseIP("1.2.3.4"), Hdr: zoneHdr}},
-					"cname.domain.":    {&dnsv1.CNAME{Target: "custom.domain", Hdr: zoneHdr}},
-					"cname.ip6.":       {&dnsv1.CNAME{Target: "ip6.domain", Hdr: zoneHdr}},
-					"cname.example.":   {&dnsv1.CNAME{Target: "example.com", Hdr: zoneHdr}},
-					"cname.recursive.": {&dnsv1.CNAME{Target: "cname.recursive", Hdr: zoneHdr}},
-					"srv.":             {&dnsv1.SRV{Priority: 0, Weight: 5, Port: 12345, Target: "service", Hdr: zoneHdr}},
-					"txt.":             {&dnsv1.TXT{Txt: []string{"space", "separated", "value"}, Hdr: zoneHdr}},
-					"mx.domain.":       {&dnsv1.MX{Mx: "mx.domain", Hdr: zoneHdr}},
+					"example.zone.":    {&dns.A{Addr: netip.MustParseAddr("1.2.3.4"), Hdr: zoneHdr}},
+					"cname.domain.":    {&dns.CNAME{Target: "custom.domain", Hdr: zoneHdr}},
+					"cname.ip6.":       {&dns.CNAME{Target: "ip6.domain", Hdr: zoneHdr}},
+					"cname.example.":   {&dns.CNAME{Target: "example.com", Hdr: zoneHdr}},
+					"cname.recursive.": {&dns.CNAME{Target: "cname.recursive", Hdr: zoneHdr}},
+					"srv.":             {&dns.SRV{Priority: 0, Weight: 5, Port: 12345, Target: "service", Hdr: zoneHdr}},
+					"txt.":             {&dns.TXT{Txt: []string{"space", "separated", "value"}, Hdr: zoneHdr}},
+					"mx.domain.":       {&dns.MX{Mx: "mx.domain", Hdr: zoneHdr}},
 				},
 			},
 			CustomTTL:           config.Duration(time.Duration(TTL) * time.Second),
@@ -72,7 +71,7 @@ var _ = Describe("CustomDNSResolver", func() {
 	JustBeforeEach(func() {
 		sut = NewCustomDNSResolver(cfg)
 		m = &mockResolver{}
-		m.On("Resolve", mock.Anything).Return(&Response{Res: new(dnsv1.Msg)}, nil)
+		m.On("Resolve", mock.Anything).Return(&Response{Res: new(dns.Msg)}, nil)
 		sut.Next(m)
 	})
 
@@ -106,7 +105,7 @@ var _ = Describe("CustomDNSResolver", func() {
 		})
 		When("Creating the IP response returns an error ", func() {
 			It("should return the error", func() {
-				createAnswerMock := func(_ dnsv1.Question, _ netip.Addr, _ uint32) (dnsv1.RR, error) {
+				createAnswerMock := func(_ dns.RR, _ netip.Addr, _ uint32) (dns.RR, error) {
 					return nil, errors.New("create answer error")
 				}
 
@@ -155,7 +154,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								HaveTTL(BeNumerically("==", zoneTTL)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 					// will not delegate to next resolver
 					m.AssertNotCalled(GinkgoT(), "Resolve", mock.Anything)
@@ -168,7 +167,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								HaveTTL(BeNumerically("==", TTL)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 					// will not delegate to next resolver
 					m.AssertNotCalled(GinkgoT(), "Resolve", mock.Anything)
@@ -181,7 +180,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								HaveSOARecord(TTL, TTL),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 					// will not delegate to next resolver
 					m.AssertNotCalled(GinkgoT(), "Resolve", mock.Anything)
@@ -194,7 +193,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								HaveSOARecord(TTL, TTL),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 					// will not delegate to next resolver
 					m.AssertNotCalled(GinkgoT(), "Resolve", mock.Anything)
@@ -211,7 +210,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								HaveTTL(BeNumerically("==", TTL)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 					// will not delegate to next resolver
 					m.AssertNotCalled(GinkgoT(), "Resolve", mock.Anything)
@@ -222,7 +221,7 @@ var _ = Describe("CustomDNSResolver", func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// delegate was executed
@@ -234,7 +233,7 @@ var _ = Describe("CustomDNSResolver", func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// delegate was executed
@@ -251,7 +250,7 @@ var _ = Describe("CustomDNSResolver", func() {
 							HaveTTL(BeNumerically("==", TTL)),
 							HaveResponseType(ResponseTypeCUSTOMDNS),
 							HaveReason("CUSTOM DNS"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 				// will not delegate to next resolver
 				m.AssertNotCalled(GinkgoT(), "Resolve", mock.Anything)
@@ -267,7 +266,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								HaveTTL(BeNumerically("==", TTL)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// will not delegate to next resolver
@@ -286,7 +285,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// will not delegate to next resolver
@@ -307,7 +306,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// will not delegate to next resolver
@@ -327,7 +326,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// will not delegate to next resolver
@@ -345,7 +344,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// will not delegate to next resolver
@@ -372,7 +371,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// will delegate to next resolver
@@ -404,7 +403,7 @@ var _ = Describe("CustomDNSResolver", func() {
 						)),
 						HaveResponseType(ResponseTypeCUSTOMDNS),
 						HaveReason("CUSTOM DNS"),
-						HaveReturnCode(dnsv1.RcodeSuccess),
+						HaveReturnCode(dns.RcodeSuccess),
 					))
 			})
 		})
@@ -419,7 +418,7 @@ var _ = Describe("CustomDNSResolver", func() {
 							)),
 							HaveResponseType(ResponseTypeCUSTOMDNS),
 							HaveReason("CUSTOM DNS"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("Returns a TXT response", func() {
@@ -432,7 +431,7 @@ var _ = Describe("CustomDNSResolver", func() {
 							)),
 							HaveResponseType(ResponseTypeCUSTOMDNS),
 							HaveReason("CUSTOM DNS"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -459,7 +458,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// will not delegate to next resolver
@@ -481,7 +480,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// will not delegate to next resolver
@@ -503,7 +502,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// will not delegate to next resolver
@@ -525,7 +524,7 @@ var _ = Describe("CustomDNSResolver", func() {
 								)),
 								HaveResponseType(ResponseTypeCUSTOMDNS),
 								HaveReason("CUSTOM DNS"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// will not delegate to next resolver
@@ -542,7 +541,7 @@ var _ = Describe("CustomDNSResolver", func() {
 							HaveTTL(BeNumerically("==", TTL)),
 							HaveResponseType(ResponseTypeCUSTOMDNS),
 							HaveReason("CUSTOM DNS"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 				// will not delegate to next resolver
 				m.AssertNotCalled(GinkgoT(), "Resolve", mock.Anything)
@@ -573,7 +572,7 @@ var _ = Describe("CustomDNSResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				// delegate was executed
@@ -591,7 +590,7 @@ var _ = Describe("CustomDNSResolver", func() {
 			// Recreate resolver with rewrite configuration
 			sut = NewCustomDNSResolver(cfg)
 			m = &mockResolver{}
-			m.On("Resolve", mock.Anything).Return(&Response{Res: new(dnsv1.Msg)}, nil)
+			m.On("Resolve", mock.Anything).Return(&Response{Res: new(dns.Msg)}, nil)
 			sut.Next(m)
 		})
 
@@ -612,7 +611,7 @@ var _ = Describe("CustomDNSResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				Expect(*seen).Should(Equal("www.source.test."))
@@ -635,7 +634,7 @@ var _ = Describe("CustomDNSResolver", func() {
 						SatisfyAll(
 							BeDNSRecord("www.nomatch.test.", A, "192.192.192.192"),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				Expect(*seen).Should(Equal("www.nomatch.test."))
@@ -659,7 +658,7 @@ var _ = Describe("CustomDNSResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				Expect(*seen).Should(Equal("www.source.test."))
@@ -698,7 +697,7 @@ var _ = Describe("CustomDNSResolver", func() {
 							HaveTTL(BeNumerically("==", TTL)),
 							HaveResponseType(ResponseTypeCUSTOMDNS),
 							HaveReason("CUSTOM DNS"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				// will not delegate to next resolver
@@ -714,7 +713,7 @@ var _ = Describe("CustomDNSResolver", func() {
 							HaveTTL(BeNumerically("==", TTL)),
 							HaveResponseType(ResponseTypeCUSTOMDNS),
 							HaveReason("CUSTOM DNS"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				// will not delegate to next resolver
@@ -729,7 +728,7 @@ var _ = Describe("CustomDNSResolver", func() {
 							HaveTTL(BeNumerically("==", TTL)),
 							HaveResponseType(ResponseTypeCUSTOMDNS),
 							HaveReason("CUSTOM DNS"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				// will not delegate to next resolver
@@ -741,7 +740,7 @@ var _ = Describe("CustomDNSResolver", func() {
 				Expect(err).ShouldNot(HaveOccurred())
 
 				// Question should have original name, not rewritten name
-				Expect(resp.Res.Question[0].Name).Should(Equal("www.source.test."))
+				Expect(resp.Res.Question[0].Header().Name).Should(Equal("www.source.test."))
 				// Answer should have original name, not rewritten name
 				Expect(resp.Res.Answer[0].Header().Name).Should(Equal("www.source.test."))
 			})
@@ -756,7 +755,7 @@ var _ = Describe("CustomDNSResolver", func() {
 							HaveTTL(BeNumerically("==", TTL)),
 							HaveResponseType(ResponseTypeCUSTOMDNS),
 							HaveReason("CUSTOM DNS"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				// will not delegate to next resolver

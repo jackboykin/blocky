@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -67,7 +67,7 @@ var _ = Describe("Caching configuration tests", func() {
 							return 0
 						}
 						if len(resp.Answer) > 0 {
-							return resp.Answer[0].Header().Ttl
+							return resp.Answer[0].Header().TTL
 						}
 
 						return 0
@@ -152,7 +152,7 @@ var _ = Describe("Caching configuration tests", func() {
 							return 999
 						}
 						if len(resp.Answer) > 0 {
-							return resp.Answer[0].Header().Ttl
+							return resp.Answer[0].Header().TTL
 						}
 
 						return 999
@@ -228,7 +228,7 @@ var _ = Describe("Caching configuration tests", func() {
 				By("Excluded domain should return SERVFAIL (not cached)", func() {
 					resp, err := doDNSRequest(ctx, blocky, msgNocache)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeServerFailure)))
 				})
 			})
 		})
@@ -261,7 +261,7 @@ var _ = Describe("Caching configuration tests", func() {
 				By("First query should return NXDOMAIN", func() {
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 				})
 
 				By("Terminate upstream to ensure cache is used", func() {
@@ -271,7 +271,7 @@ var _ = Describe("Caching configuration tests", func() {
 				By("Second query should return cached NXDOMAIN", func() {
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 				})
 
 				By("No warnings/errors in log", func() {
@@ -342,7 +342,7 @@ var _ = Describe("Caching configuration tests", func() {
 					for _, d := range domains[:3] {
 						resp, err := doDNSRequest(ctx, blocky, util.NewMsgWithQuestion(d.name, A))
 						Expect(err).Should(Succeed())
-						if resp.Rcode == dnsv1.RcodeSuccess && len(resp.Answer) > 0 {
+						if resp.Rcode == dns.RcodeSuccess && len(resp.Answer) > 0 {
 							cached++
 						}
 					}

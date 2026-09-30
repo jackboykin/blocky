@@ -11,6 +11,7 @@ import (
 
 	"codeberg.org/miekg/dns"
 	"codeberg.org/miekg/dns/dnsutil"
+	"github.com/0xERR0R/blocky/util"
 )
 
 // validateNSEC3DenialOfExistence validates NSEC3-based denial of existence per RFC 5155
@@ -241,7 +242,7 @@ func (v *Validator) checkDirectNSEC3Match(nsec3Records []*dns.NSEC3, qname, qnam
 			continue
 		}
 
-		if strings.EqualFold(labels[0], qnameHash) {
+		if util.EqualNames(labels[0], qnameHash) {
 			// Found matching NSEC3 record - check type bitmap
 			if slices.Contains(nsec3.TypeBitMap, qtype) {
 				// Type exists in bitmap - this is NOT a valid NODATA proof
@@ -321,7 +322,7 @@ func (v *Validator) checkWildcardNSEC3Match(nsec3Records []*dns.NSEC3, qname str
 		ownerName := nsec3.Hdr.Name
 		labels := splitName(ownerName)
 
-		if len(labels) > 0 && strings.EqualFold(labels[0], wildcardHash) {
+		if len(labels) > 0 && util.EqualNames(labels[0], wildcardHash) {
 			// Found wildcard NSEC3 - check type bitmap
 			if slices.Contains(nsec3.TypeBitMap, qtype) {
 				return ValidationResultBogus
@@ -373,7 +374,7 @@ func (v *Validator) findClosestEncloser(qname, zoneName string, nsec3Records []*
 		for _, nsec3 := range nsec3Records {
 			ownerName := nsec3.Hdr.Name
 			labels := splitName(ownerName)
-			if len(labels) > 0 && strings.EqualFold(labels[0], nameHash) {
+			if len(labels) > 0 && util.EqualNames(labels[0], nameHash) {
 				// Found matching NSEC3 - this is the closest encloser
 				return name
 			}

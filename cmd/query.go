@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"net/http"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/api"
 	"github.com/0xERR0R/blocky/log"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/spf13/cobra"
 )
 
@@ -27,9 +27,9 @@ func NewQueryCommand() *cobra.Command {
 
 func query(cmd *cobra.Command, args []string) error {
 	typeFlag, _ := cmd.Flags().GetString("type")
-	qType := dnsv1.StringToType[typeFlag]
+	qType := dns.StringToType[typeFlag]
 
-	if qType == dnsv1.TypeNone {
+	if qType == dns.TypeNone {
 		return fmt.Errorf("unknown query type '%s'", typeFlag)
 	}
 

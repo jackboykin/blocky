@@ -4,14 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"net"
 	"net/netip"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	"github.com/creasty/defaults"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 
@@ -47,8 +46,8 @@ var _ = Describe("Config", func() {
 				c.Deprecated.DisableIPv6 = ptrOf(true) //nolint:modernize // ptrOf sets a non-zero value, new(T) would give zero-value pointer
 				c.migrate(logger)
 				Expect(hook.Messages).Should(ContainElement(ContainSubstring("disableIPv6")))
-				Expect(c.Filtering.QueryTypes).Should(HaveKey(QType(dnsv1.TypeAAAA)))
-				Expect(c.Filtering.QueryTypes.Contains(dnsv1.Type(dnsv1.TypeAAAA))).Should(BeTrue())
+				Expect(c.Filtering.QueryTypes).Should(HaveKey(QType(dns.TypeAAAA)))
+				Expect(c.Filtering.QueryTypes.Contains(dns.TypeAAAA)).Should(BeTrue())
 			})
 		})
 
@@ -1365,20 +1364,20 @@ func defaultTestFileConfig(config *Config) {
 	Expect(config.CustomDNS.Mapping).Should(HaveLen(2))
 
 	duckDNSEntry := config.CustomDNS.Mapping["my.duckdns.org"][0]
-	duckDNSA := duckDNSEntry.(*dnsv1.A)
-	Expect(duckDNSA.A).Should(Equal(net.ParseIP("192.168.178.3")))
+	duckDNSA := duckDNSEntry.(*dns.A)
+	Expect(duckDNSA.Addr).Should(Equal(netip.MustParseAddr("192.168.178.3")))
 
 	multipleIpsEntry := config.CustomDNS.Mapping["multiple.ips"][0]
-	multipleIpsA := multipleIpsEntry.(*dnsv1.A)
-	Expect(multipleIpsA.A).Should(Equal(net.ParseIP("192.168.178.3")))
+	multipleIpsA := multipleIpsEntry.(*dns.A)
+	Expect(multipleIpsA.Addr).Should(Equal(netip.MustParseAddr("192.168.178.3")))
 
 	multipleIpsEntry = config.CustomDNS.Mapping["multiple.ips"][1]
-	multipleIpsA = multipleIpsEntry.(*dnsv1.A)
-	Expect(multipleIpsA.A).Should(Equal(net.ParseIP("192.168.178.4")))
+	multipleIpsA = multipleIpsEntry.(*dns.A)
+	Expect(multipleIpsA.Addr).Should(Equal(netip.MustParseAddr("192.168.178.4")))
 
 	multipleIpsEntry = config.CustomDNS.Mapping["multiple.ips"][2]
-	multipleIpsAAAA := multipleIpsEntry.(*dnsv1.AAAA)
-	Expect(multipleIpsAAAA.AAAA).Should(Equal(net.ParseIP("2001:db8:85a3:8d3:1319:8a2e:370:7344")))
+	multipleIpsAAAA := multipleIpsEntry.(*dns.AAAA)
+	Expect(multipleIpsAAAA.Addr).Should(Equal(netip.MustParseAddr("2001:db8:85a3:8d3:1319:8a2e:370:7344")))
 
 	Expect(config.Conditional.Mapping.Upstreams).Should(HaveLen(2))
 	Expect(config.Conditional.Mapping.Upstreams["fritz.box"]).Should(HaveLen(1))

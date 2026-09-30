@@ -1,11 +1,14 @@
 package resolver
 
 import (
-	"net"
+	"net/netip"
 
 	"github.com/0xERR0R/blocky/log"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
+	"github.com/0xERR0R/blocky/model"
+	"github.com/0xERR0R/blocky/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
@@ -89,50 +92,50 @@ var _ = Describe("RewriteHelper", func() {
 	Describe("rewriteRequest", func() {
 		When("request has rewritable domain", func() {
 			It("should return rewritten request and track original names", func() {
-				req := new(dnsv1.Msg)
-				req.SetQuestion(dnsv1.Fqdn("test.original"), dnsv1.TypeA)
+				req := new(dns.Msg)
+				dnsutil.SetQuestion(req, dnsutil.Fqdn("test.original"), dns.TypeA)
 
 				rewritten, originalNames := rewriteRequest(logger, req, rewriteMap)
 
 				Expect(rewritten).ShouldNot(BeNil())
-				Expect(rewritten.Question[0].Name).Should(Equal("test.rewritten."))
+				Expect(rewritten.Question[0].Header().Name).Should(Equal("test.rewritten."))
 				Expect(originalNames).Should(HaveKey("test.rewritten."))
 				Expect(originalNames["test.rewritten."]).Should(Equal("test.original."))
 			})
 
 			It("should not modify original request", func() {
-				req := new(dnsv1.Msg)
-				req.SetQuestion(dnsv1.Fqdn("test.original"), dnsv1.TypeA)
-				originalQuestion := req.Question[0].Name
+				req := new(dns.Msg)
+				dnsutil.SetQuestion(req, dnsutil.Fqdn("test.original"), dns.TypeA)
+				originalQuestion := req.Question[0].Header().Name
 
 				rewritten, _ := rewriteRequest(logger, req, rewriteMap)
 
 				Expect(rewritten).ShouldNot(BeNil())
-				Expect(req.Question[0].Name).Should(Equal(originalQuestion))
+				Expect(req.Question[0].Header().Name).Should(Equal(originalQuestion))
 			})
 		})
 
 		When("request has multiple questions with rewrites", func() {
 			It("should rewrite all applicable questions", func() {
-				req := new(dnsv1.Msg)
-				req.Question = []dnsv1.Question{
-					{Name: dnsv1.Fqdn("sub1.original"), Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET},
-					{Name: dnsv1.Fqdn("sub2.test.zone"), Qtype: dnsv1.TypeAAAA, Qclass: dnsv1.ClassINET},
+				req := new(dns.Msg)
+				req.Question = []dns.RR{
+					util.NewQuestion(dnsutil.Fqdn("sub1.original"), dns.TypeA),
+					util.NewQuestion(dnsutil.Fqdn("sub2.test.zone"), dns.TypeAAAA),
 				}
 
 				rewritten, originalNames := rewriteRequest(logger, req, rewriteMap)
 
 				Expect(rewritten).ShouldNot(BeNil())
-				Expect(rewritten.Question[0].Name).Should(Equal("sub1.rewritten."))
-				Expect(rewritten.Question[1].Name).Should(Equal("sub2.example.com."))
+				Expect(rewritten.Question[0].Header().Name).Should(Equal("sub1.rewritten."))
+				Expect(rewritten.Question[1].Header().Name).Should(Equal("sub2.example.com."))
 				Expect(originalNames).Should(HaveLen(2))
 			})
 		})
 
 		When("request does not match any rewrite rule", func() {
 			It("should return nil", func() {
-				req := new(dnsv1.Msg)
-				req.SetQuestion(dnsv1.Fqdn("untouched.domain"), dnsv1.TypeA)
+				req := new(dns.Msg)
+				dnsutil.SetQuestion(req, dnsutil.Fqdn("untouched.domain"), dns.TypeA)
 
 				rewritten, originalNames := rewriteRequest(logger, req, rewriteMap)
 
@@ -143,8 +146,8 @@ var _ = Describe("RewriteHelper", func() {
 
 		When("rewrite map is empty", func() {
 			It("should return nil", func() {
-				req := new(dnsv1.Msg)
-				req.SetQuestion(dnsv1.Fqdn("any.domain"), dnsv1.TypeA)
+				req := new(dns.Msg)
+				dnsutil.SetQuestion(req, dnsutil.Fqdn("any.domain"), dns.TypeA)
 
 				rewritten, originalNames := rewriteRequest(logger, req, map[string]string{})
 
@@ -155,8 +158,8 @@ var _ = Describe("RewriteHelper", func() {
 
 		When("request has no questions", func() {
 			It("should handle gracefully", func() {
-				req := new(dnsv1.Msg)
-				req.Question = []dnsv1.Question{}
+				req := new(dns.Msg)
+				req.Question = []dns.RR{}
 
 				rewritten, originalNames := rewriteRequest(logger, req, rewriteMap)
 
@@ -169,9 +172,9 @@ var _ = Describe("RewriteHelper", func() {
 	Describe("revertRewritesInResponse", func() {
 		When("response has rewritten names", func() {
 			It("should revert question names", func() {
-				resp := new(dnsv1.Msg)
-				resp.Question = []dnsv1.Question{
-					{Name: "test.rewritten.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET},
+				resp := new(dns.Msg)
+				resp.Question = []dns.RR{
+					util.NewQuestion("test.rewritten.", dns.TypeA),
 				}
 
 				originalNames := map[string]string{
@@ -180,15 +183,14 @@ var _ = Describe("RewriteHelper", func() {
 
 				revertRewritesInResponse(resp, originalNames)
 
-				Expect(resp.Question[0].Name).Should(Equal("test.original."))
+				Expect(resp.Question[0].Header().Name).Should(Equal("test.original."))
 			})
 
 			It("should revert answer names", func() {
-				resp := new(dnsv1.Msg)
-				resp.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "test.rewritten.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   nil,
+				resp := new(dns.Msg)
+				resp.Answer = []dns.RR{
+					&dns.A{
+						Hdr: dns.Header{Name: "test.rewritten.", Class: dns.ClassINET, TTL: 300},
 					},
 				}
 
@@ -202,14 +204,13 @@ var _ = Describe("RewriteHelper", func() {
 			})
 
 			It("should revert both question and answer names", func() {
-				resp := new(dnsv1.Msg)
-				resp.Question = []dnsv1.Question{
-					{Name: "test.rewritten.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET},
+				resp := new(dns.Msg)
+				resp.Question = []dns.RR{
+					util.NewQuestion("test.rewritten.", dns.TypeA),
 				}
-				resp.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "test.rewritten.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   nil,
+				resp.Answer = []dns.RR{
+					&dns.A{
+						Hdr: dns.Header{Name: "test.rewritten.", Class: dns.ClassINET, TTL: 300},
 					},
 				}
 
@@ -219,20 +220,18 @@ var _ = Describe("RewriteHelper", func() {
 
 				revertRewritesInResponse(resp, originalNames)
 
-				Expect(resp.Question[0].Name).Should(Equal("test.original."))
+				Expect(resp.Question[0].Header().Name).Should(Equal("test.original."))
 				Expect(resp.Answer[0].Header().Name).Should(Equal("test.original."))
 			})
 
 			It("should handle multiple answers", func() {
-				resp := new(dnsv1.Msg)
-				resp.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "sub1.rewritten.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   nil,
+				resp := new(dns.Msg)
+				resp.Answer = []dns.RR{
+					&dns.A{
+						Hdr: dns.Header{Name: "sub1.rewritten.", Class: dns.ClassINET, TTL: 300},
 					},
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "sub2.example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   nil,
+					&dns.A{
+						Hdr: dns.Header{Name: "sub2.example.com.", Class: dns.ClassINET, TTL: 300},
 					},
 				}
 
@@ -248,14 +247,13 @@ var _ = Describe("RewriteHelper", func() {
 			})
 
 			It("should not revert names not in originalNames map", func() {
-				resp := new(dnsv1.Msg)
-				resp.Question = []dnsv1.Question{
-					{Name: "untouched.domain.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET},
+				resp := new(dns.Msg)
+				resp.Question = []dns.RR{
+					util.NewQuestion("untouched.domain.", dns.TypeA),
 				}
-				resp.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "untouched.domain.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   nil,
+				resp.Answer = []dns.RR{
+					&dns.A{
+						Hdr: dns.Header{Name: "untouched.domain.", Class: dns.ClassINET, TTL: 300},
 					},
 				}
 
@@ -265,48 +263,46 @@ var _ = Describe("RewriteHelper", func() {
 
 				revertRewritesInResponse(resp, originalNames)
 
-				Expect(resp.Question[0].Name).Should(Equal("untouched.domain."))
+				Expect(resp.Question[0].Header().Name).Should(Equal("untouched.domain."))
 				Expect(resp.Answer[0].Header().Name).Should(Equal("untouched.domain."))
 			})
 		})
 
 		When("originalNames map is empty", func() {
 			It("should not modify response", func() {
-				resp := new(dnsv1.Msg)
-				resp.Question = []dnsv1.Question{
-					{Name: "test.domain.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET},
+				resp := new(dns.Msg)
+				resp.Question = []dns.RR{
+					util.NewQuestion("test.domain.", dns.TypeA),
 				}
-				resp.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "test.domain.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   nil,
+				resp.Answer = []dns.RR{
+					&dns.A{
+						Hdr: dns.Header{Name: "test.domain.", Class: dns.ClassINET, TTL: 300},
 					},
 				}
 
-				originalQuestion := resp.Question[0].Name
+				originalQuestion := resp.Question[0].Header().Name
 				originalAnswer := resp.Answer[0].Header().Name
 
 				revertRewritesInResponse(resp, map[string]string{})
 
-				Expect(resp.Question[0].Name).Should(Equal(originalQuestion))
+				Expect(resp.Question[0].Header().Name).Should(Equal(originalQuestion))
 				Expect(resp.Answer[0].Header().Name).Should(Equal(originalAnswer))
 			})
 		})
 
 		When("response has more answers than questions", func() {
 			It("should handle all answers", func() {
-				resp := new(dnsv1.Msg)
-				resp.Question = []dnsv1.Question{
-					{Name: "test.rewritten.", Qtype: dnsv1.TypeA, Qclass: dnsv1.ClassINET},
+				resp := new(dns.Msg)
+				resp.Question = []dns.RR{
+					util.NewQuestion("test.rewritten.", dns.TypeA),
 				}
-				resp.Answer = []dnsv1.RR{
-					&dnsv1.CNAME{
-						Hdr:    dnsv1.RR_Header{Name: "test.rewritten.", Rrtype: dnsv1.TypeCNAME, Class: dnsv1.ClassINET, Ttl: 300},
+				resp.Answer = []dns.RR{
+					&dns.CNAME{
+						Hdr:    dns.Header{Name: "test.rewritten.", Class: dns.ClassINET, TTL: 300},
 						Target: "target.example.com.",
 					},
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "target.example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   nil,
+					&dns.A{
+						Hdr: dns.Header{Name: "target.example.com.", Class: dns.ClassINET, TTL: 300},
 					},
 				}
 
@@ -316,7 +312,7 @@ var _ = Describe("RewriteHelper", func() {
 
 				revertRewritesInResponse(resp, originalNames)
 
-				Expect(resp.Question[0].Name).Should(Equal("test.original."))
+				Expect(resp.Question[0].Header().Name).Should(Equal("test.original."))
 				Expect(resp.Answer[0].Header().Name).Should(Equal("test.original."))
 				Expect(resp.Answer[1].Header().Name).Should(Equal("target.example.com."))
 			})
@@ -324,7 +320,7 @@ var _ = Describe("RewriteHelper", func() {
 
 		When("response has no questions or answers", func() {
 			It("should handle gracefully", func() {
-				resp := new(dnsv1.Msg)
+				resp := new(dns.Msg)
 
 				originalNames := map[string]string{
 					"test.rewritten.": "test.original.",
@@ -339,27 +335,26 @@ var _ = Describe("RewriteHelper", func() {
 	Describe("Integration: rewrite and revert round-trip", func() {
 		It("should preserve original request after rewrite and revert", func() {
 			// Create original request
-			originalReq := new(dnsv1.Msg)
-			originalReq.SetQuestion(dnsv1.Fqdn("sub.original"), dnsv1.TypeA)
-			originalQuestion := originalReq.Question[0].Name
+			originalReq := new(dns.Msg)
+			dnsutil.SetQuestion(originalReq, dnsutil.Fqdn("sub.original"), dns.TypeA)
+			originalQuestion := originalReq.Question[0].Header().Name
 
 			// Rewrite request
 			rewritten, originalNames := rewriteRequest(logger, originalReq, rewriteMap)
 			Expect(rewritten).ShouldNot(BeNil())
-			Expect(rewritten.Question[0].Name).Should(Equal("sub.rewritten."))
+			Expect(rewritten.Question[0].Header().Name).Should(Equal("sub.rewritten."))
 
 			// Simulate response with rewritten name
-			resp := new(dnsv1.Msg)
-			resp.SetReply(rewritten)
-			resp.Answer = []dnsv1.RR{
-				&dnsv1.A{
-					Hdr: dnsv1.RR_Header{
-						Name:   "sub.rewritten.",
-						Rrtype: dnsv1.TypeA,
-						Class:  dnsv1.ClassINET,
-						Ttl:    300,
+			resp := new(dns.Msg)
+			model.SetReply(resp, rewritten)
+			resp.Answer = []dns.RR{
+				&dns.A{
+					Hdr: dns.Header{
+						Name:  "sub.rewritten.",
+						Class: dns.ClassINET,
+						TTL:   300,
 					},
-					A: net.ParseIP("1.2.3.4"),
+					Addr: netip.MustParseAddr("1.2.3.4"),
 				},
 			}
 
@@ -367,7 +362,7 @@ var _ = Describe("RewriteHelper", func() {
 			revertRewritesInResponse(resp, originalNames)
 
 			// Verify original name is restored
-			Expect(resp.Question[0].Name).Should(Equal(originalQuestion))
+			Expect(resp.Question[0].Header().Name).Should(Equal(originalQuestion))
 			Expect(resp.Answer[0].Header().Name).Should(Equal(originalQuestion))
 		})
 	})

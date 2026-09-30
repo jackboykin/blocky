@@ -3,7 +3,7 @@ package util
 import (
 	"slices"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 )
 
 // isDNSSECAuthRecordType reports whether rrType is one of the record types a security-aware
@@ -15,7 +15,7 @@ import (
 // material.
 func isDNSSECAuthRecordType(rrType uint16) bool {
 	switch rrType {
-	case dnsv1.TypeRRSIG, dnsv1.TypeDNSKEY, dnsv1.TypeDS, dnsv1.TypeNSEC, dnsv1.TypeNSEC3:
+	case dns.TypeRRSIG, dns.TypeDNSKEY, dns.TypeDS, dns.TypeNSEC, dns.TypeNSEC3:
 		return true
 	default:
 		return false
@@ -37,16 +37,16 @@ func isDNSSECAuthRecordType(rrType uint16) bool {
 // are included whether or not the DO bit was set." An ANY query therefore keeps everything. The
 // AXFR/IXFR half does not apply here: blocky forwards queries to an upstream resolver and never
 // serves zone transfers.
-func StripDNSSECRecords(msg *dnsv1.Msg, requestedTypes ...uint16) bool {
-	if msg == nil || slices.Contains(requestedTypes, dnsv1.TypeANY) {
+func StripDNSSECRecords(msg *dns.Msg, requestedTypes ...uint16) bool {
+	if msg == nil || slices.Contains(requestedTypes, dns.TypeANY) {
 		return false
 	}
 
 	removed := false
 
-	for _, section := range []*[]dnsv1.RR{&msg.Answer, &msg.Ns, &msg.Extra} {
-		kept := slices.DeleteFunc(*section, func(rr dnsv1.RR) bool {
-			rrType := rr.Header().Rrtype
+	for _, section := range []*[]dns.RR{&msg.Answer, &msg.Ns, &msg.Extra} {
+		kept := slices.DeleteFunc(*section, func(rr dns.RR) bool {
+			rrType := dns.RRToType(rr)
 
 			return isDNSSECAuthRecordType(rrType) && !slices.Contains(requestedTypes, rrType)
 		})

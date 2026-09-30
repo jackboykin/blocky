@@ -8,14 +8,16 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/0xERR0R/blocky/log"
 	"github.com/0xERR0R/blocky/model"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/gcustom"
@@ -23,15 +25,15 @@ import (
 )
 
 const (
-	A     = dnsv1.Type(dnsv1.TypeA)
-	AAAA  = dnsv1.Type(dnsv1.TypeAAAA)
-	CNAME = dnsv1.Type(dnsv1.TypeCNAME)
-	HTTPS = dnsv1.Type(dnsv1.TypeHTTPS)
-	MX    = dnsv1.Type(dnsv1.TypeMX)
-	PTR   = dnsv1.Type(dnsv1.TypePTR)
-	SRV   = dnsv1.Type(dnsv1.TypeSRV)
-	TXT   = dnsv1.Type(dnsv1.TypeTXT)
-	DS    = dnsv1.Type(dnsv1.TypeDS)
+	A     = dns.TypeA
+	AAAA  = dns.TypeAAAA
+	CNAME = dns.TypeCNAME
+	HTTPS = dns.TypeHTTPS
+	MX    = dns.TypeMX
+	PTR   = dns.TypePTR
+	SRV   = dns.TypeSRV
+	TXT   = dns.TypeTXT
+	DS    = dns.TypeDS
 )
 
 // GetIntPort returns a port for the current testing
@@ -98,15 +100,15 @@ func DoGetRequest(ctx context.Context, url string,
 	return rr, rr.Body
 }
 
-func ToAnswer(m *model.Response) []dnsv1.RR {
+func ToAnswer(m *model.Response) []dns.RR {
 	return m.Res.Answer
 }
 
-func ToExtra(m *model.Response) []dnsv1.RR {
+func ToExtra(m *model.Response) []dns.RR {
 	return m.Res.Extra
 }
 
-func ToAuthority(m *model.Response) []dnsv1.RR {
+func ToAuthority(m *model.Response) []dns.RR {
 	return m.Res.Ns
 }
 
@@ -125,9 +127,9 @@ func HaveSOARecord(ttl, minTTL uint32) types.GomegaMatcher {
 		}
 
 		for _, rr := range m.Res.Ns {
-			if soa, ok := rr.(*dnsv1.SOA); ok {
-				if soa.Header().Ttl != ttl {
-					return false, fmt.Errorf("SOA TTL is %d, expected %d", soa.Header().Ttl, ttl)
+			if soa, ok := rr.(*dns.SOA); ok {
+				if soa.Header().TTL != ttl {
+					return false, fmt.Errorf("SOA TTL is %d, expected %d", soa.Header().TTL, ttl)
 				}
 
 				if soa.Minttl != minTTL {
@@ -177,35 +179,33 @@ func HaveResponseType(c model.ResponseType) types.GomegaMatcher {
 	)
 }
 
-func HaveReturnCode(code int) types.GomegaMatcher {
+func HaveReturnCode(code uint16) types.GomegaMatcher {
 	return gcustom.MakeMatcher(func(m *model.Response) (bool, error) {
 		return m.Res.Rcode == code, nil
 	}).WithTemplate(
 		"Expected:\n{{.Actual}}\n{{.To}} have RCode:\n{{format .Data 1}}",
-		fmt.Sprintf("%d (%s)", code, dnsv1.RcodeToString[code]),
+		fmt.Sprintf("%d (%s)", code, dns.RcodeToString[code]),
 	)
 }
 
 // HaveEdnsOption checks if the given message contains an EDNS0 record with the given option code.
 func HaveEdnsOption(code uint16) types.GomegaMatcher {
 	return gcustom.MakeMatcher(func(actual any) (bool, error) {
-		var opt *dnsv1.OPT
-		switch msg := actual.(type) {
+		var msg *dns.Msg
+		switch m := actual.(type) {
 		case *model.Response:
-			opt = msg.Res.IsEdns0()
-		case *dnsv1.Msg:
-			opt = msg.IsEdns0()
+			msg = m.Res
+		case *dns.Msg:
+			msg = m
+		default:
+			return false, nil
 		}
 
-		if opt != nil {
-			for _, o := range opt.Option {
-				if o.Option() == code {
-					return true, nil
-				}
-			}
-		}
+		return slices.ContainsFunc(msg.Pseudo, func(o dns.RR) bool {
+			e, ok := o.(dns.EDNS0)
 
-		return false, nil
+			return ok && dns.RRToCode(e) == code
+		}), nil
 	}).WithTemplate(
 		"Expected:\n{{.Actual}}\n{{.To}} have EDNS option:\n{{format .Data 1}}",
 		code,
@@ -215,17 +215,17 @@ func HaveEdnsOption(code uint16) types.GomegaMatcher {
 func HaveTTL(matcher types.GomegaMatcher) types.GomegaMatcher {
 	return gomega.WithTransform(func(actual any) (uint32, error) {
 		// Handle different types of input
-		var records []dnsv1.RR
+		var records []dns.RR
 
 		switch i := actual.(type) {
 		case *model.Response:
 			records = i.Res.Answer
-		case *dnsv1.Msg:
+		case *dns.Msg:
 			records = i.Answer
-		case []dnsv1.RR:
+		case []dns.RR:
 			records = i
-		case dnsv1.RR:
-			records = []dnsv1.RR{i}
+		case dns.RR:
+			records = []dns.RR{i}
 		default:
 			return 0, fmt.Errorf("unsupported type for TTL matching: %T", actual)
 		}
@@ -238,12 +238,12 @@ func HaveTTL(matcher types.GomegaMatcher) types.GomegaMatcher {
 		// Return TTL of the first record
 		// This is a reasonable approach since typically all records in a response
 		// have the same TTL, and we're usually testing against a specific expected value
-		return records[0].Header().Ttl, nil
+		return records[0].Header().TTL, nil
 	}, matcher)
 }
 
 // BeDNSRecord returns new dns matcher
-func BeDNSRecord(domain string, dnsType dnsv1.Type, answer string) types.GomegaMatcher {
+func BeDNSRecord(domain string, dnsType uint16, answer string) types.GomegaMatcher {
 	return &dnsRecordMatcher{
 		domain:  domain,
 		dnsType: dnsType,
@@ -253,30 +253,32 @@ func BeDNSRecord(domain string, dnsType dnsv1.Type, answer string) types.GomegaM
 
 type dnsRecordMatcher struct {
 	domain  string
-	dnsType dnsv1.Type
+	dnsType uint16
 	answer  string
 }
 
-func (matcher *dnsRecordMatcher) matchSingle(rr dnsv1.RR) bool {
+func (matcher *dnsRecordMatcher) matchSingle(rr dns.RR) bool {
 	if (rr.Header().Name != matcher.domain) ||
-		(dnsv1.Type(rr.Header().Rrtype) != matcher.dnsType) {
+		(dns.RRToType(rr) != matcher.dnsType) {
 		return false
 	}
 
 	switch v := rr.(type) {
-	case *dnsv1.A:
-		return v.A.String() == matcher.answer
-	case *dnsv1.AAAA:
-		return v.AAAA.To16().Equal(net.ParseIP(matcher.answer))
-	case *dnsv1.CNAME:
+	case *dns.A:
+		return v.Addr.String() == matcher.answer
+	case *dns.AAAA:
+		addr, err := netip.ParseAddr(matcher.answer)
+
+		return err == nil && v.Addr == addr
+	case *dns.CNAME:
 		return v.Target == matcher.answer
-	case *dnsv1.PTR:
+	case *dns.PTR:
 		return v.Ptr == matcher.answer
-	case *dnsv1.SRV:
+	case *dns.SRV:
 		return fmt.Sprintf("%d %d %d %s", v.Priority, v.Weight, v.Port, v.Target) == matcher.answer
-	case *dnsv1.TXT:
+	case *dns.TXT:
 		return strings.Join(v.Txt, " ") == matcher.answer
-	case *dnsv1.MX:
+	case *dns.MX:
 		return v.Mx == matcher.answer
 	}
 
@@ -286,17 +288,17 @@ func (matcher *dnsRecordMatcher) matchSingle(rr dnsv1.RR) bool {
 // Match checks the DNS record
 func (matcher *dnsRecordMatcher) Match(actual any) (success bool, err error) {
 	// Handle different types of input
-	var records []dnsv1.RR
+	var records []dns.RR
 
 	switch i := actual.(type) {
 	case *model.Response:
 		records = i.Res.Answer
-	case *dnsv1.Msg:
+	case *dns.Msg:
 		records = i.Answer
-	case []dnsv1.RR:
+	case []dns.RR:
 		records = i
-	case dnsv1.RR:
-		records = []dnsv1.RR{i}
+	case dns.RR:
+		records = []dns.RR{i}
 	default:
 		return false, fmt.Errorf("unsupported type for DNS record matching: %T", actual)
 	}
@@ -319,11 +321,11 @@ func (matcher *dnsRecordMatcher) Match(actual any) (success bool, err error) {
 // FailureMessage generates a failure message
 func (matcher *dnsRecordMatcher) FailureMessage(actual any) (message string) {
 	return fmt.Sprintf("Expected\n\t%s\n to contain\n\t domain '%s', type '%s', answer '%s'",
-		actual, matcher.domain, dnsv1.TypeToString[uint16(matcher.dnsType)], matcher.answer)
+		actual, matcher.domain, dns.TypeToString[matcher.dnsType], matcher.answer)
 }
 
 // NegatedFailureMessage creates negated message
 func (matcher *dnsRecordMatcher) NegatedFailureMessage(actual any) (message string) {
 	return fmt.Sprintf("Expected\n\t%s\n not to contain\n\t domain '%s', type '%s', answer '%s'",
-		actual, matcher.domain, dnsv1.TypeToString[uint16(matcher.dnsType)], matcher.answer)
+		actual, matcher.domain, dns.TypeToString[matcher.dnsType], matcher.answer)
 }

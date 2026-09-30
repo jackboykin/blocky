@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
 	dnsv1 "github.com/miekg/dns"
@@ -24,7 +25,7 @@ type MockDoTUpstreamServer struct {
 	closeAfter atomic.Int32
 
 	listener net.Listener
-	answerFn func(request *dnsv1.Msg) (response *dnsv1.Msg)
+	answerFn func(request *dns.Msg) (response *dns.Msg)
 
 	// mu guards conns, the set of accepted connections Close must tear down so
 	// their handleConn goroutines don't block forever on ReadMsg.
@@ -45,7 +46,7 @@ func (t *MockDoTUpstreamServer) WithAnswerRR(answers ...string) *MockDoTUpstream
 	return t
 }
 
-func (t *MockDoTUpstreamServer) WithAnswerError(errorCode int) *MockDoTUpstreamServer {
+func (t *MockDoTUpstreamServer) WithAnswerError(errorCode uint16) *MockDoTUpstreamServer {
 	t.answerFn = errorAnswerFn(errorCode)
 
 	return t
@@ -147,14 +148,18 @@ func (t *MockDoTUpstreamServer) handleConn(conn net.Conn) {
 	var served int32
 
 	for {
-		msg, err := dnsConn.ReadMsg()
+		msg1, err := dnsConn.ReadMsg()
 		if err != nil {
 			return
 		}
 
+		msg, err := util.MsgFromV1(msg1)
+		util.FatalOnError("can't convert message: ", err)
+
 		t.callCount.Add(1)
 
-		response := mockReply(msg, t.answerFn(msg))
+		response, err := util.MsgToV1(mockReply(msg, t.answerFn(msg)))
+		util.FatalOnError("can't convert message: ", err)
 
 		if err := dnsConn.WriteMsg(response); err != nil {
 			return

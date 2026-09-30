@@ -3,14 +3,13 @@ package resolver
 import (
 	"context"
 	"math"
-	"net"
 	"net/netip"
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -20,7 +19,6 @@ const (
 
 	// DNS constants
 	edns0BufferSize = 4096 // RFC 6891 standard EDNS0 buffer size
-	ipv6Length      = 16
 
 	// RFC 6052 prefix lengths (bits)
 	prefixLen96 = 96
@@ -94,12 +92,12 @@ func (r *DNS64Resolver) Resolve(ctx context.Context, request *model.Request) (*m
 	ctx, logger := r.log(ctx)
 
 	// Only process AAAA queries for IN class
-	if len(request.Req.Question) == 0 || request.Req.Question[0].Qtype != dnsv1.TypeAAAA ||
-		request.Req.Question[0].Qclass != dnsv1.ClassINET {
+	if len(request.Req.Question) == 0 || dns.RRToType(request.Req.Question[0]) != dns.TypeAAAA ||
+		request.Req.Question[0].Header().Class != dns.ClassINET {
 		return r.next.Resolve(ctx, request)
 	}
 
-	qname := request.Req.Question[0].Name
+	qname := request.Req.Question[0].Header().Name
 	logger.Debugf("received AAAA query for %s, checking for synthesis", qname)
 
 	// Pass query to next resolver
@@ -123,7 +121,7 @@ func (r *DNS64Resolver) Resolve(ctx context.Context, request *model.Request) (*m
 
 // hasValidAAAARecords checks if response has any AAAA records not in exclusion set
 func (r *DNS64Resolver) hasValidAAAARecords(response *model.Response, logger *logrus.Entry) bool {
-	aaaaRecords := util.ExtractRecords[*dnsv1.AAAA](response.Res)
+	aaaaRecords := util.ExtractRecords[*dns.AAAA](response.Res)
 	if len(aaaaRecords) == 0 {
 		logger.Debug("no AAAA records in response")
 
@@ -137,8 +135,8 @@ func (r *DNS64Resolver) hasValidAAAARecords(response *model.Response, logger *lo
 	excludedCount := 0
 
 	for _, aaaa := range aaaaRecords {
-		if r.isInExclusionSet(aaaa.AAAA) {
-			logger.Debugf("AAAA record %s is in exclusion set", aaaa.AAAA)
+		if r.isInExclusionSet(aaaa.Addr) {
+			logger.Debugf("AAAA record %s is in exclusion set", aaaa.Addr)
 			excludedCount++
 		} else {
 			allExcluded = false
@@ -160,21 +158,21 @@ func (r *DNS64Resolver) hasValidAAAARecords(response *model.Response, logger *lo
 }
 
 // isInExclusionSet checks if an IPv6 address is in the exclusion set
-func (r *DNS64Resolver) isInExclusionSet(ipv6 net.IP) bool {
-	// Convert net.IP to netip.Addr efficiently without string conversion
-	if len(ipv6) == ipv6Length {
-		addr := netip.AddrFrom16([16]byte(ipv6))
+// addr must not be unmapped, or ::ffff:0:0/96 in the exclusion set never matches.
+func (r *DNS64Resolver) isInExclusionSet(addr netip.Addr) bool {
+	if !addr.Is6() {
+		return false
+	}
 
-		// Special case: unspecified address ::/128
-		if addr.IsUnspecified() {
+	// Special case: unspecified address ::/128
+	if addr.IsUnspecified() {
+		return true
+	}
+
+	// Check against all exclusion prefixes
+	for _, prefix := range r.exclusionSet {
+		if prefix.Contains(addr) {
 			return true
-		}
-
-		// Check against all exclusion prefixes
-		for _, prefix := range r.exclusionSet {
-			if prefix.Contains(addr) {
-				return true
-			}
 		}
 	}
 
@@ -191,11 +189,11 @@ func (r *DNS64Resolver) synthesizeFromA(
 	logger *logrus.Entry,
 ) (*model.Response, error) {
 	// Create new A query for same name
-	aReq := util.NewMsgWithQuestion(originalRequest.Req.Question[0].Name, dnsv1.Type(dnsv1.TypeA))
+	aReq := util.NewMsgWithQuestion(originalRequest.Req.Question[0].Header().Name, dns.TypeA)
 
 	// Copy DNSSEC flags from original AAAA query
-	if originalRequest.Req.IsEdns0() != nil {
-		aReq.SetEdns0(edns0BufferSize, originalRequest.Req.IsEdns0().Do())
+	if util.HasEdns0(originalRequest.Req) {
+		util.SetEdns0(aReq, edns0BufferSize, originalRequest.Req.Security)
 	}
 	aReq.CheckingDisabled = originalRequest.Req.CheckingDisabled
 	aReq.RecursionDesired = originalRequest.Req.RecursionDesired
@@ -217,14 +215,14 @@ func (r *DNS64Resolver) synthesizeFromA(
 	}
 
 	// Handle RCODE
-	if aResponse.Res.Rcode == dnsv1.RcodeNameError {
+	if aResponse.Res.Rcode == dns.RcodeNameError {
 		// NXDOMAIN: return NXDOMAIN with original AAAA query in Question section
 		logger.Debug("A query returned NXDOMAIN, no synthesis")
 
 		// Build a synthetic NXDOMAIN response with the original AAAA query in the Question section
-		nxdomainResponse := new(dnsv1.Msg)
-		nxdomainResponse.SetReply(originalRequest.Req)
-		nxdomainResponse.Rcode = dnsv1.RcodeNameError
+		nxdomainResponse := new(dns.Msg)
+		model.SetReply(nxdomainResponse, originalRequest.Req)
+		nxdomainResponse.Rcode = dns.RcodeNameError
 		// Copy authority section from A response (contains SOA record with TTL)
 		if len(aResponse.Res.Ns) > 0 {
 			nxdomainResponse.Ns = aResponse.Res.Ns
@@ -237,7 +235,7 @@ func (r *DNS64Resolver) synthesizeFromA(
 		}, nil
 	}
 
-	if aResponse.Res.Rcode != dnsv1.RcodeSuccess {
+	if aResponse.Res.Rcode != dns.RcodeSuccess {
 		// Other RCODEs: treat as empty response (alternative behavior from RFC 6147 Section 5.1.2)
 		logger.Debugf("A query returned RCODE %d, treating as empty", aResponse.Res.Rcode)
 
@@ -245,7 +243,7 @@ func (r *DNS64Resolver) synthesizeFromA(
 	}
 
 	// Extract A records from response
-	aRecords := util.ExtractRecords[*dnsv1.A](aResponse.Res)
+	aRecords := util.ExtractRecords[*dns.A](aResponse.Res)
 	if len(aRecords) == 0 {
 		logger.Debug("no A records found, returning empty AAAA response")
 
@@ -255,8 +253,8 @@ func (r *DNS64Resolver) synthesizeFromA(
 	logger.Debugf("found %d A record(s) for synthesis", len(aRecords))
 
 	// Extract CNAME and DNAME records for TTL calculation
-	cnameRecords := util.ExtractRecords[*dnsv1.CNAME](aResponse.Res)
-	dnameRecords := util.ExtractRecords[*dnsv1.DNAME](aResponse.Res)
+	cnameRecords := util.ExtractRecords[*dns.CNAME](aResponse.Res)
+	dnameRecords := util.ExtractRecords[*dns.DNAME](aResponse.Res)
 
 	if len(cnameRecords) > 0 {
 		logger.Debugf("found %d CNAME record(s) in resolution chain", len(cnameRecords))
@@ -270,8 +268,8 @@ func (r *DNS64Resolver) synthesizeFromA(
 	synthesizedAAAA := r.synthesizeAAAARecords(aRecords, cnameRecords, dnameRecords, logger)
 
 	// Build response
-	syntheticResponse := new(dnsv1.Msg)
-	syntheticResponse.SetReply(originalRequest.Req)
+	syntheticResponse := new(dns.Msg)
+	model.SetReply(syntheticResponse, originalRequest.Req)
 	syntheticResponse.Authoritative = aResponse.Res.Authoritative
 	syntheticResponse.RecursionAvailable = aResponse.Res.RecursionAvailable
 	syntheticResponse.AuthenticatedData = false // Always clear AD bit (non-validating mode)
@@ -301,9 +299,9 @@ func (r *DNS64Resolver) synthesizeFromA(
 
 // calculateMinimumTTL calculates the minimum TTL across all records in the resolution chain
 func calculateMinimumTTL(
-	aRecords []*dnsv1.A,
-	cnameRecords []*dnsv1.CNAME,
-	dnameRecords []*dnsv1.DNAME,
+	aRecords []*dns.A,
+	cnameRecords []*dns.CNAME,
+	dnameRecords []*dns.DNAME,
 	logger *logrus.Entry,
 ) uint32 {
 	minTTL := uint32(math.MaxUint32)
@@ -311,24 +309,24 @@ func calculateMinimumTTL(
 
 	// Include A record TTLs
 	for _, aRecord := range aRecords {
-		if aRecord.Hdr.Ttl < minTTL {
-			minTTL = aRecord.Hdr.Ttl
+		if aRecord.Hdr.TTL < minTTL {
+			minTTL = aRecord.Hdr.TTL
 			ttlSources = []string{"A"} // Reset sources since we have a new minimum
 		}
 	}
 
 	// Include CNAME record TTLs (if CNAME chain exists)
 	for _, cnameRecord := range cnameRecords {
-		if cnameRecord.Hdr.Ttl < minTTL {
-			minTTL = cnameRecord.Hdr.Ttl
+		if cnameRecord.Hdr.TTL < minTTL {
+			minTTL = cnameRecord.Hdr.TTL
 			ttlSources = []string{"CNAME"} // Reset sources since we have a new minimum
 		}
 	}
 
 	// Include DNAME record TTLs (if DNAME redirect exists)
 	for _, dnameRecord := range dnameRecords {
-		if dnameRecord.Hdr.Ttl < minTTL {
-			minTTL = dnameRecord.Hdr.Ttl
+		if dnameRecord.Hdr.TTL < minTTL {
+			minTTL = dnameRecord.Hdr.TTL
 			ttlSources = []string{"DNAME"} // Reset sources since we have a new minimum
 		}
 	}
@@ -342,41 +340,36 @@ func calculateMinimumTTL(
 
 // synthesizeAAAARecords creates AAAA records from A records using configured prefixes
 func (r *DNS64Resolver) synthesizeAAAARecords(
-	aRecords []*dnsv1.A,
-	cnameRecords []*dnsv1.CNAME,
-	dnameRecords []*dnsv1.DNAME,
+	aRecords []*dns.A,
+	cnameRecords []*dns.CNAME,
+	dnameRecords []*dns.DNAME,
 	logger *logrus.Entry,
-) []*dnsv1.AAAA {
+) []*dns.AAAA {
 	// Calculate minimum TTL across ALL records in the resolution chain for cache coherency
 	minTTL := calculateMinimumTTL(aRecords, cnameRecords, dnameRecords, logger)
 
 	// Synthesize AAAA records
-	var aaaaRecords []*dnsv1.AAAA
+	var aaaaRecords []*dns.AAAA
 
 	logger.Debugf("synthesizing with %d prefix(es): %v", len(r.prefixes), r.prefixes)
 
 	for _, aRecord := range aRecords {
 		for _, prefix := range r.prefixes {
-			ipv6 := embedIPv4InIPv6(aRecord.A, prefix)
-			if ipv6 == nil {
-				logger.Warnf("failed to embed IPv4 %s in prefix %s", aRecord.A, prefix)
+			ipv6 := embedIPv4InIPv6(aRecord.Addr, prefix)
+			if !ipv6.IsValid() {
+				logger.Warnf("failed to embed IPv4 %s in prefix %s", aRecord.Addr, prefix)
 
 				continue
 			}
 
-			aaaa := &dnsv1.AAAA{
-				Hdr: dnsv1.RR_Header{
-					Name:   aRecord.Hdr.Name,
-					Rrtype: dnsv1.TypeAAAA,
-					Class:  dnsv1.ClassINET,
-					Ttl:    minTTL,
-				},
-				AAAA: ipv6,
+			aaaa := &dns.AAAA{
+				Hdr:  dns.Header{Name: aRecord.Hdr.Name, Class: dns.ClassINET, TTL: minTTL},
+				Addr: ipv6,
 			}
 			aaaaRecords = append(aaaaRecords, aaaa)
 
 			logger.Debugf("synthesized %s AAAA %s (from A %s, prefix %s, TTL %d)",
-				aaaa.Hdr.Name, ipv6, aRecord.A, prefix, minTTL)
+				aaaa.Hdr.Name, ipv6, aRecord.Addr, prefix, minTTL)
 		}
 	}
 
@@ -384,17 +377,16 @@ func (r *DNS64Resolver) synthesizeAAAARecords(
 }
 
 // embedIPv4InIPv6 embeds an IPv4 address into an IPv6 prefix per RFC 6052
-func embedIPv4InIPv6(ipv4 net.IP, prefix netip.Prefix) net.IP {
-	// Get IPv4 bytes
-	ipv4Bytes := ipv4.To4()
-	if ipv4Bytes == nil {
-		return nil
+func embedIPv4InIPv6(ipv4 netip.Addr, prefix netip.Prefix) netip.Addr {
+	ipv4 = ipv4.Unmap()
+	if !ipv4.Is4() {
+		return netip.Addr{}
 	}
 
+	ipv4Bytes := ipv4.As4()
+
 	// Start with the prefix address as IPv6 base
-	prefixAddr := prefix.Addr().As16()
-	ipv6 := make(net.IP, ipv6Length)
-	copy(ipv6, prefixAddr[:])
+	ipv6 := prefix.Addr().As16()
 
 	// Embed IPv4 address based on prefix length
 	// RFC 6052 Section 2.2 defines the bit positions
@@ -402,13 +394,13 @@ func embedIPv4InIPv6(ipv4 net.IP, prefix netip.Prefix) net.IP {
 	case prefixLen96:
 		// IPv4 at bits 96-127 (bytes 12-15)
 		// Format: Prefix(96) | IPv4(32)
-		copy(ipv6[12:16], ipv4Bytes)
+		copy(ipv6[12:16], ipv4Bytes[:])
 
 	case prefixLen64:
 		// IPv4 at bits 72-103 (bytes 9-12)
 		// Format: Prefix(64) | u(8) | IPv4(32) | Suffix(24)
 		// Note: Byte 8 (u) is reserved and MUST be 0
-		copy(ipv6[9:13], ipv4Bytes)
+		copy(ipv6[9:13], ipv4Bytes[:])
 		ipv6[8] = 0 // Ensure reserved byte is zero
 
 	case prefixLen56:
@@ -435,13 +427,13 @@ func embedIPv4InIPv6(ipv4 net.IP, prefix netip.Prefix) net.IP {
 	case prefixLen32:
 		// IPv4 at bits 32-63 (bytes 4-7)
 		// Format: Prefix(32) | IPv4(32) | u(8) | Suffix(56)
-		copy(ipv6[4:8], ipv4Bytes)
+		copy(ipv6[4:8], ipv4Bytes[:])
 		ipv6[8] = 0 // Ensure reserved byte is zero
 
 	default:
 		// Should never happen if validation is correct
-		return nil
+		return netip.Addr{}
 	}
 
-	return ipv6
+	return netip.AddrFrom16(ipv6)
 }

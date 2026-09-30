@@ -3,11 +3,11 @@ package resolver
 import (
 	"context"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/log"
 	. "github.com/0xERR0R/blocky/model"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -18,7 +18,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 		sut        *FQDNOnlyResolver
 		sutConfig  config.FQDNOnly
 		m          *mockResolver
-		mockAnswer *dnsv1.Msg
+		mockAnswer *dns.Msg
 
 		ctx      context.Context
 		cancelFn context.CancelFunc
@@ -34,7 +34,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 		ctx, cancelFn = context.WithCancel(context.Background())
 		DeferCleanup(cancelFn)
 
-		mockAnswer = new(dnsv1.Msg)
+		mockAnswer = new(dns.Msg)
 	})
 
 	JustBeforeEach(func() {
@@ -70,7 +70,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 					SatisfyAll(
 						HaveNoAnswer(),
 						HaveResponseType(ResponseTypeRESOLVED),
-						HaveReturnCode(dnsv1.RcodeSuccess),
+						HaveReturnCode(dns.RcodeSuccess),
 					))
 
 			// delegated to next resolver
@@ -82,7 +82,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 					SatisfyAll(
 						HaveNoAnswer(),
 						HaveResponseType(ResponseTypeNOTFQDN),
-						HaveReturnCode(dnsv1.RcodeNameError),
+						HaveReturnCode(dns.RcodeNameError),
 					))
 
 			// no call of next resolver
@@ -97,7 +97,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 			// a reply that carries neither the request id nor the question is rejected by the
 			// client as an id mismatch, so it sees a timeout instead of the NXDOMAIN
 			Expect(resp.Res.Response).Should(BeTrue())
-			Expect(resp.Res.Id).Should(Equal(request.Req.Id))
+			Expect(resp.Res.ID).Should(Equal(request.Req.ID))
 			Expect(resp.Res.Question).Should(Equal(request.Req.Question))
 		})
 
@@ -128,7 +128,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 					SatisfyAll(
 						HaveNoAnswer(),
 						HaveResponseType(ResponseTypeRESOLVED),
-						HaveReturnCode(dnsv1.RcodeSuccess),
+						HaveReturnCode(dns.RcodeSuccess),
 					))
 
 			// delegated to next resolver
@@ -140,7 +140,7 @@ var _ = Describe("FqdnOnlyResolver", func() {
 					SatisfyAll(
 						HaveNoAnswer(),
 						HaveResponseType(ResponseTypeRESOLVED),
-						HaveReturnCode(dnsv1.RcodeSuccess),
+						HaveReturnCode(dns.RcodeSuccess),
 					))
 
 			// delegated to next resolver

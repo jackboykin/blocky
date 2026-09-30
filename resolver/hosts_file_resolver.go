@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/netip"
 
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/lists"
 	"github.com/0xERR0R/blocky/lists/parsers"
@@ -12,7 +14,6 @@ import (
 	"github.com/0xERR0R/blocky/util"
 	"github.com/ThinkChaos/parcour"
 	"github.com/ThinkChaos/parcour/jobgroup"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -65,11 +66,11 @@ func (r *HostsFileResolver) LogConfig(logger *logrus.Entry) {
 
 func (r *HostsFileResolver) handleReverseDNS(request *model.Request) *model.Response {
 	question := request.Req.Question[0]
-	if question.Qtype != dnsv1.TypePTR {
+	if dns.RRToType(question) != dns.TypePTR {
 		return nil
 	}
 
-	questionIP, err := util.ParseIPFromArpaAddr(question.Name)
+	questionIP, err := util.ParseIPFromArpaAddr(question.Header().Name)
 	if err != nil {
 		// ignore the parse error, and pass the request down the chain
 		return nil
@@ -81,11 +82,11 @@ func (r *HostsFileResolver) handleReverseDNS(request *model.Request) *model.Resp
 	}
 
 	hdr := util.CreateHeader(question, r.cfg.HostsTTL.SecondsU32())
-	answers := make([]dnsv1.RR, 0, len(hostNames))
+	answers := make([]dns.RR, 0, len(hostNames))
 
 	for _, name := range hostNames {
-		ptr := new(dnsv1.PTR)
-		ptr.Ptr = dnsv1.Fqdn(name)
+		ptr := new(dns.PTR)
+		ptr.Ptr = dnsutil.Fqdn(name)
 		ptr.Hdr = hdr
 		answers = append(answers, ptr)
 	}
@@ -157,15 +158,15 @@ func (r *HostsFileResolver) Resolve(ctx context.Context, request *model.Request)
 	return r.next.Resolve(ctx, request)
 }
 
-func (r *HostsFileResolver) resolve(question dnsv1.Question, domain string) []dnsv1.RR {
-	ip := r.hosts.getIP(dnsv1.Type(question.Qtype), domain)
+func (r *HostsFileResolver) resolve(question dns.RR, domain string) []dns.RR {
+	ip := r.hosts.getIP(dns.RRToType(question), domain)
 	if !ip.IsValid() {
 		return nil
 	}
 
 	rr, _ := util.CreateAnswerFromQuestion(question, ip, r.cfg.HostsTTL.SecondsU32())
 
-	return []dnsv1.RR{rr}
+	return []dns.RR{rr}
 }
 
 func (r *HostsFileResolver) loadSources(ctx context.Context) error {
@@ -284,11 +285,11 @@ func (d splitHostsFileData) len() int {
 	return d.v4.len() + d.v6.len()
 }
 
-func (d splitHostsFileData) getIP(qType dnsv1.Type, domain string) netip.Addr {
-	switch uint16(qType) {
-	case dnsv1.TypeA:
+func (d splitHostsFileData) getIP(qType uint16, domain string) netip.Addr {
+	switch qType {
+	case dns.TypeA:
 		return d.v4.getIP(domain)
-	case dnsv1.TypeAAAA:
+	case dns.TypeAAAA:
 		return d.v6.getIP(domain)
 	}
 

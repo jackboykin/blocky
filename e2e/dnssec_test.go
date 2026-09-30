@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"codeberg.org/miekg/dns"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -54,13 +54,13 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					// DNSSEC validation is now implemented!
 
 					msg := util.NewMsgWithQuestion("invalid.dnssec.example.", A)
-					msg.SetEdns0(4096, true) // Enable DNSSEC OK (DO) bit
+					util.SetEdns0(msg, 4096, true) // Enable DNSSEC OK (DO) bit
 
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 
 					// Should return SERVFAIL because DNSSEC validation failed
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure),
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeServerFailure)),
 						"Expected SERVFAIL for invalid DNSSEC signatures")
 
 					// Should NOT have the Authenticated Data (AD) flag set
@@ -117,13 +117,13 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 
 				It("should validate RRSIG against DNSKEY and return success", func(ctx context.Context) {
 					msg := util.NewMsgWithQuestion("www.example.", A)
-					msg.SetEdns0(4096, true) // Enable DNSSEC OK (DO) bit
+					util.SetEdns0(msg, 4096, true) // Enable DNSSEC OK (DO) bit
 
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 
 					// Should return NOERROR because DNSSEC validation succeeded
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess),
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeSuccess)),
 						"Expected NOERROR for valid DNSSEC signatures")
 
 					// Should have the Authenticated Data (AD) flag set
@@ -140,19 +140,19 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					// Blocky queries the upstream with DO set so it can validate, but the records it
 					// gets back are for validation, not for the client (RFC 4035 §3.2.1).
 					msg := util.NewMsgWithQuestion("www.example.", A)
-					msg.SetEdns0(4096, false) // EDNS0 present, DNSSEC OK (DO) bit clear
+					util.SetEdns0(msg, 4096, false) // EDNS0 present, DNSSEC OK (DO) bit clear
 
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess),
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeSuccess)),
 						"Expected NOERROR for valid DNSSEC signatures")
 
 					// The validated answer is still returned, just without the DNSSEC records
 					Expect(resp.Answer).Should(ContainElement(
 						BeDNSRecord("www.example.", A, "192.0.2.10"),
 					))
-					Expect(resp.Answer).ShouldNot(ContainElement(BeAssignableToTypeOf(&dnsv1.RRSIG{})),
+					Expect(resp.Answer).ShouldNot(ContainElement(BeAssignableToTypeOf(&dns.RRSIG{})),
 						"RRSIG must not be returned to a client that didn't set the DO bit")
 
 					Expect(resp.AuthenticatedData).Should(BeFalse(),
@@ -165,22 +165,22 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 						// Stripping happens per client on the way out, so it must not take the
 						// records out of the cached entry other clients are served from.
 						withoutDO := util.NewMsgWithQuestion("www.example.", A)
-						withoutDO.SetEdns0(4096, false)
+						util.SetEdns0(withoutDO, 4096, false)
 
 						resp, err := doDNSRequest(ctx, blocky, withoutDO)
 						Expect(err).Should(Succeed())
-						Expect(resp.Answer).ShouldNot(ContainElement(BeAssignableToTypeOf(&dnsv1.RRSIG{})))
+						Expect(resp.Answer).ShouldNot(ContainElement(BeAssignableToTypeOf(&dns.RRSIG{})))
 
 						// The upstream disappears; any later answer comes from the cache.
 						Expect(mokka.Terminate(ctx)).Should(Succeed())
 
 						withDO := util.NewMsgWithQuestion("www.example.", A)
-						withDO.SetEdns0(4096, true)
+						util.SetEdns0(withDO, 4096, true)
 
 						resp, err = doDNSRequest(ctx, blocky, withDO)
 						Expect(err).Should(Succeed())
-						Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
-						Expect(resp.Answer).Should(ContainElement(BeAssignableToTypeOf(&dnsv1.RRSIG{})),
+						Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeSuccess)))
+						Expect(resp.Answer).Should(ContainElement(BeAssignableToTypeOf(&dns.RRSIG{})),
 							"the cached entry must still carry the signatures")
 						// The AD flag is not asserted here: the cached answer is re-validated on
 						// every hit, which can no longer reach the upstream for the DNSKEY.
@@ -229,13 +229,13 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 
 				It("should detect signature mismatch and return SERVFAIL", func(ctx context.Context) {
 					msg := util.NewMsgWithQuestion("www.mismatch.", A)
-					msg.SetEdns0(4096, true) // Enable DNSSEC OK (DO) bit
+					util.SetEdns0(msg, 4096, true) // Enable DNSSEC OK (DO) bit
 
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 
 					// Should return SERVFAIL because RRSIG signature doesn't match DNSKEY
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure),
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeServerFailure)),
 						"Expected SERVFAIL when RRSIG doesn't match DNSKEY")
 
 					// Should NOT have the Authenticated Data (AD) flag set
@@ -263,13 +263,13 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					// DNSSEC validation is now implemented!
 
 					msg := util.NewMsgWithQuestion("cloudflare.com.", A)
-					msg.SetEdns0(4096, true) // Enable DNSSEC OK (DO) bit
+					util.SetEdns0(msg, 4096, true) // Enable DNSSEC OK (DO) bit
 
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 
 					// Should return NOERROR
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeSuccess)))
 
 					// Should have the Authenticated Data (AD) flag set
 					// NOTE: Currently Blocky just passes through the AD flag from upstream
@@ -340,13 +340,13 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 
 				It("should validate complete DNSSEC chain and set AD flag", func(ctx context.Context) {
 					msg := util.NewMsgWithQuestion("www.child.parent.", A)
-					msg.SetEdns0(4096, true) // Enable DNSSEC OK (DO) bit
+					util.SetEdns0(msg, 4096, true) // Enable DNSSEC OK (DO) bit
 
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 
 					// Should return NOERROR because full DNSSEC chain validated successfully
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess),
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeSuccess)),
 						"Expected NOERROR for valid DNSSEC chain")
 
 					// Should have the Authenticated Data (AD) flag set
@@ -393,12 +393,12 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 
 				It("should reject the unsigned answer and return SERVFAIL", func(ctx context.Context) {
 					msg := util.NewMsgWithQuestion("www.example.", A)
-					msg.SetEdns0(4096, true) // DO bit
+					util.SetEdns0(msg, 4096, true) // DO bit
 
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure),
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeServerFailure)),
 						"unsigned answer accepted for a DNSSEC-signed zone")
 					Expect(resp.AuthenticatedData).Should(BeFalse())
 					Expect(resp.Answer).ShouldNot(ContainElement(
@@ -441,7 +441,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 				It("should not serve the unsigned answer from cache after the upstream is gone",
 					func(ctx context.Context) {
 						msg := util.NewMsgWithQuestion("www.example.", A)
-						msg.SetEdns0(4096, true) // DO bit
+						util.SetEdns0(msg, 4096, true) // DO bit
 
 						// First query populates the cache.
 						_, err := doDNSRequest(ctx, blocky, msg)
@@ -492,11 +492,11 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 				It("rejects the forged answer and does not replay it from cache after the upstream is gone",
 					func(ctx context.Context) {
 						msg := util.NewMsgWithQuestion("cloudflare.com.", A)
-						msg.SetEdns0(4096, true) // DO bit
+						util.SetEdns0(msg, 4096, true) // DO bit
 
 						resp, err := doDNSRequest(ctx, blocky, msg)
 						Expect(err).Should(Succeed())
-						Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure),
+						Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeServerFailure)),
 							"forged unsigned answer accepted under the default root anchor")
 						Expect(resp.Answer).ShouldNot(ContainElement(
 							BeDNSRecord("cloudflare.com.", A, "203.0.113.77")))
@@ -537,7 +537,7 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					Expect(err).Should(Succeed())
 
 					// Should return NOERROR and the answer
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeSuccess)))
 					Expect(resp.Answer).Should(ContainElement(
 						BeDNSRecord("any.domain.example.", A, "192.0.2.1"),
 					))
@@ -572,15 +572,15 @@ var _ = Describe("DNSSEC validation", Label("dnssec"), func() {
 					// Google DNS will return data when queried with +cd flag (CheckingDisabled)
 					// But Blocky should independently validate and reject it
 					msg := util.NewMsgWithQuestion("dnssec-failed.org.", A)
-					msg.CheckingDisabled = true // +cd flag
-					msg.SetEdns0(4096, true)    // DO bit
+					msg.CheckingDisabled = true    // +cd flag
+					util.SetEdns0(msg, 4096, true) // DO bit
 
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 
 					// FIXED BEHAVIOR: Blocky validates independently regardless of upstream behavior
 					// Should return SERVFAIL because DNSSEC validation failed
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure),
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeServerFailure)),
 						"Blocky should validate independently and reject broken DNSSEC")
 
 					// Should NOT have the Authenticated Data (AD) flag set

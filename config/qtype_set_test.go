@@ -1,7 +1,7 @@
 package config
 
 import (
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"gopkg.in/yaml.v2"
@@ -10,12 +10,12 @@ import (
 var _ = Describe("QTypeSet", func() {
 	Describe("NewQTypeSet", func() {
 		It("should insert given qTypes", func() {
-			set := NewQTypeSet(dnsv1.Type(dnsv1.TypeA))
-			Expect(set).Should(HaveKey(QType(dnsv1.TypeA)))
-			Expect(set.Contains(dnsv1.Type(dnsv1.TypeA))).Should(BeTrue())
+			set := NewQTypeSet(dns.TypeA)
+			Expect(set).Should(HaveKey(QType(dns.TypeA)))
+			Expect(set.Contains(dns.TypeA)).Should(BeTrue())
 
-			Expect(set).ShouldNot(HaveKey(QType(dnsv1.TypeAAAA)))
-			Expect(set.Contains(dnsv1.Type(dnsv1.TypeAAAA))).ShouldNot(BeTrue())
+			Expect(set).ShouldNot(HaveKey(QType(dns.TypeAAAA)))
+			Expect(set.Contains(dns.TypeAAAA)).ShouldNot(BeTrue())
 		})
 	})
 
@@ -23,13 +23,13 @@ var _ = Describe("QTypeSet", func() {
 		It("should insert given qTypes", func() {
 			set := NewQTypeSet()
 
-			Expect(set).ShouldNot(HaveKey(QType(dnsv1.TypeAAAA)))
-			Expect(set.Contains(dnsv1.Type(dnsv1.TypeAAAA))).ShouldNot(BeTrue())
+			Expect(set).ShouldNot(HaveKey(QType(dns.TypeAAAA)))
+			Expect(set.Contains(dns.TypeAAAA)).ShouldNot(BeTrue())
 
-			set.Insert(dnsv1.Type(dnsv1.TypeAAAA))
+			set.Insert(dns.TypeAAAA)
 
-			Expect(set).Should(HaveKey(QType(dnsv1.TypeAAAA)))
-			Expect(set.Contains(dnsv1.Type(dnsv1.TypeAAAA))).Should(BeTrue())
+			Expect(set).Should(HaveKey(QType(dns.TypeAAAA)))
+			Expect(set.Contains(dns.TypeAAAA)).Should(BeTrue())
 		})
 	})
 
@@ -38,8 +38,8 @@ var _ = Describe("QTypeSet", func() {
 			var set QTypeSet
 			err := yaml.Unmarshal([]byte("- A\n- AAAA\n"), &set)
 			Expect(err).Should(Succeed())
-			Expect(set).Should(HaveKey(QType(dnsv1.TypeA)))
-			Expect(set).Should(HaveKey(QType(dnsv1.TypeAAAA)))
+			Expect(set).Should(HaveKey(QType(dns.TypeA)))
+			Expect(set).Should(HaveKey(QType(dns.TypeAAAA)))
 		})
 
 		It("should reject a null entry from an unquoted YAML keyword like NULL", func() {
@@ -55,7 +55,7 @@ var _ = Describe("QTypeSet", func() {
 			var set QTypeSet
 			err := yaml.Unmarshal([]byte(`- "NULL"`+"\n"), &set)
 			Expect(err).Should(Succeed())
-			Expect(set).Should(HaveKey(QType(dnsv1.TypeNULL)))
+			Expect(set).Should(HaveKey(QType(dns.TypeNULL)))
 		})
 	})
 })
@@ -66,7 +66,7 @@ var _ = Describe("QType", func() {
 			t := QType(0)
 			err := t.UnmarshalText([]byte("AAAA"))
 			Expect(err).Should(Succeed())
-			Expect(t).Should(Equal(QType(dnsv1.TypeAAAA)))
+			Expect(t).Should(Equal(QType(dns.TypeAAAA)))
 			Expect(t.String()).Should(Equal("AAAA"))
 		})
 

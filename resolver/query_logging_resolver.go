@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/cache/stringcache"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/log"
@@ -17,7 +18,6 @@ import (
 	"github.com/0xERR0R/blocky/querylog"
 	"github.com/0xERR0R/blocky/util"
 	"github.com/avast/retry-go/v4"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -284,14 +284,14 @@ func (r *QueryLoggingResolver) createLogEntry(request *model.Request, response *
 		case config.QueryLogFieldResponseReason:
 			entry.ResponseReason = response.Reason
 			entry.ResponseType = response.RType.String()
-			entry.ResponseCode = dnsv1.RcodeToString[response.Res.Rcode]
+			entry.ResponseCode = dns.RcodeToString[response.Res.Rcode]
 
 		case config.QueryLogFieldResponseAnswer:
 			entry.Answer = util.Obfuscate(util.AnswerToString(response.Res.Answer))
 
 		case config.QueryLogFieldQuestion:
-			entry.QuestionName = util.Obfuscate(request.Req.Question[0].Name)
-			entry.QuestionType = dnsv1.TypeToString[request.Req.Question[0].Qtype]
+			entry.QuestionName = util.Obfuscate(request.Req.Question[0].Header().Name)
+			entry.QuestionType = dns.TypeToString[dns.RRToType(request.Req.Question[0])]
 
 		case config.QueryLogFieldDuration:
 			entry.DurationMs = durationMs
@@ -300,13 +300,13 @@ func (r *QueryLoggingResolver) createLogEntry(request *model.Request, response *
 
 	if r.cfg.Type == config.QueryLogTypeDnstap {
 		var err error
-		entry.QueryWire, err = request.Req.Pack()
+		entry.QueryWire, err = util.PackMsg(request.Req)
 		if err != nil {
 			log.PrefixedLog(queryLoggingResolverType).WithError(err).Warn("failed to pack query wire for dnstap")
 
 			return nil
 		}
-		entry.ResponseWire, err = response.Res.Pack()
+		entry.ResponseWire, err = util.PackMsg(response.Res)
 		if err != nil {
 			log.PrefixedLog(queryLoggingResolverType).WithError(err).Warn("failed to pack response wire for dnstap")
 

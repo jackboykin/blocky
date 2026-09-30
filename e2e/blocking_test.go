@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -417,7 +417,7 @@ var _ = Describe("Domain blocking functionality", func() {
 				Expect(err).Should(Succeed())
 
 				By("returning NXDOMAIN response code", func() {
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 				})
 
 				By("having no answer section", func() {
@@ -427,13 +427,13 @@ var _ = Describe("Domain blocking functionality", func() {
 				By("including SOA record in authority section per RFC 2308", func() {
 					Expect(resp.Ns).Should(HaveLen(1))
 
-					soa, ok := resp.Ns[0].(*dnsv1.SOA)
+					soa, ok := resp.Ns[0].(*dns.SOA)
 					Expect(ok).Should(BeTrue(), "Authority record should be SOA type")
 
 					// Verify SOA record fields
 					Expect(soa.Header().Name).Should(Equal("blocked.com."))
-					Expect(soa.Header().Rrtype).Should(Equal(dnsv1.TypeSOA))
-					Expect(soa.Header().Ttl).Should(Equal(uint32(6 * 60 * 60))) // Default 6 hours
+					Expect(dns.RRToType(soa)).Should(Equal(dns.TypeSOA))
+					Expect(soa.Header().TTL).Should(Equal(uint32(6 * 60 * 60))) // Default 6 hours
 					Expect(soa.Ns).Should(Equal("blocky.local."))
 					Expect(soa.Mbox).Should(Equal("hostmaster.blocky.local."))
 					Expect(soa.Minttl).Should(Equal(uint32(6 * 60 * 60))) // RFC 2308 negative caching TTL
@@ -471,7 +471,7 @@ var _ = Describe("Domain blocking functionality", func() {
 				Expect(err).Should(Succeed())
 
 				By("returning REFUSED response code", func() {
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeRefused))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeRefused)))
 				})
 
 				By("having no answer section", func() {
@@ -487,7 +487,7 @@ var _ = Describe("Domain blocking functionality", func() {
 				msg := util.NewMsgWithQuestion("blocked.com.", TXT)
 				resp, err := doDNSRequest(ctx, blocky, msg)
 				Expect(err).Should(Succeed())
-				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeRefused))
+				Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeRefused)))
 				Expect(resp.Answer).Should(BeEmpty())
 			})
 		})
@@ -598,13 +598,13 @@ var _ = Describe("Domain blocking functionality", func() {
 				resp, err := doDNSRequest(ctx, blocky, msg)
 				Expect(err).Should(Succeed())
 
-				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+				Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 				Expect(resp.Answer).Should(BeEmpty())
 				Expect(resp.Ns).Should(HaveLen(1))
 
-				soa, ok := resp.Ns[0].(*dnsv1.SOA)
+				soa, ok := resp.Ns[0].(*dns.SOA)
 				Expect(ok).Should(BeTrue(), "Authority record should be SOA type")
-				Expect(soa.Header().Ttl).Should(Equal(uint32(120))) // 2m = 120s
+				Expect(soa.Header().TTL).Should(Equal(uint32(120))) // 2m = 120s
 				Expect(soa.Minttl).Should(Equal(uint32(120)))       // RFC 2308 negative caching TTL
 			})
 		})

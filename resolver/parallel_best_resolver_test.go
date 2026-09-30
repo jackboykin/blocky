@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/log"
 	. "github.com/0xERR0R/blocky/model"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -118,7 +118,7 @@ var _ = Describe("ParallelBestResolver", Label("parallelBestResolver"), func() {
 
 	When("no upstream resolvers can be reached", func() {
 		BeforeEach(func() {
-			bootstrap = newTestBootstrap(ctx, &dnsv1.Msg{Rcode: dnsv1.RcodeServerFailure})
+			bootstrap = newTestBootstrap(ctx, &dns.Msg{Rcode: dns.RcodeServerFailure})
 
 			upstreams = []config.Upstream{{Host: "wrong"}, {Host: "127.0.0.2"}}
 		})
@@ -228,7 +228,7 @@ var _ = Describe("ParallelBestResolver", Label("parallelBestResolver"), func() {
 								BeDNSRecord("example.com.", A, "123.124.122.122"),
 								HaveTTL(BeNumerically("==", 123)),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 			})
@@ -248,7 +248,7 @@ var _ = Describe("ParallelBestResolver", Label("parallelBestResolver"), func() {
 								BeDNSRecord("example.com.", A, "123.124.122.123"),
 								HaveTTL(BeNumerically("==", 123)),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 			})
@@ -283,7 +283,7 @@ var _ = Describe("ParallelBestResolver", Label("parallelBestResolver"), func() {
 							BeDNSRecord("example.com.", A, "123.124.122.122"),
 							HaveTTL(BeNumerically("==", 123)),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})
@@ -354,7 +354,7 @@ var _ = Describe("ParallelBestResolver", Label("parallelBestResolver"), func() {
 
 	When("upstream is invalid", func() {
 		It("errors during construction", func() {
-			b := newTestBootstrap(ctx, &dnsv1.Msg{Rcode: dnsv1.RcodeServerFailure})
+			b := newTestBootstrap(ctx, &dns.Msg{Rcode: dns.RcodeServerFailure})
 
 			upstreamsCfg := sut.cfg.Upstreams
 			upstreamsCfg.Init.Strategy = config.InitStrategyFailOnError
@@ -395,7 +395,7 @@ var _ = Describe("ParallelBestResolver", Label("parallelBestResolver"), func() {
 								Should(SatisfyAll(
 									HaveTTL(BeNumerically("==", 123)),
 									HaveResponseType(ResponseTypeRESOLVED),
-									HaveReturnCode(dnsv1.RcodeSuccess),
+									HaveReturnCode(dns.RcodeSuccess),
 									Or(
 										BeDNSRecord("example.com.", A, "123.124.122.122"),
 										BeDNSRecord("example.com.", A, "123.124.122.123"),
@@ -420,7 +420,7 @@ var _ = Describe("ParallelBestResolver", Label("parallelBestResolver"), func() {
 									BeDNSRecord("example.com.", A, "123.124.122.2"),
 									HaveTTL(BeNumerically("==", 123)),
 									HaveResponseType(ResponseTypeRESOLVED),
-									HaveReturnCode(dnsv1.RcodeSuccess),
+									HaveReturnCode(dns.RcodeSuccess),
 								))
 						})
 					})
@@ -474,7 +474,7 @@ var _ = Describe("ParallelBestResolver", Label("parallelBestResolver"), func() {
 								BeDNSRecord("example.com.", A, "123.124.122.122"),
 								HaveTTL(BeNumerically("==", 123)),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 			})

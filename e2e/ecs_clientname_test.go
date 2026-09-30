@@ -2,7 +2,7 @@ package e2e
 
 import (
 	"context"
-	"net"
+	"net/netip"
 	"os"
 
 	. "github.com/0xERR0R/blocky/helpertest"
@@ -71,7 +71,7 @@ var _ = Describe("ECS client identity (issue #2140)", func() {
 		By("sending the same query twice, each carrying a /32 ECS option for 10.0.0.1", func() {
 			for range 2 {
 				msg := util.NewMsgWithQuestion("example.com.", A)
-				addECSOption(msg, net.ParseIP("10.0.0.1"))
+				addECSOption(msg, netip.MustParseAddr("10.0.0.1"))
 
 				Expect(doDNSRequest(ctx, blocky, msg)).
 					Should(BeDNSRecord("example.com.", A, "1.2.3.4"))

@@ -4,6 +4,7 @@ import (
 	"net"
 	"sync/atomic"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
 	dnsv1 "github.com/miekg/dns"
@@ -13,7 +14,7 @@ import (
 // answerFn builds the response for a received query. The mock fixes the response ID and the
 // response bit afterwards, so a handler is free to return a mismatched question section or set the
 // TC bit to exercise blocky's fallback logic.
-type answerFn func(request *dnsv1.Msg) *dnsv1.Msg
+type answerFn func(request *dns.Msg) *dns.Msg
 
 // mockTCPUDPUpstreamServer is a test upstream that listens on a single address over BOTH UDP and
 // TCP, with independent handlers and per-protocol call counters. Unlike MockUDPUpstreamServer (UDP
@@ -50,10 +51,13 @@ func (m *mockTCPUDPUpstreamServer) Close() {
 }
 
 func (m *mockTCPUDPUpstreamServer) handler(counter *atomic.Int32, answer answerFn) dnsv1.HandlerFunc {
-	return func(w dnsv1.ResponseWriter, request *dnsv1.Msg) {
+	return func(w dnsv1.ResponseWriter, request1 *dnsv1.Msg) {
 		defer ginkgo.GinkgoRecover()
 
 		counter.Add(1)
+
+		request, err := util.MsgFromV1(request1)
+		util.FatalOnError("can't convert message: ", err)
 
 		resp := answer(request)
 		if resp == nil {
@@ -64,10 +68,13 @@ func (m *mockTCPUDPUpstreamServer) handler(counter *atomic.Int32, answer answerF
 			return
 		}
 
-		resp.Id = request.Id
+		resp.ID = request.ID
 		resp.Response = true
 
-		_ = w.WriteMsg(resp)
+		buf, err := util.PackMsg(resp)
+		util.FatalOnError("can't pack message: ", err)
+
+		_, _ = w.Write(buf)
 	}
 }
 

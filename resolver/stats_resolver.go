@@ -15,7 +15,7 @@ import (
 	"github.com/0xERR0R/blocky/stats"
 	"github.com/0xERR0R/blocky/util"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 )
 
 // statsChannelBuffer bounds the in-flight sample queue. A full buffer drops
@@ -182,7 +182,7 @@ func buildSample(request *model.Request, resp *model.Response, err error) stats.
 	}
 
 	if request.Req != nil && len(request.Req.Question) > 0 {
-		s.QType = dnsv1.TypeToString[request.Req.Question[0].Qtype]
+		s.QType = dns.TypeToString[dns.RRToType(request.Req.Question[0])]
 		s.Domain = util.ExtractDomain(request.Req.Question[0])
 	}
 
@@ -196,7 +196,7 @@ func buildSample(request *model.Request, resp *model.Response, err error) stats.
 		s.RType = resp.RType.String()
 
 		if resp.Res != nil {
-			s.RCode = dnsv1.RcodeToString[resp.Res.Rcode]
+			s.RCode = dns.RcodeToString[resp.Res.Rcode]
 		}
 	}
 

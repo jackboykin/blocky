@@ -3,9 +3,10 @@ package resolver
 import (
 	"context"
 
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/svcb"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
-	dnsv1 "github.com/miekg/dns"
 )
 
 // FilteringResolver filters DNS queries (for example can drop all AAAA query)
@@ -24,9 +25,9 @@ func NewFilteringResolver(cfg config.Filtering) *FilteringResolver {
 }
 
 func (r *FilteringResolver) Resolve(ctx context.Context, request *model.Request) (*model.Response, error) {
-	qType := request.Req.Question[0].Qtype
-	if r.cfg.QueryTypes.Contains(dnsv1.Type(qType)) {
-		return model.NewResponseWithRcode(request, dnsv1.RcodeSuccess, model.ResponseTypeFILTERED, ""), nil
+	qType := dns.RRToType(request.Req.Question[0])
+	if r.cfg.QueryTypes.Contains(qType) {
+		return model.NewResponseWithRcode(request, dns.RcodeSuccess, model.ResponseTypeFILTERED, ""), nil
 	}
 
 	resp, err := r.next.Resolve(ctx, request)
@@ -38,7 +39,7 @@ func (r *FilteringResolver) Resolve(ctx context.Context, request *model.Request)
 	// clients can't reach the IPv6 endpoints advertised via SvcParams (RFC 9460). Only
 	// HTTPS/SVCB queries can carry such records in their answer section, so other query
 	// types skip the post-processing entirely.
-	if resp != nil && resp.Res != nil && isSVCBQuery(qType) && r.cfg.QueryTypes.Contains(dnsv1.Type(dnsv1.TypeAAAA)) {
+	if resp != nil && resp.Res != nil && isSVCBQuery(qType) && r.cfg.QueryTypes.Contains(dns.TypeAAAA) {
 		removeIPv6Hints(resp.Res)
 	}
 
@@ -47,7 +48,7 @@ func (r *FilteringResolver) Resolve(ctx context.Context, request *model.Request)
 
 // isSVCBQuery reports whether the query type can return HTTPS/SVCB records in the answer section.
 func isSVCBQuery(qType uint16) bool {
-	return qType == dnsv1.TypeHTTPS || qType == dnsv1.TypeSVCB
+	return qType == dns.TypeHTTPS || qType == dns.TypeSVCB
 }
 
 // removeIPv6Hints strips the ipv6hint SvcParam from any HTTPS/SVCB record in the answer
@@ -58,16 +59,16 @@ func isSVCBQuery(qType uint16) bool {
 // Modifying a signed RRset invalidates its DNSSEC signatures, so when a hint is actually
 // removed the AD bit is cleared and the now-invalid RRSIGs covering the modified record
 // types are dropped, to avoid serving DNSSEC-inconsistent data (mirrors the DNS64 resolver).
-func removeIPv6Hints(msg *dnsv1.Msg) {
+func removeIPv6Hints(msg *dns.Msg) {
 	modifiedTypes := map[uint16]struct{}{}
 
 	for _, rr := range msg.Answer {
-		var values *[]dnsv1.SVCBKeyValue
+		var values *[]svcb.Pair
 
 		switch v := rr.(type) {
-		case *dnsv1.HTTPS:
+		case *dns.HTTPS:
 			values = &v.Value
-		case *dnsv1.SVCB:
+		case *dns.SVCB:
 			values = &v.Value
 		default:
 			continue
@@ -77,16 +78,16 @@ func removeIPv6Hints(msg *dnsv1.Msg) {
 			continue
 		}
 
-		filtered := make([]dnsv1.SVCBKeyValue, 0, len(*values)-1)
+		filtered := make([]svcb.Pair, 0, len(*values)-1)
 
 		for _, kv := range *values {
-			if kv.Key() != dnsv1.SVCB_IPV6HINT {
+			if _, isHint := kv.(*svcb.IPV6HINT); !isHint {
 				filtered = append(filtered, kv)
 			}
 		}
 
 		*values = filtered
-		modifiedTypes[rr.Header().Rrtype] = struct{}{}
+		modifiedTypes[dns.RRToType(rr)] = struct{}{}
 	}
 
 	if len(modifiedTypes) == 0 {
@@ -98,9 +99,9 @@ func removeIPv6Hints(msg *dnsv1.Msg) {
 }
 
 // containsIPv6Hint reports whether the given SvcParam list carries an ipv6hint.
-func containsIPv6Hint(values []dnsv1.SVCBKeyValue) bool {
+func containsIPv6Hint(values []svcb.Pair) bool {
 	for _, kv := range values {
-		if kv.Key() == dnsv1.SVCB_IPV6HINT {
+		if _, isHint := kv.(*svcb.IPV6HINT); isHint {
 			return true
 		}
 	}
@@ -110,11 +111,11 @@ func containsIPv6Hint(values []dnsv1.SVCBKeyValue) bool {
 
 // removeSignaturesCovering returns the answers with any RRSIG covering one of the given
 // record types removed.
-func removeSignaturesCovering(answers []dnsv1.RR, types map[uint16]struct{}) []dnsv1.RR {
-	filtered := make([]dnsv1.RR, 0, len(answers))
+func removeSignaturesCovering(answers []dns.RR, types map[uint16]struct{}) []dns.RR {
+	filtered := make([]dns.RR, 0, len(answers))
 
 	for _, rr := range answers {
-		if sig, ok := rr.(*dnsv1.RRSIG); ok {
+		if sig, ok := rr.(*dns.RRSIG); ok {
 			if _, found := types[sig.TypeCovered]; found {
 				continue
 			}

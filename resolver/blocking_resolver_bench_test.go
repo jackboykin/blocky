@@ -6,7 +6,7 @@ import (
 
 	"github.com/0xERR0R/blocky/config"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 )
 
 // benchClientGroupsBlock builds a clientGroupsBlock mapping of the shape a busy
@@ -55,7 +55,7 @@ func newBenchBlockingResolver() *BlockingResolver {
 // far cheaper.
 func BenchmarkBlockingGroupsToCheckLiteralName(b *testing.B) {
 	r := newBenchBlockingResolver()
-	req := newRequestWithClient("example.com.", dnsv1.Type(dnsv1.TypeA), "10.0.0.5", "laptop-7")
+	req := newRequestWithClient("example.com.", dns.TypeA, "10.0.0.5", "laptop-7")
 
 	b.ReportAllocs()
 
@@ -70,7 +70,7 @@ func BenchmarkBlockingGroupsToCheckLiteralName(b *testing.B) {
 // client name only matches a glob pattern, keeping filepath.Match on the hot path.
 func BenchmarkBlockingGroupsToCheckGlobName(b *testing.B) {
 	r := newBenchBlockingResolver()
-	req := newRequestWithClient("example.com.", dnsv1.Type(dnsv1.TypeA), "10.0.0.5", "kiosk-lobby")
+	req := newRequestWithClient("example.com.", dns.TypeA, "10.0.0.5", "kiosk-lobby")
 
 	b.ReportAllocs()
 

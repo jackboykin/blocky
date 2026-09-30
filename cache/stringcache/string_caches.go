@@ -8,6 +8,7 @@ import (
 
 	"github.com/0xERR0R/blocky/log"
 	"github.com/0xERR0R/blocky/trie"
+	"github.com/0xERR0R/blocky/util"
 )
 
 type stringCache interface {
@@ -26,7 +27,7 @@ type cacheFactory interface {
 type stringMap map[int]string
 
 func normalizeEntry(entry string) string {
-	return strings.ToLower(entry)
+	return util.LowerName(entry)
 }
 
 func (cache stringMap) elementCount() int {
@@ -263,7 +264,6 @@ func normalizeWildcard(domain string) string {
 	domain = normalizeEntry(domain)
 	domain = strings.TrimLeft(domain, "*")
 	domain = strings.Trim(domain, ".")
-	domain = strings.ToLower(domain)
 
 	return domain
 }

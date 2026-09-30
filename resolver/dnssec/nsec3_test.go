@@ -7,6 +7,7 @@ import (
 	"codeberg.org/miekg/dns"
 	"codeberg.org/miekg/dns/rdata"
 	"github.com/0xERR0R/blocky/log"
+	"github.com/0xERR0R/blocky/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -494,7 +495,7 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("test.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultInsecure))
@@ -513,7 +514,7 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("test.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -534,7 +535,7 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("test.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -559,7 +560,7 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("test.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -576,7 +577,7 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("test.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.example.com.", dns.TypeA)
 
 			// Will likely fail validation due to incomplete NSEC3 proof, but should attempt
 			result := sut.validateNSEC3DenialOfExistence(response, question)
@@ -594,7 +595,7 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 			response.Rcode = dns.RcodeSuccess // NODATA
 
-			question := newQuestion("test.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).ShouldNot(Equal(ValidationResultIndeterminate))
@@ -1699,7 +1700,7 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("test.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.example.com.", dns.TypeA)
 
 			// Should log about opt-out flag and continue validation
 			result := sut.validateNSEC3DenialOfExistence(response, question)
@@ -1720,7 +1721,7 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("test.sub.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.sub.example.com.", dns.TypeA)
 
 			// Should extract sub.example.com. as zone name
 			result := sut.validateNSEC3DenialOfExistence(response, question)
@@ -1740,7 +1741,7 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("test.com.", dns.TypeA)
+			question := util.NewQuestion("test.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).ShouldNot(Equal(ValidationResultIndeterminate))
@@ -1801,7 +1802,7 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("test.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.example.com.", dns.TypeA)
 
 			// Should log opt-out detection and proceed
 			result := sut.validateNSEC3DenialOfExistence(response, question)

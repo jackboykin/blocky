@@ -10,7 +10,7 @@ import (
 	. "github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -37,29 +37,29 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 		ctx, cancelFn = context.WithCancel(context.Background())
 		DeferCleanup(cancelFn)
 
-		fbTestUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
-			response, _ = util.NewMsgWithAnswer(request.Question[0].Name, 123, A, "123.124.122.122")
+		fbTestUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+			response, _ = util.NewMsgWithAnswer(request.Question[0].Header().Name, 123, A, "123.124.122.122")
 
 			return response
 		})
 
-		otherTestUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
-			response, _ = util.NewMsgWithAnswer(request.Question[0].Name, 250, A, "192.192.192.192")
+		otherTestUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+			response, _ = util.NewMsgWithAnswer(request.Question[0].Header().Name, 250, A, "192.192.192.192")
 
 			return response
 		})
 
-		dotTestUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
-			response, _ = util.NewMsgWithAnswer(request.Question[0].Name, 223, A, "168.168.168.168")
+		dotTestUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+			response, _ = util.NewMsgWithAnswer(request.Question[0].Header().Name, 223, A, "168.168.168.168")
 
 			return response
 		})
 
-		refuseTestUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
-			response = new(dnsv1.Msg)
-			response.Rcode = dnsv1.RcodeRefused
+		refuseTestUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+			response = new(dns.Msg)
+			response.Rcode = dns.RcodeRefused
 			// question section in response should be empty
-			request.Question = make([]dnsv1.Question, 0)
+			request.Question = make([]dns.RR, 0)
 
 			return response
 		})
@@ -79,7 +79,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 	JustBeforeEach(func() {
 		sut, _ = NewConditionalUpstreamResolver(ctx, sutConfig, defaultUpstreamsConfig, systemResolverBootstrap)
 		m = &mockResolver{}
-		m.On("Resolve", mock.Anything).Return(&Response{Res: new(dnsv1.Msg)}, nil)
+		m.On("Resolve", mock.Anything).Return(&Response{Res: new(dns.Msg)}, nil)
 		sut.Next(m)
 	})
 
@@ -108,7 +108,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeCONDITIONAL),
 							HaveReason("CONDITIONAL"),
-							HaveReturnCode(dnsv1.RcodeRefused),
+							HaveReturnCode(dns.RcodeRefused),
 						))
 
 				// no call to next resolver
@@ -125,7 +125,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 								HaveTTL(BeNumerically("==", 123)),
 								HaveResponseType(ResponseTypeCONDITIONAL),
 								HaveReason("CONDITIONAL"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					// no call to next resolver
@@ -141,7 +141,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 								HaveTTL(BeNumerically("==", 250)),
 								HaveResponseType(ResponseTypeCONDITIONAL),
 								HaveReason("CONDITIONAL"),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 					// no call to next resolver
 					Expect(m.Calls).Should(BeEmpty())
@@ -157,7 +157,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 							HaveTTL(BeNumerically("==", 123)),
 							HaveResponseType(ResponseTypeCONDITIONAL),
 							HaveReason("CONDITIONAL"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 				// no call to next resolver
 				Expect(m.Calls).Should(BeEmpty())
@@ -172,7 +172,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 							HaveTTL(BeNumerically("==", 223)),
 							HaveResponseType(ResponseTypeCONDITIONAL),
 							HaveReason("CONDITIONAL"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 				// no call to next resolver
 				Expect(m.Calls).Should(BeEmpty())
@@ -186,7 +186,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 				m.AssertExpectations(GinkgoT())
 			})
@@ -195,7 +195,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 
 	When("upstream is invalid", func() {
 		It("succeeds with bootstrap resolver during construction", func() {
-			b := newTestBootstrap(ctx, &dnsv1.Msg{Rcode: dnsv1.RcodeServerFailure})
+			b := newTestBootstrap(ctx, &dns.Msg{Rcode: dns.RcodeServerFailure})
 
 			upstreamsCfg := defaultUpstreamsConfig
 			upstreamsCfg.Init.Strategy = config.InitStrategyFailOnError
@@ -226,7 +226,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 			// Recreate resolver with rewrite configuration
 			sut, _ = NewConditionalUpstreamResolver(ctx, sutConfig, defaultUpstreamsConfig, systemResolverBootstrap)
 			m = &mockResolver{}
-			m.On("Resolve", mock.Anything).Return(&Response{Res: new(dnsv1.Msg)}, nil)
+			m.On("Resolve", mock.Anything).Return(&Response{Res: new(dns.Msg)}, nil)
 			sut.Next(m)
 		})
 
@@ -240,7 +240,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 							HaveTTL(BeNumerically("==", 123)),
 							HaveResponseType(ResponseTypeCONDITIONAL),
 							HaveReason("CONDITIONAL"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				// no call to next resolver
@@ -252,7 +252,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 				Expect(err).ShouldNot(HaveOccurred())
 
 				// Question should have original name, not rewritten name
-				Expect(resp.Res.Question[0].Name).Should(Equal("www.source.test."))
+				Expect(resp.Res.Question[0].Header().Name).Should(Equal("www.source.test."))
 				// Answer should have original name, not rewritten name
 				Expect(resp.Res.Answer[0].Header().Name).Should(Equal("www.source.test."))
 			})
@@ -260,9 +260,9 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 
 		When("the mapped upstream has no answer and fallbackUpstream is set", func() {
 			BeforeEach(func() {
-				emptyUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
-					response = new(dnsv1.Msg)
-					response.SetReply(request)
+				emptyUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+					response = new(dns.Msg)
+					SetReply(response, request)
 
 					return response
 				})
@@ -283,7 +283,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 						SatisfyAll(
 							BeDNSRecord("www.source.test.", A, "192.192.192.192"),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				Expect(*seen).Should(Equal("www.source.test."))
@@ -325,9 +325,9 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 
 		When("the mapped upstream has no answer and fallbackUpstream is not set", func() {
 			BeforeEach(func() {
-				emptyUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
-					response = new(dnsv1.Msg)
-					response.SetReply(request)
+				emptyUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+					response = new(dns.Msg)
+					SetReply(response, request)
 
 					return response
 				})
@@ -342,7 +342,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeCONDITIONAL),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				Expect(m.Calls).Should(BeEmpty())
@@ -365,7 +365,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 						SatisfyAll(
 							BeDNSRecord("www.source.test.", A, "192.192.192.192"),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				Expect(*seen).Should(Equal("www.source.test."))
@@ -387,7 +387,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 
 				_, err := sut.Resolve(ctx, request)
 				Expect(err).Should(HaveOccurred())
-				Expect(request.Req.Question[0].Name).Should(Equal("www.source.test."))
+				Expect(request.Req.Question[0].Header().Name).Should(Equal("www.source.test."))
 			})
 		})
 
@@ -401,7 +401,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 							HaveTTL(BeNumerically("==", 123)),
 							HaveResponseType(ResponseTypeCONDITIONAL),
 							HaveReason("CONDITIONAL"),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				// no call to next resolver

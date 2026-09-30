@@ -3,7 +3,7 @@ package resolver
 import (
 	"context"
 	"fmt"
-	"net"
+	"net/netip"
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/lists"
@@ -96,7 +96,7 @@ func (r *HostsFileResolver) handleReverseDNS(request *model.Request) *model.Resp
 // lookupHostNames returns the host name and its aliases mapped to the given IP by the
 // loaded hosts files, or nil if there is no match. Loopback addresses are skipped when
 // FilterLoopback is enabled. Only in-memory data is consulted (no network I/O).
-func (r *HostsFileResolver) lookupHostNames(ip net.IP) []string {
+func (r *HostsFileResolver) lookupHostNames(ip netip.Addr) []string {
 	if r.cfg.FilterLoopback && ip.IsLoopback() {
 		// skip the search: we won't find anything
 		return nil
@@ -104,12 +104,12 @@ func (r *HostsFileResolver) lookupHostNames(ip net.IP) []string {
 
 	// search only in the hosts with an IP version that matches the question
 	hostsData := r.hosts.v4
-	if ip.To4() == nil {
+	if !ip.Is4() {
 		hostsData = r.hosts.v6
 	}
 
 	for host, hostData := range hostsData.hosts {
-		if hostData.IP.Equal(ip) {
+		if hostData.IP == ip {
 			names := make([]string, 0, len(hostData.Aliases)+1)
 			names = append(names, host)
 			names = append(names, hostData.Aliases...)
@@ -123,7 +123,7 @@ func (r *HostsFileResolver) lookupHostNames(ip net.IP) []string {
 
 // LookupReverse returns the host names mapped to the given IP by the loaded hosts
 // files, consulting only in-memory data (no network I/O). Returns nil if there is no match.
-func (r *HostsFileResolver) LookupReverse(ip net.IP) []string {
+func (r *HostsFileResolver) LookupReverse(ip netip.Addr) []string {
 	return r.lookupHostNames(ip)
 }
 
@@ -159,7 +159,7 @@ func (r *HostsFileResolver) Resolve(ctx context.Context, request *model.Request)
 
 func (r *HostsFileResolver) resolve(question dns.Question, domain string) []dns.RR {
 	ip := r.hosts.getIP(dns.Type(question.Qtype), domain)
-	if ip == nil {
+	if !ip.IsValid() {
 		return nil
 	}
 
@@ -284,7 +284,7 @@ func (d splitHostsFileData) len() int {
 	return d.v4.len() + d.v6.len()
 }
 
-func (d splitHostsFileData) getIP(qType dns.Type, domain string) net.IP {
+func (d splitHostsFileData) getIP(qType dns.Type, domain string) netip.Addr {
 	switch uint16(qType) {
 	case dns.TypeA:
 		return d.v4.getIP(domain)
@@ -292,11 +292,11 @@ func (d splitHostsFileData) getIP(qType dns.Type, domain string) net.IP {
 		return d.v6.getIP(domain)
 	}
 
-	return nil
+	return netip.Addr{}
 }
 
 func (d splitHostsFileData) add(entry *parsers.HostsFileEntry) {
-	if entry.IP.To4() != nil {
+	if entry.IP.Is4() {
 		d.v4.add(entry)
 	} else {
 		d.v6.add(entry)
@@ -305,18 +305,18 @@ func (d splitHostsFileData) add(entry *parsers.HostsFileEntry) {
 
 type hostsFileData struct {
 	hosts   map[string]hostData
-	aliases map[string]net.IP
+	aliases map[string]netip.Addr
 }
 
 type hostData struct {
-	IP      net.IP
+	IP      netip.Addr
 	Aliases []string
 }
 
 func newHostsDataWithSameCapacity(other hostsFileData) hostsFileData {
 	return hostsFileData{
 		hosts:   make(map[string]hostData, len(other.hosts)/memReleaseFactor),
-		aliases: make(map[string]net.IP, len(other.aliases)/memReleaseFactor),
+		aliases: make(map[string]netip.Addr, len(other.aliases)/memReleaseFactor),
 	}
 }
 
@@ -324,7 +324,7 @@ func (d hostsFileData) len() int {
 	return len(d.hosts) + len(d.aliases)
 }
 
-func (d hostsFileData) getIP(hostname string) net.IP {
+func (d hostsFileData) getIP(hostname string) netip.Addr {
 	if hostData, ok := d.hosts[hostname]; ok {
 		return hostData.IP
 	}
@@ -333,7 +333,7 @@ func (d hostsFileData) getIP(hostname string) net.IP {
 		return ip
 	}
 
-	return nil
+	return netip.Addr{}
 }
 
 func (d hostsFileData) add(entry *parsers.HostsFileEntry) {

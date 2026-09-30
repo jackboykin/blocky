@@ -7,8 +7,8 @@ package api
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -46,7 +46,7 @@ type ListRefresher interface {
 
 type Querier interface {
 	Query(
-		ctx context.Context, serverHost string, clientIP net.IP, question string, qType dns.Type,
+		ctx context.Context, serverHost string, clientIP netip.Addr, question string, qType dns.Type,
 	) (*model.Response, error)
 }
 
@@ -172,7 +172,7 @@ func (i *OpenAPIInterfaceImpl) Query(ctx context.Context, request QueryRequestOb
 
 	var (
 		serverHost string
-		clientIP   net.IP
+		clientIP   netip.Addr
 	)
 
 	httpReq, ok := ctx.Value(httpReqCtxKey{}).(*http.Request)

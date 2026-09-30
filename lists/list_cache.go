@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"sync/atomic"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/0xERR0R/blocky/evt"
 	"github.com/0xERR0R/blocky/lists/parsers"
 	"github.com/0xERR0R/blocky/log"
+	"github.com/0xERR0R/blocky/util"
 	"github.com/ThinkChaos/parcour"
 	"github.com/ThinkChaos/parcour/jobgroup"
 )
@@ -344,10 +344,10 @@ func (b *ListCache) parseFile(ctx context.Context, opener SourceOpener, resultCh
 
 			// For IPs, we want to ensure the string is the Go representation so that when
 			// we compare responses, a same IP matches, even if it was written differently
-			// in the list. The cheap MightBeIP pre-check avoids calling net.ParseIP on
+			// in the list. The cheap MightBeIP pre-check avoids calling util.ParseIP on
 			// the vast majority of entries, which are domain names.
 			if parsers.MightBeIP(host) {
-				if ip := net.ParseIP(host); ip != nil {
+				if ip := util.ParseIP(host); ip.IsValid() {
 					host = ip.String()
 				}
 			}

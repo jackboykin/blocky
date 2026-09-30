@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"strings"
 	"time"
 
@@ -35,7 +34,7 @@ func newRequest(question string, rType dns.Type) *model.Request {
 
 func newRequestWithClient(question string, rType dns.Type, ip string, clientNames ...string) *model.Request {
 	return &model.Request{
-		ClientIP:    net.ParseIP(ip),
+		ClientIP:    util.ParseIP(ip),
 		ClientNames: clientNames,
 		Req:         util.NewMsgWithQuestion(question, rType),
 		RequestTS:   time.Time{},
@@ -58,7 +57,7 @@ func newResponse(request *model.Request, rcode int, rtype model.ResponseType, re
 
 func newRequestWithClientID(question string, rType dns.Type, ip, requestClientID string) *model.Request {
 	return &model.Request{
-		ClientIP:        net.ParseIP(ip),
+		ClientIP:        util.ParseIP(ip),
 		RequestClientID: requestClientID,
 		Req:             util.NewMsgWithQuestion(question, rType),
 		RequestTS:       time.Time{},

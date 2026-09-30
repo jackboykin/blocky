@@ -37,14 +37,8 @@ func FuzzParseIPFromArpaAddrRoundtrip(f *testing.F) {
 	f.Add([]byte(net.ParseIP("2001:db8::1").To16()))
 
 	f.Fuzz(func(t *testing.T, raw []byte) {
-		var ip net.IP
-
-		switch len(raw) {
-		case net.IPv4len:
-			ip = net.IPv4(raw[0], raw[1], raw[2], raw[3])
-		case net.IPv6len:
-			ip = net.IP(raw).To16()
-		default:
+		ip := AddrFromIP(raw)
+		if !ip.IsValid() {
 			return // only 4- and 16-byte inputs map to a concrete IP
 		}
 
@@ -58,7 +52,7 @@ func FuzzParseIPFromArpaAddrRoundtrip(f *testing.F) {
 			t.Fatalf("ParseIPFromArpaAddr(%q) failed for ip %s: %v", arpa, ip, err)
 		}
 
-		if !got.Equal(ip) {
+		if got != ip {
 			t.Fatalf("round-trip mismatch: ip %s -> arpa %q -> %s", ip, arpa, got)
 		}
 	})

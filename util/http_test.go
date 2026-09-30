@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"time"
@@ -70,7 +71,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			ip := net.IPv4allrouter
+			ip := netip.MustParseAddr("224.0.0.2")
 			r.RemoteAddr = net.JoinHostPort(ip.String(), "78954")
 
 			Expect(HTTPClientIP(r)).Should(Equal(ip))
@@ -80,7 +81,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			ip := net.IPv4allrouter
+			ip := netip.MustParseAddr("224.0.0.2")
 			r.RemoteAddr = ip.String()
 
 			Expect(HTTPClientIP(r)).Should(Equal(ip))
@@ -90,7 +91,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			ip := net.IPv4bcast
+			ip := netip.MustParseAddr("255.255.255.255")
 			r.RemoteAddr = ip.String()
 
 			r.Header.Set("X-Forwarded-For", ip.String())
@@ -102,9 +103,9 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("203.0.113.195")
-			proxy1IP := net.ParseIP("70.41.3.18")
-			proxy2IP := net.ParseIP("150.172.238.178")
+			clientIP := netip.MustParseAddr("203.0.113.195")
+			proxy1IP := netip.MustParseAddr("70.41.3.18")
+			proxy2IP := netip.MustParseAddr("150.172.238.178")
 
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("X-Forwarded-For", clientIP.String()+", "+proxy1IP.String()+", "+proxy2IP.String())
@@ -116,7 +117,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("203.0.113.195")
+			clientIP := netip.MustParseAddr("203.0.113.195")
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("X-Forwarded-For", "  "+clientIP.String()+"  , 70.41.3.18 ,  150.172.238.178")
 
@@ -127,8 +128,8 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("2001:db8:85a3:8d3:1319:8a2e:370:7348")
-			proxy1IP := net.ParseIP("2001:db8::1")
+			clientIP := netip.MustParseAddr("2001:db8:85a3:8d3:1319:8a2e:370:7348")
+			proxy1IP := netip.MustParseAddr("2001:db8::1")
 
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("X-Forwarded-For", clientIP.String()+", "+proxy1IP.String())
@@ -140,7 +141,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			remoteIP := net.ParseIP("192.168.1.100")
+			remoteIP := netip.MustParseAddr("192.168.1.100")
 			r.RemoteAddr = net.JoinHostPort(remoteIP.String(), "12345")
 			r.Header.Set("X-Forwarded-For", "not-a-valid-ip, also-invalid")
 
@@ -151,7 +152,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			remoteIP := net.ParseIP("192.168.1.100")
+			remoteIP := netip.MustParseAddr("192.168.1.100")
 			r.RemoteAddr = net.JoinHostPort(remoteIP.String(), "12345")
 			r.Header.Set("X-Forwarded-For", "")
 
@@ -162,7 +163,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			remoteIP := net.ParseIP("192.168.1.100")
+			remoteIP := netip.MustParseAddr("192.168.1.100")
 			r.RemoteAddr = net.JoinHostPort(remoteIP.String(), "12345")
 			r.Header.Set("X-Forwarded-For", "   ,  , ")
 
@@ -174,7 +175,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("192.0.2.43")
+			clientIP := netip.MustParseAddr("192.0.2.43")
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("Forwarded", "for="+clientIP.String())
 
@@ -185,7 +186,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("192.0.2.43")
+			clientIP := netip.MustParseAddr("192.0.2.43")
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("Forwarded", "for=\""+clientIP.String()+":8080\"")
 
@@ -196,7 +197,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("2001:db8:cafe::17")
+			clientIP := netip.MustParseAddr("2001:db8:cafe::17")
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("Forwarded", "for=\"["+clientIP.String()+"]\"")
 
@@ -207,7 +208,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("2001:db8:cafe::17")
+			clientIP := netip.MustParseAddr("2001:db8:cafe::17")
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("Forwarded", "for=\"["+clientIP.String()+"]:47011\"")
 
@@ -218,7 +219,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("192.0.2.43")
+			clientIP := netip.MustParseAddr("192.0.2.43")
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("Forwarded", "for="+clientIP.String()+";proto=http;by=203.0.113.43")
 
@@ -229,8 +230,8 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("192.0.2.60")
-			proxy1IP := net.ParseIP("198.51.100.17")
+			clientIP := netip.MustParseAddr("192.0.2.60")
+			proxy1IP := netip.MustParseAddr("198.51.100.17")
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("Forwarded", "for="+clientIP.String()+", for="+proxy1IP.String())
 
@@ -241,7 +242,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("192.0.2.60")
+			clientIP := netip.MustParseAddr("192.0.2.60")
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("Forwarded", "for=unknown, for="+clientIP.String())
 
@@ -252,7 +253,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("192.0.2.60")
+			clientIP := netip.MustParseAddr("192.0.2.60")
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("Forwarded", "for=_hidden, for="+clientIP.String())
 
@@ -263,8 +264,8 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			forwardedIP := net.ParseIP("192.0.2.43")
-			xffIP := net.ParseIP("203.0.113.195")
+			forwardedIP := netip.MustParseAddr("192.0.2.43")
+			xffIP := netip.MustParseAddr("203.0.113.195")
 
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("Forwarded", "for="+forwardedIP.String())
@@ -278,7 +279,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			clientIP := net.ParseIP("192.0.2.43")
+			clientIP := netip.MustParseAddr("192.0.2.43")
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("Forwarded", "proto=http;by=203.0.113.43;for="+clientIP.String())
 
@@ -289,7 +290,7 @@ var _ = Describe("HTTP Util", func() {
 			r, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
 			Expect(err).Should(Succeed())
 
-			xffIP := net.ParseIP("203.0.113.195")
+			xffIP := netip.MustParseAddr("203.0.113.195")
 
 			r.RemoteAddr = net.JoinHostPort("192.168.1.1", "12345")
 			r.Header.Set("Forwarded", "for=unknown")

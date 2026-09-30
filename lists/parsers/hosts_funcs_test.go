@@ -2,11 +2,11 @@ package parsers
 
 import (
 	"fmt"
-	"net"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/0xERR0R/blocky/util"
 	"golang.org/x/net/idna"
 )
 
@@ -153,23 +153,23 @@ func TestMightBeIP_NeverSkipsRealIP(t *testing.T) {
 	}
 
 	for _, s := range cases {
-		isIP := net.ParseIP(s) != nil
+		isIP := util.ParseIP(s).IsValid()
 		if isIP && !MightBeIP(s) {
-			t.Errorf("MightBeIP(%q) = false but net.ParseIP accepts it", s)
+			t.Errorf("MightBeIP(%q) = false but util.ParseIP accepts it", s)
 		}
 	}
 }
 
 // FuzzMightBeIP asserts the safety invariant: MightBeIP never returns false for
-// a string that net.ParseIP would accept (so gating ParseIP behind it is safe).
+// a string that util.ParseIP would accept (so gating ParseIP behind it is safe).
 func FuzzMightBeIP(f *testing.F) {
 	for _, s := range []string{"1.2.3.4", "::1", "2001:db8::1", "example.com", ""} {
 		f.Add(s)
 	}
 
 	f.Fuzz(func(t *testing.T, s string) {
-		if net.ParseIP(s) != nil && !MightBeIP(s) {
-			t.Errorf("MightBeIP(%q) = false but net.ParseIP accepts it", s)
+		if util.ParseIP(s).IsValid() && !MightBeIP(s) {
+			t.Errorf("MightBeIP(%q) = false but util.ParseIP accepts it", s)
 		}
 	})
 }
@@ -218,8 +218,8 @@ func FuzzHostsUnmarshalText(f *testing.F) {
 
 		// A successful hosts-file entry must carry a usable IP and valid names.
 		if fileErr == nil {
-			if file.IP == nil {
-				t.Fatalf("HostsFileEntry parsed %q but IP is nil", in)
+			if !file.IP.IsValid() {
+				t.Fatalf("HostsFileEntry parsed %q but IP is invalid", in)
 			}
 
 			_ = file.forEachHost(func(host string) error {

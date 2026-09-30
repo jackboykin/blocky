@@ -3,7 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"encoding/hex"
-	"net"
+	"net/netip"
 
 	"github.com/jedisct1/go-dnsstamps"
 
@@ -541,7 +541,7 @@ var _ = Describe("ParseUpstream", func() {
 				Expect(err).Should(Succeed())
 				Expect(result.Host).Should(Equal("8.8.8.8"))
 				Expect(result.IPs).Should(HaveLen(1))
-				Expect(result.IPs[0]).Should(Equal(net.ParseIP("8.8.8.8")))
+				Expect(result.IPs[0]).Should(Equal(netip.MustParseAddr("8.8.8.8")))
 			})
 
 			It("should preserve IP from DoH stamp with IP in ServerAddrStr", func() {
@@ -555,7 +555,7 @@ var _ = Describe("ParseUpstream", func() {
 				Expect(result.CommonName).Should(Equal("dns.mullvad.net"))
 				// But IPs should contain the IP from ServerAddrStr
 				Expect(result.IPs).Should(HaveLen(1))
-				Expect(result.IPs[0]).Should(Equal(net.ParseIP("194.242.2.2")))
+				Expect(result.IPs[0]).Should(Equal(netip.MustParseAddr("194.242.2.2")))
 			})
 
 			It("should preserve IPv6 from stamp", func() {
@@ -565,7 +565,7 @@ var _ = Describe("ParseUpstream", func() {
 
 				Expect(err).Should(Succeed())
 				Expect(result.IPs).Should(HaveLen(1))
-				Expect(result.IPs[0]).Should(Equal(net.ParseIP("2001:0db8:85a3:0000:0000:8a2e:0370:7334")))
+				Expect(result.IPs[0]).Should(Equal(netip.MustParseAddr("2001:0db8:85a3:0000:0000:8a2e:0370:7334")))
 			})
 
 			It("should preserve IP from stamp with IP in ServerAddrStr", func() {
@@ -578,7 +578,7 @@ var _ = Describe("ParseUpstream", func() {
 				Expect(result.Host).Should(Equal("dns.cloudflare.com"))
 				// IPs contains the IP from ServerAddrStr for bootstrapping
 				Expect(result.IPs).Should(HaveLen(1))
-				Expect(result.IPs[0]).Should(Equal(net.ParseIP("1.0.0.1")))
+				Expect(result.IPs[0]).Should(Equal(netip.MustParseAddr("1.0.0.1")))
 			})
 
 			It("should preserve IP with custom port in stamp", func() {
@@ -588,7 +588,7 @@ var _ = Describe("ParseUpstream", func() {
 
 				if err == nil {
 					Expect(result.IPs).Should(HaveLen(1))
-					Expect(result.IPs[0]).Should(Equal(net.ParseIP("8.8.8.8")))
+					Expect(result.IPs[0]).Should(Equal(netip.MustParseAddr("8.8.8.8")))
 					Expect(result.Port).Should(Or(Equal(uint16(5353)), Equal(uint16(53))))
 				}
 			})
@@ -709,7 +709,7 @@ var _ = Describe("ParseUpstream", func() {
 				Expect(result.Port).Should(Equal(uint16(8443)))
 				Expect(result.CommonName).Should(Equal("cloudflare-dns.com"))
 				Expect(result.IPs).Should(HaveLen(1))
-				Expect(result.IPs[0]).Should(Equal(net.ParseIP("1.1.1.1")))
+				Expect(result.IPs[0]).Should(Equal(netip.MustParseAddr("1.1.1.1")))
 			})
 
 			It("reads the port from the hostname field for a DoT stamp", func() {
@@ -745,7 +745,7 @@ var _ = Describe("ParseUpstream", func() {
 				Expect(result.Port).Should(Equal(uint16(8443)))
 				Expect(result.CommonName).Should(Equal("dns.example.com"))
 				Expect(result.IPs).Should(HaveLen(1))
-				Expect(result.IPs[0]).Should(Equal(net.ParseIP("2001:db8::1")))
+				Expect(result.IPs[0]).Should(Equal(netip.MustParseAddr("2001:db8::1")))
 			})
 
 			It("falls back to the protocol default port when the hostname has none", func() {
@@ -777,7 +777,7 @@ var _ = Describe("ParseUpstream", func() {
 				Expect(result.Port).Should(Equal(uint16(8443)))
 				Expect(result.CommonName).Should(Equal("cloudflare-dns.com"))
 				Expect(result.IPs).Should(HaveLen(1))
-				Expect(result.IPs[0]).Should(Equal(net.ParseIP("1.1.1.1")))
+				Expect(result.IPs[0]).Should(Equal(netip.MustParseAddr("1.1.1.1")))
 			})
 
 			It("tolerates a legacy IPv6 DoH stamp with the port on the addr field", func() {
@@ -790,7 +790,7 @@ var _ = Describe("ParseUpstream", func() {
 				Expect(result.Host).Should(Equal("dns.example.com"))
 				Expect(result.Port).Should(Equal(uint16(8443)))
 				Expect(result.IPs).Should(HaveLen(1))
-				Expect(result.IPs[0]).Should(Equal(net.ParseIP("2001:db8::1")))
+				Expect(result.IPs[0]).Should(Equal(netip.MustParseAddr("2001:db8::1")))
 			})
 
 			It("rejects a legacy port-on-addr stamp only when another defect is present", func() {
@@ -818,9 +818,9 @@ var _ = Describe("ParseUpstream", func() {
 
 				Expect(err).Should(Succeed())
 				Expect(result.IPs).Should(ConsistOf(
-					net.ParseIP("8.8.8.8"),
-					net.ParseIP("1.1.1.1"),
-					net.ParseIP("8.8.4.4"),
+					netip.MustParseAddr("8.8.8.8"),
+					netip.MustParseAddr("1.1.1.1"),
+					netip.MustParseAddr("8.8.4.4"),
 				))
 			})
 
@@ -838,8 +838,8 @@ var _ = Describe("ParseUpstream", func() {
 
 				Expect(err).Should(Succeed())
 				Expect(result.IPs).Should(ConsistOf(
-					net.ParseIP("8.8.8.8"),
-					net.ParseIP("8.8.4.4"),
+					netip.MustParseAddr("8.8.8.8"),
+					netip.MustParseAddr("8.8.4.4"),
 				))
 			})
 		})
@@ -882,7 +882,7 @@ var _ = Describe("ParseUpstream", func() {
 		})
 
 		It("should return false when IPs is set", func() {
-			u := Upstream{IPs: []net.IP{net.ParseIP("8.8.8.8")}}
+			u := Upstream{IPs: []netip.Addr{netip.MustParseAddr("8.8.8.8")}}
 			Expect(u.IsDefault()).Should(BeFalse())
 		})
 	})

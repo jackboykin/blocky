@@ -27,7 +27,7 @@ func validationCacheKey(ctx context.Context, domain string) string {
 	}
 
 	var ip string
-	if cc.ip != nil {
+	if cc.ip.IsValid() {
 		ip = cc.ip.String()
 	}
 

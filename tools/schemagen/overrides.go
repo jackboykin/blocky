@@ -132,6 +132,9 @@ func stringForms() map[reflect.Type]stringSpec {
 		reflect.TypeFor[config.Weekday](): {
 			"Day of week: mon, tue, wed, thu, fri, sat, sun.", []string{"mon", "sat"},
 		},
+		reflect.TypeFor[netip.Addr](): {
+			"IP address.", []string{"192.168.178.3", "2001:db8::1"},
+		},
 		reflect.TypeFor[netip.Prefix](): {
 			"CIDR network prefix.", []string{"64:ff9b::/96"},
 		},

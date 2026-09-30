@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -133,8 +134,8 @@ func (b *Bootstrap) Resolve(ctx context.Context, request *model.Request) (*model
 func (b *Bootstrap) UpstreamIPs(ctx context.Context, r *UpstreamResolver) (*IPSet, error) {
 	hostname := r.Upstream().Host
 
-	if ip := net.ParseIP(hostname); ip != nil { // nil-safe when hostname is an IP: makes writing tests easier
-		return newIPSet([]net.IP{ip}), nil
+	if ip := util.ParseIP(hostname); ip.IsValid() { // nil-safe when hostname is an IP: makes writing tests easier
+		return newIPSet([]netip.Addr{ip}), nil
 	}
 
 	// Use IPs from DNS stamp if available (avoids bootstrap resolution)
@@ -150,7 +151,7 @@ func (b *Bootstrap) UpstreamIPs(ctx context.Context, r *UpstreamResolver) (*IPSe
 	return newIPSet(ips), nil
 }
 
-func (b *Bootstrap) resolveUpstream(ctx context.Context, r Resolver, host string) ([]net.IP, error) {
+func (b *Bootstrap) resolveUpstream(ctx context.Context, r Resolver, host string) ([]netip.Addr, error) {
 	if ips, ok := b.bootstraped[r]; ok {
 		// Special path for bootstraped upstreams to avoid infinite recursion
 		return ips, nil
@@ -161,9 +162,14 @@ func (b *Bootstrap) resolveUpstream(ctx context.Context, r Resolver, host string
 
 	// Use system resolver if no bootstrap is configured
 	if b.resolver == nil {
-		ips, err := b.systemResolver.LookupIP(ctx, b.cfg.connectIPVersion.Net(), host)
+		ips, err := b.systemResolver.LookupNetIP(ctx, b.cfg.connectIPVersion.Net(), host)
 		if err != nil {
 			return nil, fmt.Errorf("system resolver lookup failed for '%s': %w", host, err)
+		}
+
+		// LookupNetIP can return IPv4 addresses in their IPv4-mapped IPv6 form.
+		for i, ip := range ips {
+			ips[i] = ip.Unmap()
 		}
 
 		return ips, nil
@@ -246,8 +252,8 @@ func (b *Bootstrap) dialContext(ctx context.Context, network, addr string) (net.
 	return nil, fmt.Errorf("failed to dial '%s' (resolved from '%s'): %w", addr, host, dialErr.ErrorOrNil())
 }
 
-func (b *Bootstrap) resolve(ctx context.Context, hostname string, qTypes []dns.Type) (ips []net.IP, err error) {
-	ips = make([]net.IP, 0, len(qTypes))
+func (b *Bootstrap) resolve(ctx context.Context, hostname string, qTypes []dns.Type) (ips []netip.Addr, err error) {
+	ips = make([]netip.Addr, 0, len(qTypes))
 
 	for _, qType := range qTypes {
 		qIPs, qErr := b.resolveType(ctx, hostname, qType)
@@ -271,9 +277,9 @@ func (b *Bootstrap) resolve(ctx context.Context, hostname string, qTypes []dns.T
 	return ips, nil
 }
 
-func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType dns.Type) (ips []net.IP, err error) {
-	if ip := net.ParseIP(hostname); ip != nil {
-		return []net.IP{ip}, nil
+func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType dns.Type) (ips []netip.Addr, err error) {
+	if ip := util.ParseIP(hostname); ip.IsValid() {
+		return []netip.Addr{ip}, nil
 	}
 
 	ctx, _ = b.log(ctx)
@@ -291,14 +297,14 @@ func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType dns.
 		return nil, nil
 	}
 
-	ips = make([]net.IP, 0, len(rsp.Res.Answer))
+	ips = make([]netip.Addr, 0, len(rsp.Res.Answer))
 
 	for _, a := range rsp.Res.Answer {
 		switch rr := a.(type) {
 		case *dns.A:
-			ips = append(ips, rr.A)
+			ips = append(ips, util.AddrFromIP(rr.A))
 		case *dns.AAAA:
-			ips = append(ips, rr.AAAA)
+			ips = append(ips, util.AddrFromIP(rr.AAAA))
 		}
 	}
 
@@ -306,7 +312,7 @@ func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType dns.
 }
 
 // map of bootstraped resolvers to their hardcoded IPs
-type bootstrapedResolvers map[Resolver][]net.IP
+type bootstrapedResolvers map[Resolver][]netip.Addr
 
 func newBootstrapedResolvers(
 	b *Bootstrap, cfg config.BootstrapDNS, upstreamsCfg config.Upstreams, logger *logrus.Entry,
@@ -337,9 +343,9 @@ func newBootstrapedResolvers(
 			continue
 		}
 
-		ips := make([]net.IP, 0, len(upstreamCfg.IPs)+1)
+		ips := make([]netip.Addr, 0, len(upstreamCfg.IPs)+1)
 
-		if ip := net.ParseIP(upstream.Host); ip != nil {
+		if ip := util.ParseIP(upstream.Host); ip.IsValid() {
 			ips = append(ips, ip)
 		} else if upstream.Net == config.NetProtocolTcpUdp {
 			multiErr = multierror.Append(
@@ -402,14 +408,14 @@ func (b *Bootstrap) addResolvFileUpstreams(
 	var added int
 
 	for _, server := range cc.Servers {
-		ip := net.ParseIP(server)
-		if ip == nil {
+		ip := util.ParseIP(server)
+		if !ip.IsValid() {
 			continue
 		}
 
 		upstream := config.Upstream{Net: config.NetProtocolTcpUdp, Host: server, Port: port}
 		resolver := newUpstreamResolverUnchecked(newUpstreamConfig(upstream, upstreamsCfg), b)
-		upstreamIPs[resolver] = []net.IP{ip}
+		upstreamIPs[resolver] = []netip.Addr{ip}
 		added++
 	}
 
@@ -427,15 +433,15 @@ func (br bootstrapedResolvers) Resolvers() []Resolver {
 }
 
 type IPSet struct {
-	values []net.IP
+	values []netip.Addr
 	index  uint32
 }
 
-func newIPSet(ips []net.IP) *IPSet {
+func newIPSet(ips []netip.Addr) *IPSet {
 	return &IPSet{values: ips}
 }
 
-func (ips *IPSet) Current() net.IP {
+func (ips *IPSet) Current() netip.Addr {
 	idx := atomic.LoadUint32(&ips.index)
 
 	return ips.values[idx]

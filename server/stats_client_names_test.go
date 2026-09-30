@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/0xERR0R/blocky/api"
@@ -24,7 +25,7 @@ import (
 var _ = Describe("Client identity for queries answered at the head of the chain", func() {
 	const clientName = "laptop"
 
-	var clientIP = net.ParseIP("192.168.1.11")
+	clientIP := netip.MustParseAddr("192.168.1.11")
 
 	newServer := func(ctx context.Context, adapt func(cfg *config.Config)) *Server {
 		GinkgoHelper()
@@ -37,7 +38,7 @@ var _ = Describe("Client identity for queries answered at the head of the chain"
 			},
 			Blocking:     config.Blocking{BlockType: "zeroIp"},
 			Statistics:   config.Statistics{Enable: true},
-			ClientLookup: config.ClientLookup{ClientnameIPMapping: map[string][]net.IP{clientName: {clientIP}}},
+			ClientLookup: config.ClientLookup{ClientnameIPMapping: map[string][]netip.Addr{clientName: {clientIP}}},
 			Ports:        config.Ports{DOHPath: "/dns-query"},
 		}
 

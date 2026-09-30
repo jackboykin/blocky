@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"net"
 	"net/http"
+	"net/netip"
 
 	"github.com/0xERR0R/blocky/metrics"
 	"github.com/0xERR0R/blocky/resolver"
@@ -182,7 +182,7 @@ func getSmallestTTLFromAnswer(msg *dns.Msg) uint32 {
 }
 
 func (s *Server) Query(
-	ctx context.Context, serverHost string, clientIP net.IP, question string, qType dns.Type,
+	ctx context.Context, serverHost string, clientIP netip.Addr, question string, qType dns.Type,
 ) (*model.Response, error) {
 	msg := util.NewMsgWithQuestion(question, qType)
 	clientID := extractClientIDFromHost(serverHost)

@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/0xERR0R/blocky/util"
 	"github.com/jedisct1/go-dnsstamps"
 )
 
@@ -28,7 +31,7 @@ type Upstream struct {
 
 	// DNS stamp metadata (optional) - only populated when parsing DNS stamps
 	CertificateFingerprints []CertificateFingerprint // SHA256 fingerprints for TLS certificate pinning
-	IPs                     []net.IP                 // IPs from the DNS stamp (addr + bootstrap IPs) for bootstrapping
+	IPs                     []netip.Addr             // IPs from the DNS stamp (addr + bootstrap IPs) for bootstrapping
 }
 
 // IsDefault returns true if u is the default value
@@ -129,7 +132,7 @@ func ParseUpstream(upstream string) (Upstream, error) {
 	}
 
 	// validate hostname or ip
-	if ip := net.ParseIP(host); ip == nil {
+	if ip := util.ParseIP(host); !ip.IsValid() {
 		// is not IP
 		if !validDomain.MatchString(host) {
 			return Upstream{}, fmt.Errorf("wrong host name '%s'", host)
@@ -234,7 +237,7 @@ func parseStamp(stampStr string) (Upstream, error) {
 
 	if hostname != "" {
 		// Validate provider name is a valid hostname or IP
-		if ip := net.ParseIP(hostname); ip == nil {
+		if ip := util.ParseIP(hostname); !ip.IsValid() {
 			// Not an IP, must be a valid hostname
 			if !validDomain.MatchString(hostname) {
 				return Upstream{}, fmt.Errorf("invalid provider name in DNS stamp: '%s'", hostname)
@@ -316,7 +319,7 @@ func stampWithoutAddrPort(stampStr string) (string, string, bool) {
 	addr := string(bin[addrStart:addrEnd])
 
 	host, _, err := net.SplitHostPort(addr)
-	if err != nil || net.ParseIP(host) == nil {
+	if err != nil || !util.ParseIP(host).IsValid() {
 		return "", "", false
 	}
 
@@ -388,23 +391,15 @@ func stampPort(netProto NetProtocol, hostnamePort, addrPort string) (uint16, err
 // stampBootstrapIPs collects the IPs usable for bootstrapping: the server IP
 // from the addr field plus the stamp's optional bootstrap IPs, de-duplicated
 // while preserving order.
-func stampBootstrapIPs(serverIP string, bootstrapIPs []string) []net.IP {
-	var ips []net.IP
-
-	seen := make(map[string]struct{}, 1+len(bootstrapIPs))
+func stampBootstrapIPs(serverIP string, bootstrapIPs []string) []netip.Addr {
+	var ips []netip.Addr
 
 	add := func(s string) {
-		ip := net.ParseIP(s)
-		if ip == nil {
+		ip := util.ParseIP(s)
+		if !ip.IsValid() || slices.Contains(ips, ip) {
 			return
 		}
 
-		key := ip.String()
-		if _, ok := seen[key]; ok {
-			return
-		}
-
-		seen[key] = struct{}{}
 		ips = append(ips, ip)
 	}
 

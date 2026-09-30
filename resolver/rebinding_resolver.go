@@ -3,6 +3,7 @@ package resolver
 import (
 	"context"
 	"net"
+	"net/netip"
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
@@ -77,7 +78,7 @@ func (r *RebindingProtectionResolver) Resolve(ctx context.Context, request *mode
 	// scan first: most answers are public, so the common path skips question-name
 	// extraction and the allowlist walk entirely; the outcome is order-independent
 	ip := findBlockedIPInMsg(response.Res)
-	if ip == nil {
+	if !ip.IsValid() {
 		return response, nil
 	}
 
@@ -114,70 +115,72 @@ func (r *RebindingProtectionResolver) isAllowed(domain string) bool {
 // message: upstreams may place address records not only in the answer but also in
 // the additional section (e.g. HTTPS/SVCB target addresses, RFC 9460 §5) or the
 // authority section, and clients may consume them from there.
-func findBlockedIPInMsg(msg *dns.Msg) net.IP {
+func findBlockedIPInMsg(msg *dns.Msg) netip.Addr {
 	for _, section := range [][]dns.RR{msg.Answer, msg.Extra, msg.Ns} {
-		if ip := findBlockedIP(section); ip != nil {
+		if ip := findBlockedIP(section); ip.IsValid() {
 			return ip
 		}
 	}
 
-	return nil
+	return netip.Addr{}
 }
 
 // findBlockedIP returns the first non-public IP found in the A/AAAA records or HTTPS/SVCB ip hints of the
-// given record section, or nil if there is none.
-func findBlockedIP(answers []dns.RR) net.IP {
+// given record section, or the zero Addr if there is none.
+func findBlockedIP(answers []dns.RR) netip.Addr {
 	for _, rr := range answers {
 		switch v := rr.(type) {
 		case *dns.A:
-			if isBlockedIP(v.A) {
-				return v.A
+			if ip := util.AddrFromIP(v.A); isBlockedIP(ip) {
+				return ip
 			}
 		case *dns.AAAA:
-			if isBlockedIP(v.AAAA) {
-				return v.AAAA
+			if ip := util.AddrFromIP(v.AAAA); isBlockedIP(ip) {
+				return ip
 			}
 		case *dns.HTTPS:
-			if ip := findBlockedHintIP(v.Value); ip != nil {
+			if ip := findBlockedHintIP(v.Value); ip.IsValid() {
 				return ip
 			}
 		case *dns.SVCB:
-			if ip := findBlockedHintIP(v.Value); ip != nil {
+			if ip := findBlockedHintIP(v.Value); ip.IsValid() {
 				return ip
 			}
 		}
 	}
 
-	return nil
+	return netip.Addr{}
 }
 
 // findBlockedHintIP returns the first non-public IP in the ipv4hint/ipv6hint
-// SvcParams of an HTTPS/SVCB record, or nil if there is none.
-func findBlockedHintIP(values []dns.SVCBKeyValue) net.IP {
+// SvcParams of an HTTPS/SVCB record, or the zero Addr if there is none.
+func findBlockedHintIP(values []dns.SVCBKeyValue) netip.Addr {
+	var hints []net.IP
+
 	for _, kv := range values {
 		switch hint := kv.(type) {
 		case *dns.SVCBIPv4Hint:
-			for _, ip := range hint.Hint {
-				if isBlockedIP(ip) {
-					return ip
-				}
-			}
+			hints = hint.Hint
 		case *dns.SVCBIPv6Hint:
-			for _, ip := range hint.Hint {
-				if isBlockedIP(ip) {
-					return ip
-				}
+			hints = hint.Hint
+		default:
+			continue
+		}
+
+		for _, raw := range hints {
+			if ip := util.AddrFromIP(raw); isBlockedIP(ip) {
+				return ip
 			}
 		}
 	}
 
-	return nil
+	return netip.Addr{}
 }
 
 // isBlockedIP reports whether ip belongs to one of the fixed non-public ranges:
-// RFC1918/ULA, loopback, link-local or unspecified. IPv4-mapped IPv6 addresses are
-// evaluated as their 4-byte form by these predicates. A nil IP (address-less record)
+// RFC1918/ULA, loopback, link-local or unspecified. IPv4-mapped IPv6 addresses must
+// be unmapped first (util.AddrFromIP does). The zero Addr (address-less record)
 // returns false by design.
-func isBlockedIP(ip net.IP) bool {
+func isBlockedIP(ip netip.Addr) bool {
 	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
 }

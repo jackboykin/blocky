@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 )
 
@@ -66,11 +67,11 @@ func splitCommaSeparated(s string) []string {
 }
 
 // parseForwardedHeader parses RFC 7239 Forwarded header and extracts the client IP.
-// Returns the first valid IP found, or nil if no valid IP exists.
+// Returns the first valid IP found, or the zero Addr if no valid IP exists.
 // Skips special values: "unknown" and obfuscated identifiers (starting with "_").
 // Format: for=192.0.2.43;proto=http;by=203.0.113.43
 // Or multiple: for=192.0.2.43, for=192.0.2.60
-func parseForwardedHeader(forwarded string) net.IP {
+func parseForwardedHeader(forwarded string) netip.Addr {
 	// Split by comma to get individual forwarded elements
 	elements := splitCommaSeparated(forwarded)
 
@@ -98,18 +99,18 @@ func parseForwardedHeader(forwarded string) net.IP {
 			}
 
 			// Extract IP from value (may include port and/or brackets)
-			if ip := extractIPFromForValue(value); ip != nil {
+			if ip := extractIPFromForValue(value); ip.IsValid() {
 				return ip
 			}
 		}
 	}
 
-	return nil
+	return netip.Addr{}
 }
 
 // extractIPFromForValue extracts IP from Forwarded header "for" parameter value
 // Handles: 192.0.2.43, 192.0.2.43:8080, [2001:db8::1], [2001:db8::1]:8080
-func extractIPFromForValue(value string) net.IP {
+func extractIPFromForValue(value string) netip.Addr {
 	// Handle IPv6 with brackets: [2001:db8::1] or [2001:db8::1]:8080
 	if strings.HasPrefix(value, "[") {
 		// Find closing bracket
@@ -118,7 +119,7 @@ func extractIPFromForValue(value string) net.IP {
 			// Extract IP between brackets
 			ipStr := value[1:closeBracket]
 
-			return net.ParseIP(ipStr)
+			return ParseIP(ipStr)
 		}
 	}
 
@@ -129,11 +130,11 @@ func extractIPFromForValue(value string) net.IP {
 		lastColon := strings.LastIndex(value, ":")
 		ipStr := value[:lastColon]
 
-		return net.ParseIP(ipStr)
+		return ParseIP(ipStr)
 	}
 
 	// Plain IP without port or brackets
-	return net.ParseIP(value)
+	return ParseIP(value)
 }
 
 // HTTPClientIP extracts the client IP address from an HTTP request.
@@ -142,10 +143,10 @@ func extractIPFromForValue(value string) net.IP {
 // 2. X-Forwarded-For header (de facto standard)
 // 3. RemoteAddr field (direct connection)
 // Returns the first valid IP address found.
-func HTTPClientIP(r *http.Request) net.IP {
+func HTTPClientIP(r *http.Request) netip.Addr {
 	// Try RFC 7239 Forwarded header first (standardized)
 	if forwarded := r.Header.Get("Forwarded"); forwarded != "" {
-		if ip := parseForwardedHeader(forwarded); ip != nil {
+		if ip := parseForwardedHeader(forwarded); ip.IsValid() {
 			return ip
 		}
 	}
@@ -157,7 +158,7 @@ func HTTPClientIP(r *http.Request) net.IP {
 		ips := splitCommaSeparated(xff)
 		if len(ips) > 0 {
 			// Parse the first IP (original client)
-			if ip := net.ParseIP(ips[0]); ip != nil {
+			if ip := ParseIP(ips[0]); ip.IsValid() {
 				return ip
 			}
 		}
@@ -167,8 +168,8 @@ func HTTPClientIP(r *http.Request) net.IP {
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		// RemoteAddr might not have a port in some cases
-		return net.ParseIP(r.RemoteAddr)
+		return ParseIP(r.RemoteAddr)
 	}
 
-	return net.ParseIP(ip)
+	return ParseIP(ip)
 }

@@ -1,7 +1,7 @@
 package resolver
 
 import (
-	"net"
+	"net/netip"
 
 	"github.com/0xERR0R/blocky/config"
 
@@ -39,9 +39,9 @@ var _ = Describe("clientGroupsIndex", func() {
 
 	It("pre-parses only the CIDR identifiers into ready-to-use networks", func() {
 		Expect(idx.cidrs).Should(HaveLen(1))
-		Expect(idx.cidrs[0].ipNet).ShouldNot(BeNil())
-		Expect(idx.cidrs[0].ipNet.Contains(net.ParseIP("10.1.2.3"))).Should(BeTrue())
-		Expect(idx.cidrs[0].ipNet.Contains(net.ParseIP("11.0.0.1"))).Should(BeFalse())
+		Expect(idx.cidrs[0].prefix.IsValid()).Should(BeTrue())
+		Expect(idx.cidrs[0].prefix.Contains(netip.MustParseAddr("10.1.2.3"))).Should(BeTrue())
+		Expect(idx.cidrs[0].prefix.Contains(netip.MustParseAddr("11.0.0.1"))).Should(BeFalse())
 	})
 
 	It("classifies every dotted identifier as an FQDN candidate (faithful to isFQDN)", func() {

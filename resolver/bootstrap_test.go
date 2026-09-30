@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"reflect"
@@ -40,7 +41,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 						Net:  config.NetProtocolTcpTls,
 						Host: "bootstrapUpstream.invalid",
 					},
-					IPs: []net.IP{net.IPv4zero},
+					IPs: []netip.Addr{netip.IPv4Unspecified()},
 				},
 			},
 			Upstreams: defaultUpstreamsConfig,
@@ -134,7 +135,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 					Expect(sut).ShouldNot(BeNil())
 
 					for _, ips := range sut.bootstraped {
-						Expect(ips).Should(Equal([]net.IP{net.IPv4zero}))
+						Expect(ips).Should(Equal([]netip.Addr{netip.IPv4Unspecified()}))
 					}
 				})
 			})
@@ -167,7 +168,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 									Net:  config.NetProtocolTcpUdp,
 									Host: "0.0.0.0",
 								},
-								IPs: []net.IP{net.IPv4allrouter},
+								IPs: []netip.Addr{netip.MustParseAddr("224.0.0.2")},
 							},
 						},
 					}
@@ -176,7 +177,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 					Expect(sut).ShouldNot(BeNil())
 
 					for _, ips := range sut.bootstraped {
-						Expect(ips).Should(ContainElements(net.IPv4zero, net.IPv4allrouter))
+						Expect(ips).Should(ContainElements(netip.IPv4Unspecified(), netip.MustParseAddr("224.0.0.2")))
 					}
 				})
 			})
@@ -204,12 +205,12 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 					Expect(sut).ShouldNot(BeNil())
 					Expect(sut.bootstraped).Should(HaveLen(2))
 
-					var ips []net.IP
+					var ips []netip.Addr
 					for _, serverIPs := range sut.bootstraped {
 						ips = append(ips, serverIPs...)
 					}
 
-					Expect(ips).Should(ConsistOf(net.ParseIP("9.9.9.9"), net.ParseIP("1.0.0.1")))
+					Expect(ips).Should(ConsistOf(netip.MustParseAddr("9.9.9.9"), netip.MustParseAddr("1.0.0.1")))
 				})
 			})
 
@@ -234,12 +235,12 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 					Expect(sut).ShouldNot(BeNil())
 					Expect(sut.bootstraped).Should(HaveLen(1))
 
-					var ips []net.IP
+					var ips []netip.Addr
 					for _, serverIPs := range sut.bootstraped {
 						ips = append(ips, serverIPs...)
 					}
 
-					Expect(ips).Should(ConsistOf(Equal(net.ParseIP("2606:4700:4700::1111"))))
+					Expect(ips).Should(ConsistOf(Equal(netip.MustParseAddr("2606:4700:4700::1111"))))
 				})
 			})
 
@@ -353,7 +354,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 						Net:  config.NetProtocolTcpTls,
 						Host: "bootstrapUpstream.invalid",
 					},
-					IPs: []net.IP{net.IPv4zero},
+					IPs: []netip.Addr{netip.IPv4Unspecified()},
 				},
 			}
 		})
@@ -381,14 +382,14 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 				ips, err := sut.resolve(ctx, "0.0.0.0", config.IPVersionDual.QTypes())
 
 				Expect(err).Should(Succeed())
-				Expect(ips).Should(ContainElement(net.IPv4zero))
+				Expect(ips).Should(ContainElement(netip.IPv4Unspecified()))
 			})
 		})
 
 		When("upstream returns an IPv6", func() {
 			It("it is used", func() {
 				bootstrapResponse, err := util.NewMsgWithAnswer(
-					"localhost.", 123, AAAA, net.IPv6loopback.String(),
+					"localhost.", 123, AAAA, netip.IPv6Loopback().String(),
 				)
 				Expect(err).Should(Succeed())
 
@@ -398,7 +399,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 
 				Expect(err).Should(Succeed())
 				Expect(ips).Should(HaveLen(1))
-				Expect(ips).Should(ContainElement(net.IPv6loopback))
+				Expect(ips).Should(ContainElement(netip.IPv6Loopback()))
 			})
 		})
 
@@ -805,7 +806,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 					Host: "dns.example.com", // Hostname, not IP
 					Port: 443,
 					Path: "/dns-query",
-					IPs:  []net.IP{net.ParseIP("194.242.2.2")}, // IP from DNS stamp
+					IPs:  []netip.Addr{netip.MustParseAddr("194.242.2.2")}, // IP from DNS stamp
 				}
 			})
 
@@ -815,15 +816,15 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 
 				Expect(err).Should(Succeed())
 				Expect(ips).ShouldNot(BeNil())
-				Expect(ips.Current()).Should(Equal(net.ParseIP("194.242.2.2")))
+				Expect(ips.Current()).Should(Equal(netip.MustParseAddr("194.242.2.2")))
 				// Verify bootstrap was NOT called (no resolution needed)
 				Expect(mockBootstrap.GetCallCount()).Should(Equal(0))
 			})
 
 			It("should use all IPs from stamp", func() {
-				testUpstream.IPs = []net.IP{
-					net.ParseIP("194.242.2.2"),
-					net.ParseIP("194.242.2.3"),
+				testUpstream.IPs = []netip.Addr{
+					netip.MustParseAddr("194.242.2.2"),
+					netip.MustParseAddr("194.242.2.3"),
 				}
 
 				r := newUpstreamResolverUnchecked(newUpstreamConfig(testUpstream, sutConfig.Upstreams), sut)
@@ -832,8 +833,8 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 				Expect(err).Should(Succeed())
 				// Should have both IPs available
 				Expect(ips.Current()).Should(Or(
-					Equal(net.ParseIP("194.242.2.2")),
-					Equal(net.ParseIP("194.242.2.3")),
+					Equal(netip.MustParseAddr("194.242.2.2")),
+					Equal(netip.MustParseAddr("194.242.2.3")),
 				))
 			})
 		})
@@ -874,7 +875,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 				ips, err := sut.UpstreamIPs(ctx, r)
 
 				Expect(err).Should(Succeed())
-				Expect(ips.Current()).Should(Equal(net.ParseIP("8.8.8.8")))
+				Expect(ips.Current()).Should(Equal(netip.MustParseAddr("8.8.8.8")))
 			})
 		})
 	})

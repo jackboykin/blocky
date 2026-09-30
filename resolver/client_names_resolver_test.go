@@ -3,7 +3,7 @@ package resolver
 import (
 	"context"
 	"errors"
-	"net"
+	"net/netip"
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/log"
@@ -97,12 +97,12 @@ var _ = Describe("ClientResolver", Label("clientNamesResolver"), func() {
 	Describe("Resolve client name with custom name mapping", Label("XXX"), func() {
 		BeforeEach(func() {
 			sutConfig = config.ClientLookup{
-				ClientnameIPMapping: map[string][]net.IP{
+				ClientnameIPMapping: map[string][]netip.Addr{
 					"client7": {
-						net.ParseIP("1.2.3.4"), net.ParseIP("1.2.3.5"), net.ParseIP("2a02:590:505:4700:2e4f:1503:ce74:df78"),
+						netip.MustParseAddr("1.2.3.4"), netip.MustParseAddr("1.2.3.5"), netip.MustParseAddr("2a02:590:505:4700:2e4f:1503:ce74:df78"),
 					},
 					"client8": {
-						net.ParseIP("1.2.3.5"),
+						netip.MustParseAddr("1.2.3.5"),
 					},
 				},
 			}
@@ -451,8 +451,8 @@ var _ = Describe("ClientResolver", Label("clientNamesResolver"), func() {
 		When("a static client mapping also matches", func() {
 			BeforeEach(func() {
 				sutConfig = config.ClientLookup{
-					ClientnameIPMapping: map[string][]net.IP{
-						"static-name": {net.ParseIP("192.168.1.11")},
+					ClientnameIPMapping: map[string][]netip.Addr{
+						"static-name": {netip.MustParseAddr("192.168.1.11")},
 					},
 				}
 			})
@@ -530,6 +530,6 @@ var _ = Describe("ClientResolver", Label("clientNamesResolver"), func() {
 // stubReverseLookuper is an in-memory reverseLookuper for tests, mapping IP string to host names.
 type stubReverseLookuper map[string][]string
 
-func (s stubReverseLookuper) LookupReverse(ip net.IP) []string {
+func (s stubReverseLookuper) LookupReverse(ip netip.Addr) []string {
 	return s[ip.String()]
 }

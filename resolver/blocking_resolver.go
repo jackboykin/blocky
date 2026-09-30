@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"net"
+	"net/netip"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -49,10 +49,10 @@ func createBlockHandler(cfg config.Blocking) (blockHandler, error) {
 		return refusedBlockHandler{}, nil
 	default:
 		// Try parsing as IP address(es)
-		var ips []net.IP
+		var ips []netip.Addr
 
 		for part := range strings.SplitSeq(cfgBlockType, ",") {
-			if ip := net.ParseIP(strings.TrimSpace(part)); ip != nil {
+			if ip := util.ParseIP(strings.TrimSpace(part)); ip.IsValid() {
 				ips = append(ips, ip)
 			}
 		}
@@ -102,7 +102,7 @@ type BlockingResolver struct {
 	allowlistOnlyGroups map[string]bool
 	status              *status
 	clientGroups        clientGroupsIndex
-	fqdnIPCache         cache.ExpiringCache[[]net.IP]
+	fqdnIPCache         cache.ExpiringCache[[]netip.Addr]
 }
 
 // scheduledGroup pairs a list group name with optional schedules.
@@ -167,7 +167,7 @@ type clientGroupsIndex struct {
 }
 
 type cidrGroups struct {
-	ipNet  *net.IPNet
+	prefix netip.Prefix
 	groups []scheduledGroup
 }
 
@@ -207,9 +207,9 @@ func newClientGroupsIndex(cfg config.Blocking) clientGroupsIndex {
 		}
 
 		// Pre-parse CIDR identifiers so per-query matching is a cheap
-		// ipNet.Contains instead of a net.ParseCIDR allocation per entry.
-		if _, ipNet, err := net.ParseCIDR(id); err == nil {
-			idx.cidrs = append(idx.cidrs, cidrGroups{ipNet: ipNet, groups: groups})
+		// prefix.Contains instead of a util.ParsePrefix per entry.
+		if prefix, err := util.ParsePrefix(id); err == nil {
+			idx.cidrs = append(idx.cidrs, cidrGroups{prefix: prefix, groups: groups})
 		}
 
 		// Mirror the previous per-query isFQDN(identifier) check so FQDN
@@ -263,10 +263,10 @@ func NewBlockingResolver(ctx context.Context,
 		clientGroups: newClientGroupsIndex(cfg),
 	}
 
-	res.fqdnIPCache = expirationcache.NewCacheWithOnExpired[[]net.IP](ctx, expirationcache.Options{
+	res.fqdnIPCache = expirationcache.NewCacheWithOnExpired[[]netip.Addr](ctx, expirationcache.Options{
 		CleanupInterval: defaultBlockingCleanUpInterval,
 		Shards:          cache.ShardCount(),
-	}, func(ctx context.Context, key string) (val *[]net.IP, ttl time.Duration) {
+	}, func(ctx context.Context, key string) (val *[]netip.Addr, ttl time.Duration) {
 		return res.queryForFQIdentifierIPs(ctx, key)
 	})
 
@@ -685,7 +685,7 @@ func (r *BlockingResolver) collectGroupsForClient(request *model.Request) []sche
 
 	// try CIDR using the networks pre-parsed at config load
 	for _, c := range cg.cidrs {
-		if c.ipNet.Contains(request.ClientIP) {
+		if c.prefix.Contains(request.ClientIP) {
 			groups = append(groups, c.groups...)
 		}
 	}
@@ -699,7 +699,7 @@ func (r *BlockingResolver) collectGroupsForClient(request *model.Request) []sche
 			}
 
 			for _, ip := range *ips {
-				if ip.Equal(request.ClientIP) {
+				if ip == request.ClientIP {
 					groups = append(groups, f.groups...)
 				}
 			}
@@ -767,19 +767,19 @@ type nxDomainBlockHandler struct {
 type refusedBlockHandler struct{}
 
 type ipBlockHandler struct {
-	destinations    []net.IP
+	destinations    []netip.Addr
 	fallbackHandler blockHandler
 	BlockTimeSec    uint32
 }
 
 func (b zeroIPBlockHandler) handleBlock(question dns.Question, response *dns.Msg) {
-	var zeroIP net.IP
+	var zeroIP netip.Addr
 
 	switch question.Qtype {
 	case dns.TypeAAAA:
-		zeroIP = net.IPv6zero
+		zeroIP = netip.IPv6Unspecified()
 	case dns.TypeA:
-		zeroIP = net.IPv4zero
+		zeroIP = netip.IPv4Unspecified()
 	default:
 		response.Rcode = dns.RcodeNameError
 
@@ -807,7 +807,7 @@ func (b ipBlockHandler) handleBlock(question dns.Question, response *dns.Msg) {
 	for _, ip := range b.destinations {
 		answer, _ := util.CreateAnswerFromQuestion(question, ip, b.BlockTimeSec)
 
-		if (question.Qtype == dns.TypeAAAA && ip.To4() == nil) || (question.Qtype == dns.TypeA && ip.To4() != nil) {
+		if (question.Qtype == dns.TypeAAAA && ip.Is6()) || (question.Qtype == dns.TypeA && ip.Is4()) {
 			response.Answer = append(response.Answer, answer)
 		}
 	}
@@ -818,12 +818,14 @@ func (b ipBlockHandler) handleBlock(question dns.Question, response *dns.Msg) {
 	}
 }
 
-func (r *BlockingResolver) queryForFQIdentifierIPs(ctx context.Context, identifier string) (*[]net.IP, time.Duration) {
+func (r *BlockingResolver) queryForFQIdentifierIPs(
+	ctx context.Context, identifier string,
+) (*[]netip.Addr, time.Duration) {
 	ctx, logger := r.logWith(ctx, func(logger *logrus.Entry) *logrus.Entry {
 		return log.WithPrefix(logger, "client_id_cache")
 	})
 
-	var result []net.IP
+	var result []netip.Addr
 
 	var ttl time.Duration
 
@@ -838,9 +840,9 @@ func (r *BlockingResolver) queryForFQIdentifierIPs(ctx context.Context, identifi
 
 				switch v := rr.(type) {
 				case *dns.A:
-					result = append(result, v.A)
+					result = append(result, util.AddrFromIP(v.A))
 				case *dns.AAAA:
-					result = append(result, v.AAAA)
+					result = append(result, util.AddrFromIP(v.AAAA))
 				}
 			}
 		}

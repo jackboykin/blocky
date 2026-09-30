@@ -6,7 +6,7 @@ package api
 
 import (
 	"context"
-	"net"
+	"net/netip"
 	"time"
 
 	"github.com/0xERR0R/blocky/model"
@@ -295,7 +295,7 @@ func (_m *MockQuerier) EXPECT() *MockQuerier_Expecter {
 }
 
 // Query provides a mock function for the type MockQuerier
-func (_mock *MockQuerier) Query(ctx context.Context, serverHost string, clientIP net.IP, question string, qType dns.Type) (*model.Response, error) {
+func (_mock *MockQuerier) Query(ctx context.Context, serverHost string, clientIP netip.Addr, question string, qType dns.Type) (*model.Response, error) {
 	ret := _mock.Called(ctx, serverHost, clientIP, question, qType)
 
 	if len(ret) == 0 {
@@ -304,17 +304,17 @@ func (_mock *MockQuerier) Query(ctx context.Context, serverHost string, clientIP
 
 	var r0 *model.Response
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, net.IP, string, dns.Type) (*model.Response, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, netip.Addr, string, dns.Type) (*model.Response, error)); ok {
 		return returnFunc(ctx, serverHost, clientIP, question, qType)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, net.IP, string, dns.Type) *model.Response); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, netip.Addr, string, dns.Type) *model.Response); ok {
 		r0 = returnFunc(ctx, serverHost, clientIP, question, qType)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*model.Response)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, net.IP, string, dns.Type) error); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, netip.Addr, string, dns.Type) error); ok {
 		r1 = returnFunc(ctx, serverHost, clientIP, question, qType)
 	} else {
 		r1 = ret.Error(1)
@@ -330,14 +330,14 @@ type MockQuerier_Query_Call struct {
 // Query is a helper method to define mock.On call
 //   - ctx context.Context
 //   - serverHost string
-//   - clientIP net.IP
+//   - clientIP netip.Addr
 //   - question string
 //   - qType dns.Type
 func (_e *MockQuerier_Expecter) Query(ctx interface{}, serverHost interface{}, clientIP interface{}, question interface{}, qType interface{}) *MockQuerier_Query_Call {
 	return &MockQuerier_Query_Call{Call: _e.mock.On("Query", ctx, serverHost, clientIP, question, qType)}
 }
 
-func (_c *MockQuerier_Query_Call) Run(run func(ctx context.Context, serverHost string, clientIP net.IP, question string, qType dns.Type)) *MockQuerier_Query_Call {
+func (_c *MockQuerier_Query_Call) Run(run func(ctx context.Context, serverHost string, clientIP netip.Addr, question string, qType dns.Type)) *MockQuerier_Query_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -347,9 +347,9 @@ func (_c *MockQuerier_Query_Call) Run(run func(ctx context.Context, serverHost s
 		if args[1] != nil {
 			arg1 = args[1].(string)
 		}
-		var arg2 net.IP
+		var arg2 netip.Addr
 		if args[2] != nil {
-			arg2 = args[2].(net.IP)
+			arg2 = args[2].(netip.Addr)
 		}
 		var arg3 string
 		if args[3] != nil {
@@ -375,7 +375,7 @@ func (_c *MockQuerier_Query_Call) Return(response *model.Response, err error) *M
 	return _c
 }
 
-func (_c *MockQuerier_Query_Call) RunAndReturn(run func(ctx context.Context, serverHost string, clientIP net.IP, question string, qType dns.Type) (*model.Response, error)) *MockQuerier_Query_Call {
+func (_c *MockQuerier_Query_Call) RunAndReturn(run func(ctx context.Context, serverHost string, clientIP netip.Addr, question string, qType dns.Type) (*model.Response, error)) *MockQuerier_Query_Call {
 	_c.Call.Return(run)
 	return _c
 }

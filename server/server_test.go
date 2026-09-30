@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -609,13 +610,13 @@ var _ = Describe("Running DNS server", func() {
 			})
 			addr := srv.dnsServers[0].Listener.Addr().String()
 
-			expectedIP := net.ParseIP("192.0.2.10")
+			expectedIP := netip.MustParseAddr("192.0.2.10")
 			response := util.NewMsgWithQuestion("example.com.", A)
 			response.SetReply(response)
 
 			mockResolver := resolver.NewMockChainedResolver(GinkgoT())
 			mockResolver.EXPECT().Resolve(mock.Anything, mock.MatchedBy(func(req *model.Request) bool {
-				return expectedIP.Equal(req.ClientIP) && req.Protocol == model.RequestProtocolTCP
+				return expectedIP == req.ClientIP && req.Protocol == model.RequestProtocolTCP
 			})).Return(&model.Response{Res: response}, nil).Once()
 			srv.queryResolver = mockResolver
 
@@ -623,7 +624,7 @@ var _ = Describe("Running DNS server", func() {
 			Expect(err).Should(Succeed())
 			DeferCleanup(rawConn.Close)
 
-			_, err = rawConn.Write([]byte(proxyProtocolLine(expectedIP, net.ParseIP("127.0.0.1"))))
+			_, err = rawConn.Write([]byte(proxyProtocolLine(expectedIP, netip.MustParseAddr("127.0.0.1"))))
 			Expect(err).Should(Succeed())
 
 			tlsConn := tls.Client(rawConn, &tls.Config{InsecureSkipVerify: true})
@@ -645,13 +646,13 @@ var _ = Describe("Running DNS server", func() {
 			})
 			addr := firstHTTPListenerAddr(srv)
 
-			expectedIP := net.ParseIP("192.0.2.11")
+			expectedIP := netip.MustParseAddr("192.0.2.11")
 			response := util.NewMsgWithQuestion("example.com.", A)
 			response.SetReply(response)
 
 			mockResolver := resolver.NewMockChainedResolver(GinkgoT())
 			mockResolver.EXPECT().Resolve(mock.Anything, mock.MatchedBy(func(req *model.Request) bool {
-				return expectedIP.Equal(req.ClientIP) && req.Protocol == model.RequestProtocolTCP
+				return expectedIP == req.ClientIP && req.Protocol == model.RequestProtocolTCP
 			})).Return(&model.Response{Res: response}, nil).Once()
 			srv.queryResolver = mockResolver
 
@@ -659,7 +660,7 @@ var _ = Describe("Running DNS server", func() {
 			Expect(err).Should(Succeed())
 			DeferCleanup(rawConn.Close)
 
-			_, err = rawConn.Write([]byte(proxyProtocolLine(expectedIP, net.ParseIP("127.0.0.1"))))
+			_, err = rawConn.Write([]byte(proxyProtocolLine(expectedIP, netip.MustParseAddr("127.0.0.1"))))
 			Expect(err).Should(Succeed())
 
 			tlsConn := tls.Client(rawConn, &tls.Config{InsecureSkipVerify: true})
@@ -694,13 +695,13 @@ var _ = Describe("Running DNS server", func() {
 			}
 			Expect(addr).ShouldNot(BeEmpty())
 
-			expectedIP := net.ParseIP("192.0.2.12")
+			expectedIP := netip.MustParseAddr("192.0.2.12")
 			response := util.NewMsgWithQuestion("example.com.", A)
 			response.SetReply(response)
 
 			mockResolver := resolver.NewMockChainedResolver(GinkgoT())
 			mockResolver.EXPECT().Resolve(mock.Anything, mock.MatchedBy(func(req *model.Request) bool {
-				return expectedIP.Equal(req.ClientIP) && req.Protocol == model.RequestProtocolTCP
+				return expectedIP == req.ClientIP && req.Protocol == model.RequestProtocolTCP
 			})).Return(&model.Response{Res: response}, nil).Once()
 			srv.queryResolver = mockResolver
 
@@ -708,7 +709,7 @@ var _ = Describe("Running DNS server", func() {
 			Expect(err).Should(Succeed())
 			DeferCleanup(rawConn.Close)
 
-			_, err = rawConn.Write([]byte(proxyProtocolLine(expectedIP, net.ParseIP("127.0.0.1"))))
+			_, err = rawConn.Write([]byte(proxyProtocolLine(expectedIP, netip.MustParseAddr("127.0.0.1"))))
 			Expect(err).Should(Succeed())
 
 			dnsConn := &dns.Conn{Conn: rawConn}
@@ -727,13 +728,13 @@ var _ = Describe("Running DNS server", func() {
 			})
 			addr := firstHTTPListenerAddr(srv)
 
-			expectedIP := net.ParseIP("192.0.2.13")
+			expectedIP := netip.MustParseAddr("192.0.2.13")
 			response := util.NewMsgWithQuestion("example.com.", A)
 			response.SetReply(response)
 
 			mockResolver := resolver.NewMockChainedResolver(GinkgoT())
 			mockResolver.EXPECT().Resolve(mock.Anything, mock.MatchedBy(func(req *model.Request) bool {
-				return expectedIP.Equal(req.ClientIP) && req.Protocol == model.RequestProtocolTCP
+				return expectedIP == req.ClientIP && req.Protocol == model.RequestProtocolTCP
 			})).Return(&model.Response{Res: response}, nil).Once()
 			srv.queryResolver = mockResolver
 
@@ -741,7 +742,7 @@ var _ = Describe("Running DNS server", func() {
 			Expect(err).Should(Succeed())
 			DeferCleanup(rawConn.Close)
 
-			_, err = rawConn.Write([]byte(proxyProtocolLine(expectedIP, net.ParseIP("127.0.0.1"))))
+			_, err = rawConn.Write([]byte(proxyProtocolLine(expectedIP, netip.MustParseAddr("127.0.0.1"))))
 			Expect(err).Should(Succeed())
 
 			query := util.NewMsgWithQuestion("example.com.", A)
@@ -999,21 +1000,21 @@ var _ = Describe("Running DNS server", func() {
 		Context("UDP address", func() {
 			It("should correct resolve client IP", func() {
 				ip, protocol := resolveClientIPAndProtocol(&net.UDPAddr{IP: net.ParseIP("192.168.178.88")})
-				Expect(ip).Should(Equal(net.ParseIP("192.168.178.88")))
+				Expect(ip).Should(Equal(netip.MustParseAddr("192.168.178.88")))
 				Expect(protocol).Should(Equal(model.RequestProtocolUDP))
 			})
 		})
 		Context("TCP address", func() {
 			It("should correct resolve client IP", func() {
 				ip, protocol := resolveClientIPAndProtocol(&net.TCPAddr{IP: net.ParseIP("192.168.178.88")})
-				Expect(ip).Should(Equal(net.ParseIP("192.168.178.88")))
+				Expect(ip).Should(Equal(netip.MustParseAddr("192.168.178.88")))
 				Expect(protocol).Should(Equal(model.RequestProtocolTCP))
 			})
 		})
 		Context("unknown address type", func() {
-			It("should return nil IP and UDP protocol", func() {
+			It("should return an invalid IP and UDP protocol", func() {
 				ip, protocol := resolveClientIPAndProtocol(&net.UnixAddr{Name: "/tmp/test.sock", Net: "unix"})
-				Expect(ip).Should(BeNil())
+				Expect(ip.IsValid()).Should(BeFalse())
 				Expect(protocol).Should(Equal(model.RequestProtocolUDP))
 			})
 		})
@@ -1116,14 +1117,14 @@ var _ = Describe("Running DNS server", func() {
 
 	Describe("Query", func() {
 		It("should resolve a query", func() {
-			resp, err := sut.Query(ctx, "host.example.com", net.ParseIP("192.168.178.1"), "google.de.", dns.Type(dns.TypeA))
+			resp, err := sut.Query(ctx, "host.example.com", netip.MustParseAddr("192.168.178.1"), "google.de.", dns.Type(dns.TypeA))
 			Expect(err).Should(Succeed())
 			Expect(resp).ShouldNot(BeNil())
 			Expect(resp.Res.Answer).Should(BeDNSRecord("google.de.", A, "123.124.122.122"))
 		})
 
 		It("should resolve a query with client ID in host", func() {
-			resp, err := sut.Query(ctx, "id-myclient.example.com", net.ParseIP("192.168.178.1"), "google.de.", dns.Type(dns.TypeA))
+			resp, err := sut.Query(ctx, "id-myclient.example.com", netip.MustParseAddr("192.168.178.1"), "google.de.", dns.Type(dns.TypeA))
 			Expect(err).Should(Succeed())
 			Expect(resp).ShouldNot(BeNil())
 		})
@@ -1135,7 +1136,7 @@ var _ = Describe("Running DNS server", func() {
 			msg.Id = dns.Id()
 			// No questions set
 
-			ctx, req := newRequest(ctx, net.ParseIP("192.168.178.1"), "", model.RequestProtocolTCP, msg)
+			ctx, req := newRequest(ctx, netip.MustParseAddr("192.168.178.1"), "", model.RequestProtocolTCP, msg)
 			resp, err := sut.resolve(ctx, req)
 			Expect(err).Should(Succeed())
 			Expect(resp.Res.Rcode).Should(Equal(dns.RcodeFormatError))
@@ -1225,7 +1226,7 @@ var _ = Describe("Running DNS server", func() {
 			It("strips the OPT record added by the resolver chain from the response", func() {
 				s := newServerWithChain(chainAddingEdns0)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP,
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP,
 					util.NewMsgWithQuestion("example.com.", A))
 
 				resp, err := s.resolve(ctx, req)
@@ -1242,7 +1243,7 @@ var _ = Describe("Running DNS server", func() {
 
 				s := newServerWithChain(chainAddingEdns0)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP,
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP,
 					util.NewMsgWithQuestion("example.com.", A))
 
 				resp, err := s.resolve(ctx, req)
@@ -1259,7 +1260,7 @@ var _ = Describe("Running DNS server", func() {
 				clientMsg := util.NewMsgWithQuestion("example.com.", A)
 				clientMsg.SetEdns0(1232, false)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
@@ -1278,7 +1279,7 @@ var _ = Describe("Running DNS server", func() {
 				clientMsg := util.NewMsgWithQuestion("example.com.", A)
 				clientMsg.SetEdns0(1232, true)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
@@ -1295,7 +1296,7 @@ var _ = Describe("Running DNS server", func() {
 				clientMsg := util.NewMsgWithQuestion("example.com.", A)
 				clientMsg.SetEdns0(1232, false)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
@@ -1319,7 +1320,7 @@ var _ = Describe("Running DNS server", func() {
 				clientMsg := util.NewMsgWithQuestion("example.com.", A)
 				clientMsg.SetEdns0(1232, true)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
@@ -1361,7 +1362,7 @@ var _ = Describe("Running DNS server", func() {
 				clientMsg.SetEdns0(udpSize, do)
 				util.SetEdns0Option(clientMsg, &dns.EDNS0_COOKIE{Code: dns.EDNS0COOKIE, Cookie: clientCookie})
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
@@ -1408,7 +1409,7 @@ var _ = Describe("Running DNS server", func() {
 				clientMsg := util.NewMsgWithQuestion("example.com.", A)
 				clientMsg.SetEdns0(4096, false)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
@@ -1421,7 +1422,7 @@ var _ = Describe("Running DNS server", func() {
 
 				s := newServerWithChain(chainValidatingDNSSEC)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP,
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP,
 					util.NewMsgWithQuestion("example.com.", A))
 
 				resp, err := s.resolve(ctx, req)
@@ -1436,7 +1437,7 @@ var _ = Describe("Running DNS server", func() {
 				clientMsg := util.NewMsgWithQuestion("example.com.", A)
 				clientMsg.SetEdns0(4096, false)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
@@ -1451,7 +1452,7 @@ var _ = Describe("Running DNS server", func() {
 
 				s := newServerWithChain(chainValidatingDNSSEC)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP,
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP,
 					util.NewMsgWithQuestion("example.com.", dns.Type(dns.TypeDNSKEY)))
 
 				resp, err := s.resolve(ctx, req)
@@ -1470,7 +1471,7 @@ var _ = Describe("Running DNS server", func() {
 				clientMsg := util.NewMsgWithQuestion("example.com.", A)
 				clientMsg.SetEdns0(4096, false)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
@@ -1484,7 +1485,7 @@ var _ = Describe("Running DNS server", func() {
 
 				s := newServerWithChain(chainValidatingDNSSEC)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP,
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP,
 					util.NewMsgWithQuestion("example.com.", dns.Type(dns.TypeANY)))
 
 				resp, err := s.resolve(ctx, req)
@@ -1508,7 +1509,7 @@ var _ = Describe("Running DNS server", func() {
 
 				s := newServerWithChain(chainValidatingDNSSEC)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP,
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP,
 					util.NewMsgWithQuestion("example.com.", A))
 
 				resp, err := s.resolve(ctx, req)
@@ -1527,7 +1528,7 @@ var _ = Describe("Running DNS server", func() {
 				clientMsg := util.NewMsgWithQuestion("example.com.", A)
 				clientMsg.SetEdns0(4096, true)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
@@ -1548,7 +1549,7 @@ var _ = Describe("Running DNS server", func() {
 				clientMsg := util.NewMsgWithQuestion("example.com.", A)
 				clientMsg.AuthenticatedData = true
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, clientMsg)
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
@@ -1586,7 +1587,7 @@ var _ = Describe("Running DNS server", func() {
 
 				s := newServerWithResponse(res)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP,
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP,
 					util.NewMsgWithQuestion("example.com.", A))
 
 				resp, err := s.resolve(ctx, req)
@@ -1606,7 +1607,7 @@ var _ = Describe("Running DNS server", func() {
 
 				s := newServerWithResponse(res)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP,
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP,
 					util.NewMsgWithQuestion("example.com.", A))
 
 				resp, err := s.resolve(ctx, req)
@@ -1636,7 +1637,7 @@ var _ = Describe("Running DNS server", func() {
 				query := util.NewMsgWithQuestion("example.com.", A)
 				query.SetEdns0(1232, false)
 
-				_, req := newRequest(ctx, net.ParseIP("1.2.3.4"), "", model.RequestProtocolUDP, query)
+				_, req := newRequest(ctx, netip.MustParseAddr("1.2.3.4"), "", model.RequestProtocolUDP, query)
 
 				resp, err := s.resolve(ctx, req)
 				Expect(err).Should(Succeed())
@@ -1736,7 +1737,7 @@ var _ = Describe("Running DNS server", func() {
 			req := &model.Request{
 				Req:      util.NewMsgWithQuestion("example.com.", A),
 				Protocol: model.RequestProtocolUDP,
-				ClientIP: net.ParseIP("1.2.3.4"),
+				ClientIP: netip.MustParseAddr("1.2.3.4"),
 			}
 			s.handleReq(context.Background(), req, w)
 			Expect(w.writes).Should(BeZero())
@@ -1814,7 +1815,7 @@ func firstHTTPListenerAddr(srv *Server) string {
 	return ""
 }
 
-func proxyProtocolLine(srcIP, dstIP net.IP) string {
+func proxyProtocolLine(srcIP, dstIP netip.Addr) string {
 	return fmt.Sprintf("PROXY TCP4 %s %s 12345 443\r\n", srcIP, dstIP)
 }
 

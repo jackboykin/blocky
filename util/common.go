@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"net"
+	"net/netip"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -80,19 +80,19 @@ func QuestionToString(questions []dns.Question) string {
 }
 
 // CreateAnswerFromQuestion creates new answer from a question
-func CreateAnswerFromQuestion(question dns.Question, ip net.IP, remainingTTL uint32) (dns.RR, error) {
+func CreateAnswerFromQuestion(question dns.Question, ip netip.Addr, remainingTTL uint32) (dns.RR, error) {
 	h := CreateHeader(question, remainingTTL)
 
 	switch question.Qtype {
 	case dns.TypeA:
 		a := new(dns.A)
-		a.A = ip
+		a.A = IPFromAddr(ip)
 		a.Hdr = h
 
 		return a, nil
 	case dns.TypeAAAA:
 		a := new(dns.AAAA)
-		a.AAAA = ip
+		a.AAAA = IPFromAddr(ip)
 		a.Hdr = h
 
 		return a, nil
@@ -241,13 +241,13 @@ func ExtractCacheKey(key string) (qType dns.Type, qName string) {
 }
 
 // CidrContainsIP checks if CIDR contains a single IP
-func CidrContainsIP(cidr string, ip net.IP) bool {
-	_, ipnet, err := net.ParseCIDR(cidr)
+func CidrContainsIP(cidr string, ip netip.Addr) bool {
+	prefix, err := ParsePrefix(cidr)
 	if err != nil {
 		return false
 	}
 
-	return ipnet.Contains(ip)
+	return prefix.Contains(ip)
 }
 
 // ClientNameMatchesGroupName checks if a group with optional wildcards contains a client name

@@ -233,15 +233,15 @@ func marshalDnstapFrame(entry *LogEntry, identity string) ([]byte, error) {
 }
 
 func clientSocketFamily(clientIP string) (dnstap.SocketFamily, []byte, error) {
-	ip := net.ParseIP(clientIP)
-	if ip == nil {
+	ip := util.ParseIP(clientIP)
+	if !ip.IsValid() {
 		return 0, nil, fmt.Errorf("invalid client IP %q", clientIP)
 	}
-	if v4 := ip.To4(); v4 != nil {
-		return dnstap.SocketFamily_INET, v4, nil
+	if ip.Is4() {
+		return dnstap.SocketFamily_INET, ip.AsSlice(), nil
 	}
 
-	return dnstap.SocketFamily_INET6, ip.To16(), nil
+	return dnstap.SocketFamily_INET6, ip.AsSlice(), nil
 }
 
 func requestProtocol(protocol model.RequestProtocol) (dnstap.SocketProtocol, error) {

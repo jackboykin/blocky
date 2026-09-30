@@ -2,9 +2,9 @@ package config
 
 import (
 	"fmt"
-	"net"
 	"strings"
 
+	"github.com/0xERR0R/blocky/util"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
@@ -111,20 +111,20 @@ func (c *CustomDNS) LogConfig(logger *logrus.Entry) {
 }
 
 func configToRR(ipStr string) (dns.RR, error) {
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
+	ip := util.ParseIP(ipStr)
+	if !ip.IsValid() {
 		return nil, fmt.Errorf("invalid IP address '%s'", ipStr)
 	}
 
-	if ip.To4() != nil {
+	if ip.Is4() {
 		a := new(dns.A)
-		a.A = ip
+		a.A = util.IPFromAddr(ip)
 
 		return a, nil
 	}
 
 	aaaa := new(dns.AAAA)
-	aaaa.AAAA = ip
+	aaaa.AAAA = util.IPFromAddr(ip)
 
 	return aaaa, nil
 }

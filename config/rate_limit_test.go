@@ -1,7 +1,7 @@
 package config
 
 import (
-	"net"
+	"net/netip"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -24,10 +24,7 @@ var _ = Describe("RateLimit config", func() {
 		It("parses bare IPv6 as /128", func() {
 			n, err := parseCIDRorIP("::1")
 			Expect(err).Should(Succeed())
-			Expect(n.IP.Equal(net.ParseIP("::1"))).Should(BeTrue())
-			ones, bits := n.Mask.Size()
-			Expect(ones).Should(Equal(128))
-			Expect(bits).Should(Equal(128))
+			Expect(n).Should(Equal(netip.MustParsePrefix("::1/128")))
 		})
 
 		It("parses IPv6 CIDR", func() {

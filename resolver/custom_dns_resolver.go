@@ -3,7 +3,7 @@ package resolver
 import (
 	"context"
 	"fmt"
-	"net"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -15,18 +15,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type createAnswerFunc func(question dns.Question, ip net.IP, ttl uint32) (dns.RR, error)
+type createAnswerFunc func(question dns.Question, ip netip.Addr, ttl uint32) (dns.RR, error)
 
-// extractIPFromRecord extracts the IP address from A or AAAA records, returns nil for other types
-func extractIPFromRecord(entry dns.RR) net.IP {
+// extractIPFromRecord extracts the IP address from A or AAAA records, returns the zero Addr for other types
+func extractIPFromRecord(entry dns.RR) netip.Addr {
 	switch v := entry.(type) {
 	case *dns.A:
-		return v.A
+		return util.AddrFromIP(v.A)
 	case *dns.AAAA:
-		return v.AAAA
+		return util.AddrFromIP(v.AAAA)
 	}
 
-	return nil
+	return netip.Addr{}
 }
 
 // CustomDNSResolver resolves passed domain name to ip address defined in domain-IP map
@@ -62,7 +62,7 @@ func NewCustomDNSResolver(cfg config.CustomDNS) *CustomDNSResolver {
 
 	for url, entries := range dnsRecords {
 		for _, entry := range entries {
-			if ip := extractIPFromRecord(entry); ip != nil {
+			if ip := extractIPFromRecord(entry); ip.IsValid() {
 				r, _ := dns.ReverseAddr(ip.String())
 				reverse[r] = append(reverse[r], url)
 			}
@@ -79,14 +79,14 @@ func NewCustomDNSResolver(cfg config.CustomDNS) *CustomDNSResolver {
 	}
 }
 
-func isSupportedType(ip net.IP, question dns.Question) bool {
-	return (ip.To4() != nil && question.Qtype == dns.TypeA) ||
-		(strings.Contains(ip.String(), ":") && question.Qtype == dns.TypeAAAA)
+func isSupportedType(ip netip.Addr, question dns.Question) bool {
+	return (ip.Is4() && question.Qtype == dns.TypeA) ||
+		(ip.Is6() && question.Qtype == dns.TypeAAAA)
 }
 
 // LookupReverse returns the domain names mapped to the given IP by the custom DNS
 // configuration, consulting only in-memory data (no network I/O). Returns nil if there is no match.
-func (r *CustomDNSResolver) LookupReverse(ip net.IP) []string {
+func (r *CustomDNSResolver) LookupReverse(ip netip.Addr) []string {
 	arpa, err := dns.ReverseAddr(ip.String())
 	if err != nil {
 		return nil
@@ -202,9 +202,9 @@ func (r *CustomDNSResolver) processDNSEntry(
 ) ([]dns.RR, error) {
 	switch v := entry.(type) {
 	case *dns.A:
-		return r.processIP(v.A, question, v.Header().Ttl)
+		return r.processIP(util.AddrFromIP(v.A), question, v.Header().Ttl)
 	case *dns.AAAA:
-		return r.processIP(v.AAAA, question, v.Header().Ttl)
+		return r.processIP(util.AddrFromIP(v.AAAA), question, v.Header().Ttl)
 	case *dns.TXT:
 		return r.processTXT(v.Txt, question, v.Header().Ttl)
 	case *dns.SRV:
@@ -264,7 +264,7 @@ func (r *CustomDNSResolver) Resolve(ctx context.Context, request *model.Request)
 	return response, nil
 }
 
-func (r *CustomDNSResolver) processIP(ip net.IP, question dns.Question, ttl uint32) (result []dns.RR, err error) {
+func (r *CustomDNSResolver) processIP(ip netip.Addr, question dns.Question, ttl uint32) (result []dns.RR, err error) {
 	result = make([]dns.RR, 0)
 
 	if isSupportedType(ip, question) {

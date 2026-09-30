@@ -2,7 +2,7 @@ package resolver
 
 import (
 	"context"
-	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -10,17 +10,15 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const (
-	ipv4Bits = 32
-	ipv6Bits = 128
-)
-
-func bucketKey(ip net.IP, v4Prefix, v6Prefix uint8) string {
-	if v4 := ip.To4(); v4 != nil {
-		return v4.Mask(net.CIDRMask(int(v4Prefix), ipv4Bits)).String()
+func bucketKey(ip netip.Addr, v4Prefix, v6Prefix uint8) string {
+	bits := v6Prefix
+	if ip.Is4() {
+		bits = v4Prefix
 	}
 
-	return ip.To16().Mask(net.CIDRMask(int(v6Prefix), ipv6Bits)).String()
+	prefix, _ := ip.Prefix(int(bits))
+
+	return prefix.Addr().String()
 }
 
 type bucketEntry struct {

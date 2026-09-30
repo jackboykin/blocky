@@ -11,6 +11,7 @@ import (
 	"github.com/0xERR0R/blocky/api"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/log"
+	"github.com/0xERR0R/blocky/util"
 	"github.com/spf13/cobra"
 )
 
@@ -125,7 +126,7 @@ func initConfig() error {
 		}
 
 		if host != "" {
-			if ip := net.ParseIP(host); ip == nil || !ip.IsUnspecified() {
+			if !util.ParseIP(host).IsUnspecified() {
 				dnsHost = host
 			}
 		}

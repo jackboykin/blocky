@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -727,7 +728,7 @@ func extractClientIDFromHost(hostName string) string {
 
 func newRequest(
 	ctx context.Context,
-	clientIP net.IP, clientID string,
+	clientIP netip.Addr, clientID string,
 	protocol model.RequestProtocol, request *dns.Msg,
 ) (context.Context, *model.Request) {
 	ctx, logger := log.CtxWithFields(ctx, logrus.Fields{
@@ -755,7 +756,7 @@ func newRequest(
 
 func newRequestFromDNS(ctx context.Context, rw dns.ResponseWriter, msg *dns.Msg) (context.Context, *model.Request) {
 	var (
-		clientIP net.IP
+		clientIP netip.Addr
 		protocol model.RequestProtocol
 	)
 
@@ -875,13 +876,13 @@ func (s *Server) OnHealthCheck(ctx context.Context, w dns.ResponseWriter, reques
 	util.LogOnError(ctx, "can't write message: ", err)
 }
 
-func resolveClientIPAndProtocol(addr net.Addr) (ip net.IP, protocol model.RequestProtocol) {
+func resolveClientIPAndProtocol(addr net.Addr) (ip netip.Addr, protocol model.RequestProtocol) {
 	switch a := addr.(type) {
 	case *net.UDPAddr:
-		return a.IP, model.RequestProtocolUDP
+		return util.AddrFromIP(a.IP), model.RequestProtocolUDP
 	case *net.TCPAddr:
-		return a.IP, model.RequestProtocolTCP
+		return util.AddrFromIP(a.IP), model.RequestProtocolTCP
 	}
 
-	return nil, model.RequestProtocolUDP
+	return netip.Addr{}, model.RequestProtocolUDP
 }

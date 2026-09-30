@@ -3,7 +3,7 @@ package resolver
 import (
 	"context"
 	"errors"
-	"net"
+	"net/netip"
 	"time"
 
 	"github.com/0xERR0R/blocky/config"
@@ -188,7 +188,7 @@ var _ = Describe("RateLimitingResolver", func() {
 
 		It("does not panic when a drop is logged for a malformed empty-question request", func() {
 			req := &Request{
-				ClientIP: net.ParseIP("1.2.3.4"),
+				ClientIP: netip.MustParseAddr("1.2.3.4"),
 				Req:      new(dns.Msg),
 				Protocol: RequestProtocolUDP,
 			}

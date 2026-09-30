@@ -2,7 +2,7 @@ package metrics_test
 
 import (
 	"context"
-	"net"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -133,7 +133,7 @@ func TestAllExpectedMetricsAreRegistered(t *testing.T) {
 	dnsMsg.SetQuestion("example.com.", dns.TypeA)
 
 	req := model.Request{
-		ClientIP:        net.ParseIP("192.168.0.1"),
+		ClientIP:        netip.MustParseAddr("192.168.0.1"),
 		RequestClientID: "test-client",
 		Protocol:        model.RequestProtocolUDP,
 		ClientNames:     []string{"test-client"},

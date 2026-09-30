@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net"
+	"net/netip"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -184,21 +184,21 @@ var _ = Describe("HostsFile", func() {
 		It("succeeds", func() {
 			entry, err := sut.Next(context.Background())
 			Expect(err).Should(Succeed())
-			Expect(entry.IP).Should(Equal(net.ParseIP("127.0.0.1")))
+			Expect(entry.IP).Should(Equal(netip.MustParseAddr("127.0.0.1")))
 			Expect(entry.Name).Should(Equal("localhost"))
 			Expect(entry.Aliases).Should(BeEmpty())
 			Expect(sut.Position()).Should(Equal("line 1"))
 
 			entry, err = sut.Next(context.Background())
 			Expect(err).Should(Succeed())
-			Expect(entry.IP).Should(Equal(net.IPv6loopback))
+			Expect(entry.IP).Should(Equal(netip.IPv6Loopback()))
 			Expect(entry.Name).Should(Equal("localhost"))
 			Expect(entry.Aliases).Should(BeEmpty())
 			Expect(sut.Position()).Should(Equal("line 4"))
 
 			entry, err = sut.Next(context.Background())
 			Expect(err).Should(Succeed())
-			Expect(entry.IP).Should(Equal(net.IPv4zero))
+			Expect(entry.IP).Should(Equal(netip.IPv4Unspecified()))
 			Expect(entry.Name).Should(Equal("ipWithInterface"))
 			Expect(entry.Aliases).Should(BeEmpty())
 			Expect(sut.Position()).Should(Equal("line 5"))
@@ -220,7 +220,7 @@ var _ = Describe("HostsFile", func() {
 			It("parses them", func() {
 				entry, err := sut.Next(context.Background())
 				Expect(err).Should(Succeed())
-				Expect(entry.IP).Should(Equal(net.ParseIP("127.0.0.1")))
+				Expect(entry.IP).Should(Equal(netip.MustParseAddr("127.0.0.1")))
 				Expect(entry.Name).Should(Equal("localhost"))
 				Expect(entry.Aliases).Should(Equal([]string{"alias1", "alias2"}))
 				Expect(sut.Position()).Should(Equal("line 1"))

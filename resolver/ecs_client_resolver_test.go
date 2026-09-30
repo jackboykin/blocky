@@ -2,7 +2,7 @@ package resolver
 
 import (
 	"context"
-	"net"
+	"net/netip"
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
@@ -22,16 +22,16 @@ var _ = Describe("ECSClientResolver", func() {
 		sut       *ECSClientResolver
 		sutConfig config.ECS
 		m         *mockResolver
-		origIP    net.IP
-		ecsIP     net.IP
+		origIP    netip.Addr
+		ecsIP     netip.Addr
 	)
 
 	BeforeEach(func() {
 		Expect(defaults.Set(&sutConfig)).Should(Succeed())
 		sutConfig.UseAsClient = true
 
-		origIP = net.ParseIP("1.2.3.4").To4()
-		ecsIP = net.ParseIP("4.3.2.1").To4()
+		origIP = netip.MustParseAddr("1.2.3.4")
+		ecsIP = netip.MustParseAddr("4.3.2.1")
 	})
 
 	JustBeforeEach(func() {
@@ -115,13 +115,13 @@ var _ = Describe("ECS as client across the resolver chain (issue #2140)", func()
 	var (
 		ecsClient   *ECSClientResolver
 		upstream    *mockResolver
-		ecsIP       net.IP
-		forwarderIP net.IP
+		ecsIP       netip.Addr
+		forwarderIP netip.Addr
 	)
 
 	BeforeEach(func(ctx context.Context) {
-		ecsIP = net.ParseIP("4.3.2.1").To4()
-		forwarderIP = net.ParseIP("1.2.3.4").To4()
+		ecsIP = netip.MustParseAddr("4.3.2.1")
+		forwarderIP = netip.MustParseAddr("1.2.3.4")
 
 		// upstream returns a cacheable answer
 		answer, err := util.NewMsgWithAnswer("example.com.", 300, A, "9.9.9.9")
@@ -142,7 +142,7 @@ var _ = Describe("ECS as client across the resolver chain (issue #2140)", func()
 		// client names resolver resolves the ECS client IP -> name from an in-memory
 		// mapping, so no rDNS upstream is required for the test
 		clientNames, err := NewClientNamesResolver(ctx, config.ClientLookup{
-			ClientnameIPMapping: map[string][]net.IP{"ecs-client": {ecsIP}},
+			ClientnameIPMapping: map[string][]netip.Addr{"ecs-client": {ecsIP}},
 		}, defaultUpstreamsConfig, nil)
 		Expect(err).Should(Succeed())
 		clientNames.Next(caching)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -1045,7 +1046,7 @@ var _ = Describe("UpstreamResolver connection pooling", Label("upstreamResolver"
 				upstream := mockUpstream.StartTCPOnly()
 
 				client := &dnsUpstreamClient{tcpClient: &dns.Client{Net: transportTCP}}
-				url := client.fmtURL(net.ParseIP(upstream.Host), upstream.Port, "")
+				url := client.fmtURL(netip.MustParseAddr(upstream.Host), upstream.Port, "")
 
 				_, _, err := client.callExternal(ctx, newRequest("example.com.", A).Req, url)
 

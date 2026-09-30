@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -136,7 +137,7 @@ var _ = Describe("Common function tests", func() {
 				Qtype:  dns.TypeA,
 				Qclass: dns.ClassINET,
 			}
-			answer, err := CreateAnswerFromQuestion(question, net.ParseIP("192.168.178.1"), 25)
+			answer, err := CreateAnswerFromQuestion(question, netip.MustParseAddr("192.168.178.1"), 25)
 			Expect(err).Should(Succeed())
 			It("should return A record", func() {
 				Expect(answer.String()).Should(Equal("google.de	25	IN	A	192.168.178.1"))
@@ -148,7 +149,7 @@ var _ = Describe("Common function tests", func() {
 				Qtype:  dns.TypeAAAA,
 				Qclass: dns.ClassINET,
 			}
-			answer, err := CreateAnswerFromQuestion(question, net.ParseIP("2001:0db8:85a3:0000:0000:8a2e:0370:7334"), 25)
+			answer, err := CreateAnswerFromQuestion(question, netip.MustParseAddr("2001:0db8:85a3:0000:0000:8a2e:0370:7334"), 25)
 			Expect(err).Should(Succeed())
 			It("should return AAAA record", func() {
 				Expect(answer.String()).Should(Equal("google.de	25	IN	AAAA	2001:db8:85a3::8a2e:370:7334"))
@@ -160,7 +161,7 @@ var _ = Describe("Common function tests", func() {
 				Qtype:  dns.TypeNS,
 				Qclass: dns.ClassINET,
 			}
-			answer, err := CreateAnswerFromQuestion(question, net.ParseIP("192.168.178.1"), 25)
+			answer, err := CreateAnswerFromQuestion(question, netip.MustParseAddr("192.168.178.1"), 25)
 			Expect(err).Should(Succeed())
 			It("should return generic record as fallback", func() {
 				Expect(answer.String()).Should(Equal("google.de.	25	IN	NS	192.168.178.1."))
@@ -173,7 +174,7 @@ var _ = Describe("Common function tests", func() {
 				Qtype:  dns.TypeNS,
 				Qclass: dns.ClassINET,
 			}
-			_, err := CreateAnswerFromQuestion(question, net.ParseIP("192.168.178.1"), 25)
+			_, err := CreateAnswerFromQuestion(question, netip.MustParseAddr("192.168.178.1"), 25)
 			It("should fail", func() {
 				Expect(err).Should(HaveOccurred())
 			})
@@ -249,15 +250,15 @@ var _ = Describe("Common function tests", func() {
 
 	Describe("CIDR contains IP", func() {
 		It("should return true if CIDR (10.43.8.64 - 10.43.8.79) contains the IP", func() {
-			c := CidrContainsIP("10.43.8.67/28", net.ParseIP("10.43.8.64"))
+			c := CidrContainsIP("10.43.8.67/28", netip.MustParseAddr("10.43.8.64"))
 			Expect(c).Should(BeTrue())
 		})
 		It("should return false if CIDR (10.43.8.64 - 10.43.8.79) doesn't contain the IP", func() {
-			c := CidrContainsIP("10.43.8.67/28", net.ParseIP("10.43.8.63"))
+			c := CidrContainsIP("10.43.8.67/28", netip.MustParseAddr("10.43.8.63"))
 			Expect(c).Should(BeFalse())
 		})
 		It("should return false if CIDR is wrong", func() {
-			c := CidrContainsIP("10.43.8.67", net.ParseIP("10.43.8.63"))
+			c := CidrContainsIP("10.43.8.67", netip.MustParseAddr("10.43.8.63"))
 			Expect(c).Should(BeFalse())
 		})
 	})

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -257,7 +258,25 @@ func (b *BootstrappedUpstream) UnmarshalYAML(unmarshal func(any) error) error {
 		return fmt.Errorf("failed to unmarshal bootstrapped upstream configuration: %w", err)
 	}
 
+	if err := normalizeIPs(c.IPs); err != nil {
+		return err
+	}
+
 	*b = BootstrappedUpstream(c)
+
+	return nil
+}
+
+// normalizeIPs rejects zoned IPs and unmaps IPv4-mapped ones, the form client and
+// upstream IPs take everywhere else.
+func normalizeIPs(ips []netip.Addr) error {
+	for i, ip := range ips {
+		if ip.Zone() != "" {
+			return fmt.Errorf("invalid IP address '%s'", ip)
+		}
+
+		ips[i] = ip.Unmap()
+	}
 
 	return nil
 }
@@ -493,8 +512,8 @@ func (b *BootstrapDNS) LogConfig(*logrus.Entry) {
 type (
 	BootstrappedUpstream bootstrappedUpstream
 	bootstrappedUpstream struct {
-		Upstream Upstream `yaml:"upstream"`
-		IPs      []net.IP `yaml:"ips"`
+		Upstream Upstream     `yaml:"upstream"`
+		IPs      []netip.Addr `yaml:"ips"`
 		// Optional: read bootstrap nameservers from a resolv.conf(5) file at this path instead of listing them inline.
 		ResolvFile string `yaml:"resolvFile"`
 	}

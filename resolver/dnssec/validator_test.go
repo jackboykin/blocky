@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/0xERR0R/blocky/log"
@@ -516,7 +517,7 @@ var _ = Describe("DNSSECValidator", func() {
 		})
 
 		It("should preserve the originating client context on DNSKEY sub-queries", func() {
-			clientIP := net.ParseIP("203.0.113.9")
+			clientIP := netip.MustParseAddr("203.0.113.9")
 			budgetCtx := context.WithValue(ctx, queryBudgetKey{}, 30)
 			budgetCtx = WithClientContext(budgetCtx, clientIP, []string{"client.lan"}, "client-1")
 
@@ -613,8 +614,8 @@ var _ = Describe("DNSSECValidator", func() {
 			// GHSA-x845-2f78-7v36 finding 3: the validation cache must not be keyed by bare
 			// domain name. A status established for one client view (upstream group) must not be
 			// reused for a different view, or one response path can seed DNSSEC state for another.
-			viewA := WithClientContext(ctx, net.ParseIP("203.0.113.1"), []string{"a.lan"}, "group-a")
-			viewB := WithClientContext(ctx, net.ParseIP("198.51.100.2"), []string{"b.lan"}, "group-b")
+			viewA := WithClientContext(ctx, netip.MustParseAddr("203.0.113.1"), []string{"a.lan"}, "group-a")
+			viewB := WithClientContext(ctx, netip.MustParseAddr("198.51.100.2"), []string{"b.lan"}, "group-b")
 
 			sut.setCachedValidation(viewA, victim, ValidationResultInsecure)
 

@@ -3,8 +3,9 @@ package config
 import (
 	"errors"
 	"fmt"
-	"net"
+	"net/netip"
 
+	"github.com/0xERR0R/blocky/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -28,7 +29,7 @@ type RateLimit struct {
 	// CIDRs or IPs that are never rate-limited.
 	Allowlist []string `yaml:"allowlist"`
 
-	parsedAllowlist []*net.IPNet
+	parsedAllowlist []netip.Prefix
 }
 
 // IsEnabled implements `config.Configurable`.
@@ -63,7 +64,7 @@ func (c *RateLimit) validate() error {
 	if c.IPv6Prefix > ipv6MaxPrefix {
 		return fmt.Errorf("rateLimit: ipv6Prefix (%d) must be in [0, %d]", c.IPv6Prefix, ipv6MaxPrefix)
 	}
-	parsed := make([]*net.IPNet, 0, len(c.Allowlist))
+	parsed := make([]netip.Prefix, 0, len(c.Allowlist))
 	for _, s := range c.Allowlist {
 		ipNet, err := parseCIDRorIP(s)
 		if err != nil {
@@ -81,21 +82,15 @@ func (c *RateLimit) validate() error {
 func (c *RateLimit) ValidateForTest() error { return c.validate() }
 
 // ParsedAllowlist returns the parsed CIDR list populated by validate.
-func (c *RateLimit) ParsedAllowlist() []*net.IPNet { return c.parsedAllowlist }
+func (c *RateLimit) ParsedAllowlist() []netip.Prefix { return c.parsedAllowlist }
 
-func parseCIDRorIP(s string) (*net.IPNet, error) {
-	if _, ipNet, err := net.ParseCIDR(s); err == nil {
-		return ipNet, nil
+func parseCIDRorIP(s string) (netip.Prefix, error) {
+	if prefix, err := util.ParsePrefix(s); err == nil {
+		return prefix, nil
 	}
-	if ip := net.ParseIP(s); ip != nil {
-		bits := ipv6MaxPrefix
-		if v4 := ip.To4(); v4 != nil {
-			ip = v4
-			bits = ipv4MaxPrefix
-		}
-
-		return &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)}, nil
+	if ip := util.ParseIP(s); ip.IsValid() {
+		return netip.PrefixFrom(ip, ip.BitLen()), nil
 	}
 
-	return nil, fmt.Errorf("not a valid CIDR or IP: %q", s)
+	return netip.Prefix{}, fmt.Errorf("not a valid CIDR or IP: %q", s)
 }

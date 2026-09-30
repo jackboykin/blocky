@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/creasty/defaults"
 	"github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
 
 	"github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/log"
@@ -1079,6 +1081,19 @@ bootstrapDns:
 			}
 
 			Expect(sut.IsEnabled()).Should(BeTrue())
+		})
+
+		It("unmaps IPv4-mapped bootstrap IPs", func() {
+			var sut BootstrappedUpstream
+			Expect(yaml.UnmarshalStrict([]byte("upstream: tcp-tls:dns.example:853\nips: ['::ffff:1.2.3.4']"), &sut)).
+				Should(Succeed())
+			Expect(sut.IPs).Should(Equal([]netip.Addr{netip.MustParseAddr("1.2.3.4")}))
+		})
+
+		It("rejects zoned bootstrap IPs", func() {
+			var sut BootstrappedUpstream
+			Expect(yaml.UnmarshalStrict([]byte("upstream: tcp-tls:dns.example:853\nips: ['fe80::1%eth0']"), &sut)).
+				ShouldNot(Succeed())
 		})
 
 		It("LogConfig panics", func() {

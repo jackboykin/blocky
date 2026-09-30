@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/0xERR0R/blocky/config"
@@ -105,7 +106,7 @@ var _ = Describe("CustomDNSResolver", func() {
 		})
 		When("Creating the IP response returns an error ", func() {
 			It("should return the error", func() {
-				createAnswerMock := func(_ dns.Question, _ net.IP, _ uint32) (dns.RR, error) {
+				createAnswerMock := func(_ dns.Question, _ netip.Addr, _ uint32) (dns.RR, error) {
 					return nil, errors.New("create answer error")
 				}
 
@@ -551,17 +552,17 @@ var _ = Describe("CustomDNSResolver", func() {
 
 	Describe("LookupReverse", func() {
 		It("returns the mapped domain names for a known IPv4 address", func() {
-			Expect(sut.LookupReverse(net.ParseIP("192.168.143.123"))).
+			Expect(sut.LookupReverse(netip.MustParseAddr("192.168.143.123"))).
 				Should(ConsistOf("custom.domain", "multiple.ips"))
 		})
 
 		It("returns the mapped domain names for a known IPv6 address", func() {
-			Expect(sut.LookupReverse(net.ParseIP("2001:0db8:85a3:0000:0000:8a2e:0370:7334"))).
+			Expect(sut.LookupReverse(netip.MustParseAddr("2001:0db8:85a3:0000:0000:8a2e:0370:7334"))).
 				Should(ConsistOf("ip6.domain", "multiple.ips"))
 		})
 
 		It("returns nil for an unknown IP", func() {
-			Expect(sut.LookupReverse(net.ParseIP("8.8.8.8"))).Should(BeNil())
+			Expect(sut.LookupReverse(netip.MustParseAddr("8.8.8.8"))).Should(BeNil())
 		})
 	})
 

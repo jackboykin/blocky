@@ -6,11 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
+	"net/netip"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/0xERR0R/blocky/util"
 	"github.com/hashicorp/go-multierror"
 	"golang.org/x/net/idna"
 )
@@ -136,7 +137,7 @@ func HostsFile(r io.Reader) SeriesParser[*HostsFileEntry] {
 
 // HostsFileEntry is an entry from an OS hosts file.
 type HostsFileEntry struct {
-	IP        net.IP
+	IP        netip.Addr
 	Interface string
 	Name      string
 	Aliases   []string
@@ -162,8 +163,8 @@ func (e *HostsFileEntry) UnmarshalText(data []byte) error {
 		ipStr = ipStr[:idx]
 	}
 
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
+	ip := util.ParseIP(ipStr)
+	if !ip.IsValid() {
 		return fmt.Errorf("invalid ip: %s", fields[0])
 	}
 
@@ -383,11 +384,11 @@ func isRegex(host string) bool {
 	return len(host) >= 2 && strings.HasPrefix(host, "/") && strings.HasSuffix(host, "/")
 }
 
-// MightBeIP reports whether s could possibly be parsed as an IP by net.ParseIP,
+// MightBeIP reports whether s could possibly be parsed as an IP by util.ParseIP,
 // i.e. it is non-empty and contains only characters that appear in IPv4/IPv6
-// literals. It is a cheap pre-check used to avoid calling net.ParseIP (which
-// allocates) on the overwhelming majority of entries, which are domain names.
-// It never returns false for a string that net.ParseIP would accept.
+// literals. It is a cheap pre-check used to avoid calling util.ParseIP on the
+// overwhelming majority of entries, which are domain names.
+// It never returns false for a string that util.ParseIP would accept.
 func MightBeIP(s string) bool {
 	if s == "" {
 		return false
@@ -408,7 +409,7 @@ func MightBeIP(s string) bool {
 }
 
 func validateHostsListEntry(host string) error {
-	if MightBeIP(host) && net.ParseIP(host) != nil {
+	if MightBeIP(host) && util.ParseIP(host).IsValid() {
 		return nil
 	}
 

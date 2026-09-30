@@ -209,7 +209,7 @@ func clientID(request *model.Request) string {
 		return name
 	}
 
-	if request.ClientIP != nil {
+	if request.ClientIP.IsValid() {
 		return request.ClientIP.String()
 	}
 

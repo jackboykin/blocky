@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
@@ -63,7 +64,7 @@ func (r *ECSClientResolver) Resolve(ctx context.Context, request *model.Request)
 		if so != nil && so.Address != nil && ((so.Family == ecsFamilyIPv4 && so.SourceNetmask == ecsMaskIPv4) ||
 			(so.Family == ecsFamilyIPv6 && so.SourceNetmask == ecsMaskIPv6)) {
 			logger.Debugf("using request's edns0 address as internal client IP: %s", so.Address)
-			request.ClientIP = so.Address
+			request.ClientIP = util.AddrFromIP(so.Address)
 		}
 	}
 
@@ -126,21 +127,21 @@ func (r *ECSResolver) Resolve(ctx context.Context, request *model.Request) (*mod
 // setSubnet appends the subnet information to the request as EDNS0 option
 // if the client IP is IPv4 or IPv6 and the corresponding mask is set in the configuration
 func (r *ECSResolver) setSubnet(so *dns.EDNS0_SUBNET, request *model.Request, logger *logrus.Entry) {
-	var subIP net.IP
+	var subIP netip.Addr
 	if so != nil && r.cfg.Forward && so.Address != nil {
-		subIP = so.Address
+		subIP = util.AddrFromIP(so.Address)
 	} else {
 		subIP = request.ClientIP
 	}
 
 	var edsOption *dns.EDNS0_SUBNET
 
-	if ip := subIP.To4(); ip != nil && r.cfg.IPv4Mask > 0 {
-		if mip, err := maskIP(ip, r.cfg.IPv4Mask); err == nil {
+	if subIP.Is4() && r.cfg.IPv4Mask > 0 {
+		if mip, err := maskIP(subIP, r.cfg.IPv4Mask); err == nil {
 			edsOption = newEdnsSubnetOption(mip, ecsFamilyIPv4, r.cfg.IPv4Mask)
 		}
-	} else if ip := subIP.To16(); ip != nil && r.cfg.IPv6Mask > 0 {
-		if mip, err := maskIP(ip, r.cfg.IPv6Mask); err == nil {
+	} else if subIP.Is6() && r.cfg.IPv6Mask > 0 {
+		if mip, err := maskIP(subIP, r.cfg.IPv6Mask); err == nil {
 			edsOption = newEdnsSubnetOption(mip, ecsFamilyIPv6, r.cfg.IPv6Mask)
 		}
 	}
@@ -152,22 +153,22 @@ func (r *ECSResolver) setSubnet(so *dns.EDNS0_SUBNET, request *model.Request, lo
 }
 
 // maskIP masks the IP with the given mask and return an error if the mask is invalid
-func maskIP[maskType ECSMask](ip net.IP, mask maskType) (net.IP, error) {
-	_, mip, err := net.ParseCIDR(fmt.Sprintf("%s/%d", ip.String(), mask))
+func maskIP[maskType ECSMask](ip netip.Addr, mask maskType) (netip.Addr, error) {
+	prefix, err := ip.Prefix(int(mask))
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse CIDR for ECS mask (IP: %s, mask: %d): %w", ip, mask, err)
+		return netip.Addr{}, fmt.Errorf("failed to mask IP for ECS (IP: %s, mask: %d): %w", ip, mask, err)
 	}
 
-	return mip.IP, nil
+	return prefix.Addr(), nil
 }
 
 // newEdnsSubnetOption( creates a new EDNS0 subnet option with the given IP, family and mask
-func newEdnsSubnetOption[maskType ECSMask](ip net.IP, family uint16, mask maskType) *dns.EDNS0_SUBNET {
+func newEdnsSubnetOption[maskType ECSMask](ip netip.Addr, family uint16, mask maskType) *dns.EDNS0_SUBNET {
 	return &dns.EDNS0_SUBNET{
 		Code:          dns.EDNS0SUBNET,
 		SourceScope:   ecsSourceScope,
 		Family:        family,
 		SourceNetmask: uint8(mask),
-		Address:       ip,
+		Address:       ip.AsSlice(),
 	}
 }

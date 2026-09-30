@@ -3,7 +3,7 @@ package resolver
 import (
 	"context"
 	"errors"
-	"net"
+	"net/netip"
 	"time"
 
 	"github.com/0xERR0R/blocky/config"
@@ -87,7 +87,7 @@ func (r *RateLimitingResolver) Resolve(ctx context.Context, req *model.Request) 
 		return r.next.Resolve(ctx, req)
 	}
 	ip := req.ClientIP
-	if ip == nil || r.isAllowlisted(ip) {
+	if !ip.IsValid() || r.isAllowlisted(ip) {
 		return r.next.Resolve(ctx, req)
 	}
 	key := bucketKey(ip, r.cfg.IPv4Prefix, r.cfg.IPv6Prefix)
@@ -103,7 +103,7 @@ func (r *RateLimitingResolver) Resolve(ctx context.Context, req *model.Request) 
 	return nil, ErrRateLimited
 }
 
-func (r *RateLimitingResolver) isAllowlisted(ip net.IP) bool {
+func (r *RateLimitingResolver) isAllowlisted(ip netip.Addr) bool {
 	for _, n := range r.cfg.ParsedAllowlist() {
 		if n.Contains(ip) {
 			return true

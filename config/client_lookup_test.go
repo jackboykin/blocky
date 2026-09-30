@@ -1,11 +1,12 @@
 package config
 
 import (
-	"net"
+	"net/netip"
 
 	"github.com/creasty/defaults"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"gopkg.in/yaml.v2"
 )
 
 var _ = Describe("ClientLookupConfig", func() {
@@ -17,8 +18,8 @@ var _ = Describe("ClientLookupConfig", func() {
 		cfg = ClientLookup{
 			Upstream:        Upstream{Net: NetProtocolTcpUdp, Host: "host"},
 			SingleNameOrder: []uint{1, 2},
-			ClientnameIPMapping: map[string][]net.IP{
-				"client8": {net.ParseIP("1.2.3.5")},
+			ClientnameIPMapping: map[string][]netip.Addr{
+				"client8": {netip.MustParseAddr("1.2.3.5")},
 			},
 		}
 	})
@@ -44,14 +45,27 @@ var _ = Describe("ClientLookupConfig", func() {
 
 				By("mapping", func() {
 					cfg := ClientLookup{
-						ClientnameIPMapping: map[string][]net.IP{
-							"client8": {net.ParseIP("1.2.3.5")},
+						ClientnameIPMapping: map[string][]netip.Addr{
+							"client8": {netip.MustParseAddr("1.2.3.5")},
 						},
 					}
 
 					Expect(cfg.IsEnabled()).Should(BeTrue())
 				})
 			})
+		})
+	})
+
+	Describe("UnmarshalYAML", func() {
+		It("unmaps IPv4-mapped client IPs", func() {
+			var c ClientLookup
+			Expect(yaml.UnmarshalStrict([]byte("clients:\n  laptop: ['::ffff:192.168.1.2']"), &c)).Should(Succeed())
+			Expect(c.ClientnameIPMapping).Should(HaveKeyWithValue("laptop", []netip.Addr{netip.MustParseAddr("192.168.1.2")}))
+		})
+
+		It("rejects zoned client IPs", func() {
+			var c ClientLookup
+			Expect(yaml.UnmarshalStrict([]byte("clients:\n  laptop: ['fe80::1%eth0']"), &c)).ShouldNot(Succeed())
 		})
 	})
 

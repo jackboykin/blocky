@@ -13,7 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
-	"strconv"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -104,7 +104,7 @@ type UpstreamResolver struct {
 type upstreamClient interface {
 	io.Closer
 
-	fmtURL(ip net.IP, port uint16, path string) string
+	fmtURL(ip netip.Addr, port uint16, path string) string
 	callExternal(
 		ctx context.Context, msg *dns.Msg, upstreamURL string,
 	) (response *dns.Msg, rtt time.Duration, err error)
@@ -241,8 +241,8 @@ func createUpstreamClient(cfg upstreamConfig) upstreamClient {
 	}
 }
 
-func (r *httpUpstreamClient) fmtURL(ip net.IP, port uint16, path string) string {
-	return fmt.Sprintf("https://%s%s", net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), path)
+func (r *httpUpstreamClient) fmtURL(ip netip.Addr, port uint16, path string) string {
+	return fmt.Sprintf("https://%s%s", netip.AddrPortFrom(ip, port), path)
 }
 
 // Close releases idle keep-alive connections. Implements io.Closer.
@@ -386,8 +386,8 @@ func (r *httpUpstreamClient) callExternal(
 	return &response, time.Since(start), nil
 }
 
-func (r *dnsUpstreamClient) fmtURL(ip net.IP, port uint16, _ string) string {
-	return net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))
+func (r *dnsUpstreamClient) fmtURL(ip netip.Addr, port uint16, _ string) string {
+	return netip.AddrPortFrom(ip, port).String()
 }
 
 // Close releases the connection pool's idle connections, if pooling is in use
@@ -626,7 +626,7 @@ func (r *UpstreamResolver) Resolve(ctx context.Context, request *model.Request) 
 
 	var (
 		resp *dns.Msg
-		ip   net.IP
+		ip   netip.Addr
 	)
 
 	err = retry.Do(
@@ -671,7 +671,7 @@ func (r *UpstreamResolver) Resolve(ctx context.Context, request *model.Request) 
 }
 
 func (r *UpstreamResolver) logResponse(
-	logger *logrus.Entry, request *model.Request, resp *dns.Msg, ip net.IP, rtt time.Duration,
+	logger *logrus.Entry, request *model.Request, resp *dns.Msg, ip netip.Addr, rtt time.Duration,
 ) {
 	// runs on every successful upstream response (every cache miss); skip building the
 	// (expensive) answer string / field map entirely when Debug isn't enabled.

@@ -3,6 +3,7 @@ package resolver
 import (
 	"context"
 	"net"
+	"net/netip"
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
@@ -24,8 +25,8 @@ var _ = Describe("EcsResolver", func() {
 		m          *mockResolver
 		mockAnswer *dns.Msg
 		err        error
-		origIP     net.IP
-		ecsIP      net.IP
+		origIP     netip.Addr
+		ecsIP      netip.Addr
 	)
 
 	Describe("Type", func() {
@@ -39,8 +40,8 @@ var _ = Describe("EcsResolver", func() {
 		Expect(err).Should(Succeed())
 
 		mockAnswer = new(dns.Msg)
-		origIP = net.ParseIP("1.2.3.4").To4()
-		ecsIP = net.ParseIP("4.3.2.1").To4()
+		origIP = netip.MustParseAddr("1.2.3.4")
+		ecsIP = netip.MustParseAddr("4.3.2.1")
 	})
 
 	JustBeforeEach(func() {
@@ -76,6 +77,25 @@ var _ = Describe("EcsResolver", func() {
 			})
 		})
 
+		When("only an IPv6 mask is set", func() {
+			BeforeEach(func() {
+				sutConfig.IPv6Mask = 24
+			})
+
+			It("should not add ECS information for an IPv4 client", func(ctx context.Context) {
+				request := newRequest("example.com.", A)
+				request.ClientIP = origIP
+
+				m.ResolveFn = func(ctx context.Context, req *Request) (*Response, error) {
+					Expect(req.Req).ShouldNot(HaveEdnsOption(dns.EDNS0SUBNET))
+
+					return respondWith(mockAnswer), nil
+				}
+
+				Expect(sut.Resolve(ctx, request)).Should(HaveReason("Test"))
+			})
+		})
+
 		When("add ECS information", func() {
 			BeforeEach(func() {
 				sutConfig.IPv4Mask = 32
@@ -104,7 +124,7 @@ var _ = Describe("EcsResolver", func() {
 
 			It("should add ECS information with subnet 128", func(ctx context.Context) {
 				request := newRequest("example.com.", AAAA)
-				request.ClientIP = net.ParseIP("2001:db8::68")
+				request.ClientIP = netip.MustParseAddr("2001:db8::68")
 
 				m.ResolveFn = func(ctx context.Context, req *Request) (*Response, error) {
 					Expect(req.Req).Should(HaveEdnsOption(dns.EDNS0SUBNET))
@@ -140,7 +160,7 @@ var _ = Describe("EcsResolver", func() {
 					Expect(req.Req).Should(HaveEdnsOption(dns.EDNS0SUBNET))
 
 					so := util.GetEdns0Option[*dns.EDNS0_SUBNET](req.Req)
-					Expect(so.Address).Should(Equal(ecsIP))
+					Expect(so.Address).Should(Equal(net.IP(ecsIP.AsSlice())))
 
 					return respondWith(mockAnswer), nil
 				}
@@ -187,9 +207,9 @@ var _ = Describe("EcsResolver", func() {
 
 			It("should forward ECS information with subnet 128", func(ctx context.Context) {
 				request := newRequest("example.com.", AAAA)
-				request.ClientIP = net.ParseIP("2001:db8::68")
+				request.ClientIP = netip.MustParseAddr("2001:db8::68")
 
-				addEcsOption(request.Req, net.ParseIP("2001:db8::68"), 128)
+				addEcsOption(request.Req, netip.MustParseAddr("2001:db8::68"), 128)
 
 				m.ResolveFn = func(ctx context.Context, req *Request) (*Response, error) {
 					Expect(req.Req).Should(HaveEdnsOption(dns.EDNS0SUBNET))
@@ -250,24 +270,24 @@ var _ = Describe("EcsResolver", func() {
 
 	Context("maskIP", func() {
 		It("should mask IPv4", func() {
-			ip := net.ParseIP("192.168.10.123")
+			ip := netip.MustParseAddr("192.168.10.123")
 			mask := config.ECSv4Mask(24)
 
 			mip, err := maskIP(ip, mask)
 			Expect(err).Should(Succeed())
-			Expect(mip).Should(Equal(net.ParseIP("192.168.10.0").To4()))
+			Expect(mip).Should(Equal(netip.MustParseAddr("192.168.10.0")))
 		})
 	})
 })
 
 // addEcsOption adds the subnet information to the request as EDNS0 option
-func addEcsOption(req *dns.Msg, ip net.IP, netmask uint8) {
+func addEcsOption(req *dns.Msg, ip netip.Addr, netmask uint8) {
 	e := new(dns.EDNS0_SUBNET)
 	e.Code = dns.EDNS0SUBNET
 	e.SourceScope = ecsSourceScope
 	e.Family = ecsFamilyIPv4
 	e.SourceNetmask = netmask
-	e.Address = ip
+	e.Address = ip.AsSlice()
 	util.SetEdns0Option(req, e)
 }
 

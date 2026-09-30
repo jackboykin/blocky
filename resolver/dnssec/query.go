@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
+	"net/netip"
 
 	"github.com/0xERR0R/blocky/model"
 	"github.com/miekg/dns"
@@ -22,7 +22,7 @@ type clientContextKey struct{}
 
 // clientContext holds the originating client's identity for DNSSEC sub-queries.
 type clientContext struct {
-	ip       net.IP
+	ip       netip.Addr
 	names    []string
 	clientID string
 }
@@ -30,7 +30,7 @@ type clientContext struct {
 // WithClientContext returns a context carrying the originating client's identity so
 // DNSSEC auxiliary queries issued during validation preserve it. Called by the DNSSEC
 // resolver before validating a response.
-func WithClientContext(ctx context.Context, ip net.IP, names []string, clientID string) context.Context {
+func WithClientContext(ctx context.Context, ip netip.Addr, names []string, clientID string) context.Context {
 	return context.WithValue(ctx, clientContextKey{}, clientContext{ip: ip, names: names, clientID: clientID})
 }
 

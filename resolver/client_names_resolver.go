@@ -3,7 +3,7 @@ package resolver
 import (
 	"context"
 	"fmt"
-	"net"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -21,7 +21,7 @@ import (
 // reverseLookuper resolves host names for an IP from local, in-memory data only
 // (e.g. hosts files or custom DNS). It performs no network I/O.
 type reverseLookuper interface {
-	LookupReverse(ip net.IP) []string
+	LookupReverse(ip netip.Addr) []string
 }
 
 // ClientNamesResolver tries to determine client name by asking responsible DNS server via rDNS (reverse lookup)
@@ -90,7 +90,7 @@ func (r *ClientNamesResolver) getClientNames(ctx context.Context, request *model
 	}
 
 	ip := request.ClientIP
-	if ip == nil {
+	if !ip.IsValid() {
 		return []string{}
 	}
 
@@ -110,7 +110,7 @@ func (r *ClientNamesResolver) getClientNames(ctx context.Context, request *model
 	return names
 }
 
-func extractClientNamesFromAnswer(answer []dns.RR, fallbackIP net.IP) (clientNames []string) {
+func extractClientNamesFromAnswer(answer []dns.RR, fallbackIP netip.Addr) (clientNames []string) {
 	for _, answer := range answer {
 		if t, ok := answer.(*dns.PTR); ok {
 			hostName := strings.TrimSuffix(t.Ptr, ".")
@@ -127,7 +127,7 @@ func extractClientNamesFromAnswer(answer []dns.RR, fallbackIP net.IP) (clientNam
 
 // tries to resolve client name from mapping, then from local in-memory sources,
 // and performs a reverse DNS lookup against the configured upstream otherwise
-func (r *ClientNamesResolver) resolveClientNames(ctx context.Context, ip net.IP) (result []string) {
+func (r *ClientNamesResolver) resolveClientNames(ctx context.Context, ip netip.Addr) (result []string) {
 	ctx, logger := r.log(ctx)
 
 	// try client mapping first
@@ -171,7 +171,7 @@ func (r *ClientNamesResolver) resolveClientNames(ctx context.Context, ip net.IP)
 
 // lookupLocalReverse returns the first non-empty result from the configured local
 // reverse lookupers (hosts file, custom DNS), or nil if none has a name for the IP.
-func (r *ClientNamesResolver) lookupLocalReverse(ip net.IP) []string {
+func (r *ClientNamesResolver) lookupLocalReverse(ip netip.Addr) []string {
 	for _, l := range r.reverseLookupers {
 		if names := l.LookupReverse(ip); len(names) > 0 {
 			return names
@@ -198,10 +198,10 @@ func applySingleNameOrder(names []string, order []uint) []string {
 	return nil
 }
 
-func (r *ClientNamesResolver) getNameFromIPMapping(ip net.IP, result []string) []string {
+func (r *ClientNamesResolver) getNameFromIPMapping(ip netip.Addr, result []string) []string {
 	for name, ips := range r.cfg.ClientnameIPMapping {
 		for _, i := range ips {
-			if ip.String() == i.String() {
+			if ip == i {
 				result = append(result, name)
 			}
 		}

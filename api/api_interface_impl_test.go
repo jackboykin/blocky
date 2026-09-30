@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/0xERR0R/blocky/model"
@@ -79,7 +80,7 @@ var _ = Describe("API implementation tests", func() {
 				)
 				Expect(err).Should(Succeed())
 
-				querierMock.On("Query", ctx, "", net.IP(nil), "google.com.", A).Return(&model.Response{
+				querierMock.On("Query", ctx, "", netip.Addr{}, "google.com.", A).Return(&model.Response{
 					Res:    queryResponse,
 					Reason: "reason",
 				}, nil)
@@ -111,7 +112,7 @@ var _ = Describe("API implementation tests", func() {
 					)
 					Expect(err).Should(Succeed())
 
-					querierMock.On("Query", ctx, "", net.IP(nil), "example.com.", A).Return(&model.Response{
+					querierMock.On("Query", ctx, "", netip.Addr{}, "example.com.", A).Return(&model.Response{
 						Res:    queryResponse,
 						Reason: "RESOLVED (tcp+udp:1.1.1.1)",
 					}, nil)
@@ -131,7 +132,7 @@ var _ = Describe("API implementation tests", func() {
 				r, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://blocky.localhost", nil)
 				Expect(err).Should(Succeed())
 
-				clientIP := net.IPv4allrouter
+				clientIP := netip.MustParseAddr("224.0.0.2")
 				r.RemoteAddr = net.JoinHostPort(clientIP.String(), "89685")
 
 				ctx = context.WithValue(ctx, httpReqCtxKey{}, r)

@@ -8,8 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net"
-	"strconv"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -48,8 +47,8 @@ func newQuicUpstreamClient(tlsConfig *tls.Config, cfg config.QUICConfig) *quicUp
 	}
 }
 
-func (r *quicUpstreamClient) fmtURL(ip net.IP, port uint16, _ string) string {
-	return net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))
+func (r *quicUpstreamClient) fmtURL(ip netip.Addr, port uint16, _ string) string {
+	return netip.AddrPortFrom(ip, port).String()
 }
 
 func (r *quicUpstreamClient) callExternal(

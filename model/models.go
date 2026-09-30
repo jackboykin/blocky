@@ -2,7 +2,7 @@ package model
 
 //go:generate go tool go-enum -f=$GOFILE --marshal --names
 import (
-	"net"
+	"net/netip"
 	"time"
 
 	"github.com/miekg/dns"
@@ -81,7 +81,7 @@ type RequestProtocol uint8
 
 // Request represents client's DNS request
 type Request struct {
-	ClientIP        net.IP
+	ClientIP        netip.Addr
 	RequestClientID string
 	Protocol        RequestProtocol
 	ClientNames     []string

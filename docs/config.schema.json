@@ -562,7 +562,11 @@
           "additionalProperties": {
             "items": {
               "type": "string",
-              "format": "ipv4"
+              "description": "IP address.",
+              "examples": [
+                "192.168.178.3",
+                "2001:db8::1"
+              ]
             },
             "type": "array"
           },

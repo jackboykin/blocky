@@ -24,7 +24,6 @@ require (
 	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/jedisct1/go-dnsstamps v0.0.0-20260518121737-6579dc73e4a2
 	github.com/mattn/go-colorable v0.1.15
-	github.com/miekg/dns v1.1.73
 	github.com/moby/moby/api v1.56.0
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/onsi/ginkgo/v2 v2.33.0
@@ -126,6 +125,7 @@ require (
 	github.com/mattn/goveralls v0.0.12 // indirect
 	github.com/mdelapenya/tlscert v0.2.0 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
+	github.com/miekg/dns v1.1.73 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect

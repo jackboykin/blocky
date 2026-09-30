@@ -16,12 +16,12 @@ import (
 	"time"
 
 	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsconf"
 	"codeberg.org/miekg/dns/dnsutil"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 	"github.com/hashicorp/go-multierror"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -398,7 +398,7 @@ func (b *Bootstrap) addResolvFileUpstreams(
 
 	path := upstreamCfg.ResolvFile
 
-	cc, err := dnsv1.ClientConfigFromFile(path)
+	cc, err := dnsconf.FromFile(path)
 	if err != nil {
 		return fmt.Errorf("resolvFile '%s': %w", path, err)
 	}

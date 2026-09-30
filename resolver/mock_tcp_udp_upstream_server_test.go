@@ -1,13 +1,13 @@
 package resolver
 
 import (
+	"context"
 	"net"
 	"sync/atomic"
 
 	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/onsi/ginkgo/v2"
 )
 
@@ -25,8 +25,8 @@ type mockTCPUDPUpstreamServer struct {
 	tcpAnswer answerFn
 	udpCount  atomic.Int32
 	tcpCount  atomic.Int32
-	udpSrv    *dnsv1.Server
-	tcpSrv    *dnsv1.Server
+	udpSrv    *dns.Server
+	tcpSrv    *dns.Server
 }
 
 func newMockTCPUDPUpstreamServer(udpAnswer, tcpAnswer answerFn) *mockTCPUDPUpstreamServer {
@@ -42,28 +42,28 @@ func (m *mockTCPUDPUpstreamServer) TCPCallCount() int { return int(m.tcpCount.Lo
 
 func (m *mockTCPUDPUpstreamServer) Close() {
 	if m.udpSrv != nil {
-		_ = m.udpSrv.Shutdown()
+		m.udpSrv.Shutdown(context.Background())
 	}
 
 	if m.tcpSrv != nil {
-		_ = m.tcpSrv.Shutdown()
+		m.tcpSrv.Shutdown(context.Background())
 	}
 }
 
-func (m *mockTCPUDPUpstreamServer) handler(counter *atomic.Int32, answer answerFn) dnsv1.HandlerFunc {
-	return func(w dnsv1.ResponseWriter, request1 *dnsv1.Msg) {
+func (m *mockTCPUDPUpstreamServer) handler(counter *atomic.Int32, answer answerFn) dns.HandlerFunc {
+	return func(_ context.Context, w dns.ResponseWriter, r *dns.Msg) {
 		defer ginkgo.GinkgoRecover()
 
 		counter.Add(1)
 
-		request, err := util.MsgFromV1(request1)
-		util.FatalOnError("can't convert message: ", err)
+		request, err := util.UnpackMsg(r.Data)
+		util.FatalOnError("can't unpack message: ", err)
 
 		resp := answer(request)
 		if resp == nil {
 			// nil simulates a broken upstream, like in MockUDPUpstreamServer: answer with
 			// garbage the client can't parse
-			_, _ = w.Write([]byte("dummy"))
+			_, _ = (&dns.Msg{Data: []byte("dummy")}).WriteTo(w)
 
 			return
 		}
@@ -74,8 +74,23 @@ func (m *mockTCPUDPUpstreamServer) handler(counter *atomic.Int32, answer answerF
 		buf, err := util.PackMsg(resp)
 		util.FatalOnError("can't pack message: ", err)
 
-		_, _ = w.Write(buf)
+		_, _ = (&dns.Msg{Data: buf}).WriteTo(w)
 	}
+}
+
+// serve starts srv and waits until it listens, as shutting down a server that never started
+// panics.
+func serve(srv *dns.Server) {
+	started := make(chan struct{})
+	srv.NotifyStartedFunc = func(context.Context) { close(started) }
+	srv.MsgAcceptFunc = func(*dns.Msg) dns.MsgAcceptAction { return dns.MsgAccept }
+
+	go func() {
+		defer ginkgo.GinkgoRecover()
+		_ = srv.ListenAndServe()
+	}()
+
+	<-started
 }
 
 func (m *mockTCPUDPUpstreamServer) Start() config.Upstream {
@@ -108,23 +123,15 @@ func (m *mockTCPUDPUpstreamServer) start(udp, tcp bool) config.Upstream {
 	util.FatalOnError("can't create TCP listener: ", err)
 
 	if udp {
-		m.udpSrv = &dnsv1.Server{PacketConn: udpConn, Handler: m.handler(&m.udpCount, m.udpAnswer)}
-
-		go func() {
-			defer ginkgo.GinkgoRecover()
-			_ = m.udpSrv.ActivateAndServe()
-		}()
+		m.udpSrv = &dns.Server{PacketConn: udpConn, Handler: m.handler(&m.udpCount, m.udpAnswer)}
+		serve(m.udpSrv)
 	} else {
 		_ = udpConn.Close()
 	}
 
 	if tcp {
-		m.tcpSrv = &dnsv1.Server{Listener: tcpLn, Handler: m.handler(&m.tcpCount, m.tcpAnswer)}
-
-		go func() {
-			defer ginkgo.GinkgoRecover()
-			_ = m.tcpSrv.ActivateAndServe()
-		}()
+		m.tcpSrv = &dns.Server{Listener: tcpLn, Handler: m.handler(&m.tcpCount, m.tcpAnswer)}
+		serve(m.tcpSrv)
 	} else {
 		_ = tcpLn.Close()
 	}

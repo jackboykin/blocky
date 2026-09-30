@@ -10,7 +10,6 @@ import (
 	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/onsi/ginkgo/v2"
 )
 
@@ -143,25 +142,20 @@ func (t *MockDoTUpstreamServer) handleConn(conn net.Conn) {
 	t.openConns.Add(1)
 	defer t.openConns.Add(-1)
 
-	dnsConn := &dnsv1.Conn{Conn: conn}
-
 	var served int32
 
 	for {
-		msg1, err := dnsConn.ReadMsg()
+		msg, err := readMsg(conn, false, 0)
 		if err != nil {
 			return
 		}
 
-		msg, err := util.MsgFromV1(msg1)
-		util.FatalOnError("can't convert message: ", err)
-
 		t.callCount.Add(1)
 
-		response, err := util.MsgToV1(mockReply(msg, t.answerFn(msg)))
-		util.FatalOnError("can't convert message: ", err)
+		response, err := util.PackMsg(mockReply(msg, t.answerFn(msg)))
+		util.FatalOnError("can't serialize message: ", err)
 
-		if err := dnsConn.WriteMsg(response); err != nil {
+		if err := writeMsg(conn, response, false); err != nil {
 			return
 		}
 

@@ -4,14 +4,16 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	"github.com/spf13/cobra"
 )
 
 const (
-	defaultDNSPort   = 53
-	defaultIPAddress = "127.0.0.1"
+	defaultDNSPort     = 53
+	defaultIPAddress   = "127.0.0.1"
+	healthcheckTimeout = 2 * time.Second
 )
 
 func NewHealthcheckCommand() *cobra.Command {
@@ -50,13 +52,15 @@ func healthcheck(cmd *cobra.Command, args []string) error {
 		bindIP = dnsHost
 	}
 
-	c := new(dnsv1.Client)
-	c.Net = "tcp"
-	m := new(dnsv1.Msg)
-	m.SetQuestion("healthcheck.blocky.", dnsv1.TypeA)
+	c := &dns.Client{Transport: &dns.Transport{
+		Dialer:       &net.Dialer{Timeout: healthcheckTimeout},
+		ReadTimeout:  healthcheckTimeout,
+		WriteTimeout: healthcheckTimeout,
+	}}
+	m := dns.NewMsg("healthcheck.blocky.", dns.TypeA)
 
 	addr := net.JoinHostPort(bindIP, strconv.FormatUint(uint64(port), 10))
-	_, _, err := c.Exchange(m, addr)
+	_, _, err := c.Exchange(cmd.Context(), m, "tcp", addr)
 
 	if err == nil {
 		fmt.Println("OK")

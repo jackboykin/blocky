@@ -3,6 +3,7 @@ package e2e
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/netip"
@@ -10,9 +11,7 @@ import (
 	"time"
 
 	"codeberg.org/miekg/dns"
-	"github.com/0xERR0R/blocky/util"
 	"github.com/jedisct1/go-dnsstamps"
-	dnsv1 "github.com/miekg/dns"
 	dockernetwork "github.com/moby/moby/api/types/network"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -84,23 +83,37 @@ func startContainerWithNetwork(ctx context.Context, req testcontainers.Container
 
 // doDNSRequest sends the given DNS message to the container and returns the response.
 func doDNSRequest(ctx context.Context, container testcontainers.Container, message *dns.Msg) (*dns.Msg, error) {
-	const timeout = 5 * time.Second
-
-	c := &dnsv1.Client{
-		Net:     "tcp",
-		Timeout: timeout,
-	}
-
 	host, port, err := getContainerHostPort(ctx, container, "53/tcp")
 	if err != nil {
 		return nil, err
 	}
 
-	msg, _, err := util.ExchangeV1(message, func(m1 *dnsv1.Msg) (*dnsv1.Msg, time.Duration, error) {
-		return c.Exchange(m1, net.JoinHostPort(host, port))
-	})
+	return exchange(ctx, message, "tcp", net.JoinHostPort(host, port), nil)
+}
 
-	return msg, err
+// exchange sends a copy of msg, as dns.Client packs into the message it sends and reads the
+// response into the same buffer.
+func exchange(ctx context.Context, msg *dns.Msg, network, addr string, tlsCfg *tls.Config) (*dns.Msg, error) {
+	const timeout = 5 * time.Second
+
+	c := &dns.Client{Transport: &dns.Transport{
+		Dialer:       &net.Dialer{Timeout: timeout},
+		ReadTimeout:  timeout,
+		WriteTimeout: timeout,
+		TLSConfig:    tlsCfg,
+	}}
+
+	query := msg.Copy()
+	query.Data = nil
+
+	resp, _, err := c.Exchange(ctx, query, network, addr)
+	if err != nil {
+		return nil, err
+	}
+
+	resp.Data = nil
+
+	return resp, nil
 }
 
 // getContainerHostPort returns the host and port of the given container and port.

@@ -26,7 +26,6 @@ import (
 	"github.com/0xERR0R/blocky/util"
 
 	"codeberg.org/miekg/dns"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -50,8 +49,9 @@ const (
 	upstreamUDPBufferFloor = 1232
 
 	// transport names as understood by dns.Client.Net
-	transportTCP = "tcp"
-	transportUDP = "udp"
+	transportTCP    = "tcp"
+	transportUDP    = "udp"
+	transportTCPTLS = "tcp-tls"
 )
 
 // UpstreamServerError wraps a response with RCode ServFail so no other resolver tries to use it.
@@ -112,7 +112,7 @@ type upstreamClient interface {
 }
 
 type dnsUpstreamClient struct {
-	tcpClient, udpClient *dnsv1.Client
+	tcpClient, udpClient *dnsTransport
 	// pool reuses persistent connections for the connection-oriented DoT path;
 	// nil for the plain tcp+udp client, whose TCP leg is only a rare fallback
 	// (truncation, question mismatch, UDP failure) and so does not benefit from
@@ -213,9 +213,9 @@ func createUpstreamClient(cfg upstreamConfig) upstreamClient {
 		}
 
 	case config.NetProtocolTcpTls:
-		tcpClient := &dnsv1.Client{
+		tcpClient := &dnsTransport{
 			TLSConfig: &tlsConfig,
-			Net:       cfg.Net.String(),
+			Net:       transportTCPTLS,
 		}
 
 		return &dnsUpstreamClient{
@@ -228,10 +228,10 @@ func createUpstreamClient(cfg upstreamConfig) upstreamClient {
 
 	case config.NetProtocolTcpUdp:
 		return &dnsUpstreamClient{
-			tcpClient: &dnsv1.Client{
+			tcpClient: &dnsTransport{
 				Net: transportTCP,
 			},
-			udpClient: &dnsv1.Client{
+			udpClient: &dnsTransport{
 				Net: transportUDP,
 			},
 		}
@@ -416,9 +416,7 @@ func (r *dnsUpstreamClient) callExternal(
 		if r.pool != nil {
 			resp, rtt, err = r.pool.exchange(ctx, msg, upstreamURL)
 		} else {
-			resp, rtt, err = util.ExchangeV1(msg, func(m1 *dnsv1.Msg) (*dnsv1.Msg, time.Duration, error) {
-				return r.tcpClient.ExchangeContext(ctx, m1, upstreamURL)
-			})
+			resp, rtt, err = r.tcpClient.exchange(ctx, msg, upstreamURL)
 		}
 
 		if err != nil {
@@ -443,11 +441,9 @@ func servFailToError(resp *dns.Msg) error {
 
 // exchange performs a single DNS exchange and maps an upstream SERVFAIL to an UpstreamServerError.
 func (r *dnsUpstreamClient) exchange(
-	ctx context.Context, client *dnsv1.Client, msg *dns.Msg, upstreamURL string,
+	ctx context.Context, client *dnsTransport, msg *dns.Msg, upstreamURL string,
 ) (*dns.Msg, time.Duration, error) {
-	resp, rtt, err := util.ExchangeV1(msg, func(m1 *dnsv1.Msg) (*dnsv1.Msg, time.Duration, error) {
-		return client.ExchangeContext(ctx, m1, upstreamURL)
-	})
+	resp, rtt, err := client.exchange(ctx, msg, upstreamURL)
 	if err == nil {
 		err = servFailToError(resp)
 	}

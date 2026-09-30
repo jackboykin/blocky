@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"codeberg.org/miekg/dns"
-	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 )
 
 // connPool is an io.Closer; Close releases all idle connections.
@@ -20,7 +18,7 @@ var _ io.Closer = (*connPool)(nil)
 // pooledConn is an idle connection waiting in the pool together with the time it
 // was last returned, used to enforce the idle TTL.
 type pooledConn struct {
-	conn     *dnsv1.Conn
+	conn     net.Conn
 	returned time.Time
 }
 
@@ -39,7 +37,7 @@ type pooledConn struct {
 //     out to be stale (a server-closed connection can't be detected up front),
 //     so reuse never surfaces a spurious error to the caller.
 type connPool struct {
-	client  *dnsv1.Client
+	client  *dnsTransport
 	maxIdle int
 	idleTTL time.Duration
 
@@ -64,7 +62,7 @@ type connPoolStats struct {
 	retried     int64
 }
 
-func newConnPool(client *dnsv1.Client, maxIdle int, idleTTL time.Duration) *connPool {
+func newConnPool(client *dnsTransport, maxIdle int, idleTTL time.Duration) *connPool {
 	return &connPool{
 		client:  client,
 		maxIdle: maxIdle,
@@ -99,10 +97,10 @@ func (p *connPool) idleCount() int {
 // acquire returns a healthy pooled connection for addr (most-recently-returned
 // first), or nil if none is available. Connections idle longer than idleTTL are
 // closed and skipped.
-func (p *connPool) acquire(addr string) *dnsv1.Conn {
+func (p *connPool) acquire(addr string) net.Conn {
 	var (
-		found *dnsv1.Conn
-		stale []*dnsv1.Conn
+		found net.Conn
+		stale []net.Conn
 	)
 
 	now := p.now()
@@ -143,7 +141,7 @@ func (p *connPool) acquire(addr string) *dnsv1.Conn {
 }
 
 // putBack returns conn to the pool for addr, or closes it if the pool is full.
-func (p *connPool) putBack(addr string, conn *dnsv1.Conn) {
+func (p *connPool) putBack(addr string, conn net.Conn) {
 	p.mu.Lock()
 
 	conns := p.idle[addr]
@@ -161,8 +159,8 @@ func (p *connPool) putBack(addr string, conn *dnsv1.Conn) {
 }
 
 // dial opens a new connection to addr and counts it.
-func (p *connPool) dial(ctx context.Context, addr string) (*dnsv1.Conn, error) {
-	conn, err := p.client.DialContext(ctx, addr)
+func (p *connPool) dial(ctx context.Context, addr string) (net.Conn, error) {
+	conn, err := p.client.dial(ctx, addr)
 	if err != nil {
 		return nil, err
 	}
@@ -178,16 +176,8 @@ func (p *connPool) dial(ctx context.Context, addr string) (*dnsv1.Conn, error) {
 func (p *connPool) exchange(
 	ctx context.Context, msg *dns.Msg, addr string,
 ) (*dns.Msg, time.Duration, error) {
-	return util.ExchangeV1(msg, func(m1 *dnsv1.Msg) (*dnsv1.Msg, time.Duration, error) {
-		return p.exchangeV1(ctx, m1, addr)
-	})
-}
-
-func (p *connPool) exchangeV1(
-	ctx context.Context, msg *dnsv1.Msg, addr string,
-) (*dnsv1.Msg, time.Duration, error) {
 	if conn := p.acquire(addr); conn != nil {
-		resp, rtt, err := p.client.ExchangeWithConnContext(ctx, msg, conn)
+		resp, rtt, err := exchangeWithConn(ctx, msg, conn)
 		if err == nil {
 			p.reused.Add(1)
 			p.putBack(addr, conn)
@@ -214,7 +204,7 @@ func (p *connPool) exchangeV1(
 		return nil, 0, err
 	}
 
-	resp, rtt, err := p.client.ExchangeWithConnContext(ctx, msg, conn)
+	resp, rtt, err := exchangeWithConn(ctx, msg, conn)
 	if err != nil {
 		_ = conn.Close()
 

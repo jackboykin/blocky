@@ -41,9 +41,14 @@ var _ = Describe("createServers with freeBind", func() {
 			Expect(servers).To(HaveLen(2))
 
 			for _, srv := range servers {
+				var pc net.PacketConn
+				if srv.udp != nil {
+					pc = srv.udp.PacketConn
+				}
+
 				DeferCleanup(func() {
-					if srv.PacketConn != nil {
-						_ = srv.PacketConn.Close()
+					if pc != nil {
+						_ = pc.Close()
 					}
 
 					if srv.Listener != nil {
@@ -51,14 +56,14 @@ var _ = Describe("createServers with freeBind", func() {
 					}
 				})
 
-				Expect(srv.PacketConn != nil || srv.Listener != nil).
-					To(BeTrue(), "expected a pre-created socket for %s", srv.Net)
+				Expect(pc != nil || srv.Listener != nil).
+					To(BeTrue(), "expected a pre-created socket for %s", srv.network)
 			}
 		})
 	})
 
 	When("freeBind is disabled", func() {
-		It("does not pre-create listeners (miekg/dns binds at start)", func(ctx context.Context) {
+		It("does not pre-create listeners (the server binds at start)", func(ctx context.Context) {
 			cfg := &config.Config{
 				Ports: config.Ports{
 					DNS:      config.ListenConfig{nonLocalDNSAddr},
@@ -71,7 +76,10 @@ var _ = Describe("createServers with freeBind", func() {
 			Expect(servers).To(HaveLen(2))
 
 			for _, srv := range servers {
-				Expect(srv.PacketConn).To(BeNil())
+				if srv.udp != nil {
+					Expect(srv.udp.PacketConn).To(BeNil())
+				}
+
 				Expect(srv.Listener).To(BeNil())
 			}
 		})

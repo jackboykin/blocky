@@ -26,7 +26,6 @@ import (
 	"github.com/0xERR0R/blocky/resolver"
 	"github.com/0xERR0R/blocky/util"
 	"github.com/creasty/defaults"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -610,8 +609,8 @@ var _ = Describe("Running DNS server", func() {
 			addr := srv.dnsServers[0].Listener.Addr().String()
 
 			expectedIP := netip.MustParseAddr("192.0.2.10")
-			response := util.NewMsgWithQuestion("example.com.", A)
-			model.SetReply(response, response)
+			query := util.NewMsgWithQuestion("example.com.", A)
+			response := model.SetReply(new(dns.Msg), query)
 
 			mockResolver := resolver.NewMockChainedResolver(GinkgoT())
 			mockResolver.EXPECT().Resolve(mock.Anything, mock.MatchedBy(func(req *model.Request) bool {
@@ -629,15 +628,9 @@ var _ = Describe("Running DNS server", func() {
 			tlsConn := tls.Client(rawConn, &tls.Config{InsecureSkipVerify: true})
 			Expect(tlsConn.HandshakeContext(ctx)).Should(Succeed())
 
-			dnsConn := &dnsv1.Conn{Conn: tlsConn}
-			query := util.NewMsgWithQuestion("example.com.", A)
-			query1, err := util.MsgToV1(query)
+			msg, _, err := dns.NewClient().ExchangeWithConn(ctx, query, tlsConn)
 			Expect(err).Should(Succeed())
-			Expect(dnsConn.WriteMsg(query1)).Should(Succeed())
-
-			msg, err := dnsConn.ReadMsg()
-			Expect(err).Should(Succeed())
-			Expect(msg.Rcode).Should(Equal(dns.RcodeSuccess))
+			Expect(msg.Rcode).Should(Equal(uint16(dns.RcodeSuccess)))
 		})
 
 		It("uses the PROXY source address for HTTPS DoH requests", func() {
@@ -648,8 +641,8 @@ var _ = Describe("Running DNS server", func() {
 			addr := firstHTTPListenerAddr(srv)
 
 			expectedIP := netip.MustParseAddr("192.0.2.11")
-			response := util.NewMsgWithQuestion("example.com.", A)
-			model.SetReply(response, response)
+			query := util.NewMsgWithQuestion("example.com.", A)
+			response := model.SetReply(new(dns.Msg), query)
 
 			mockResolver := resolver.NewMockChainedResolver(GinkgoT())
 			mockResolver.EXPECT().Resolve(mock.Anything, mock.MatchedBy(func(req *model.Request) bool {
@@ -667,7 +660,6 @@ var _ = Describe("Running DNS server", func() {
 			tlsConn := tls.Client(rawConn, &tls.Config{InsecureSkipVerify: true})
 			Expect(tlsConn.HandshakeContext(ctx)).Should(Succeed())
 
-			query := util.NewMsgWithQuestion("example.com.", A)
 			rawQuery, err := util.PackMsg(query)
 			Expect(err).Should(Succeed())
 
@@ -690,15 +682,15 @@ var _ = Describe("Running DNS server", func() {
 
 			var addr string
 			for _, dnsSrv := range srv.dnsServers {
-				if dnsSrv.Net == "tcp" {
+				if dnsSrv.network == networkTCP {
 					addr = dnsSrv.Listener.Addr().String()
 				}
 			}
 			Expect(addr).ShouldNot(BeEmpty())
 
 			expectedIP := netip.MustParseAddr("192.0.2.12")
-			response := util.NewMsgWithQuestion("example.com.", A)
-			model.SetReply(response, response)
+			query := util.NewMsgWithQuestion("example.com.", A)
+			response := model.SetReply(new(dns.Msg), query)
 
 			mockResolver := resolver.NewMockChainedResolver(GinkgoT())
 			mockResolver.EXPECT().Resolve(mock.Anything, mock.MatchedBy(func(req *model.Request) bool {
@@ -713,15 +705,9 @@ var _ = Describe("Running DNS server", func() {
 			_, err = rawConn.Write([]byte(proxyProtocolLine(expectedIP, netip.MustParseAddr("127.0.0.1"))))
 			Expect(err).Should(Succeed())
 
-			dnsConn := &dnsv1.Conn{Conn: rawConn}
-			query := util.NewMsgWithQuestion("example.com.", A)
-			query1, err := util.MsgToV1(query)
+			msg, _, err := dns.NewClient().ExchangeWithConn(ctx, query, rawConn)
 			Expect(err).Should(Succeed())
-			Expect(dnsConn.WriteMsg(query1)).Should(Succeed())
-
-			msg, err := dnsConn.ReadMsg()
-			Expect(err).Should(Succeed())
-			Expect(msg.Rcode).Should(Equal(dns.RcodeSuccess))
+			Expect(msg.Rcode).Should(Equal(uint16(dns.RcodeSuccess)))
 		})
 
 		It("uses the PROXY source address for HTTP DoH requests", func() {
@@ -732,8 +718,8 @@ var _ = Describe("Running DNS server", func() {
 			addr := firstHTTPListenerAddr(srv)
 
 			expectedIP := netip.MustParseAddr("192.0.2.13")
-			response := util.NewMsgWithQuestion("example.com.", A)
-			model.SetReply(response, response)
+			query := util.NewMsgWithQuestion("example.com.", A)
+			response := model.SetReply(new(dns.Msg), query)
 
 			mockResolver := resolver.NewMockChainedResolver(GinkgoT())
 			mockResolver.EXPECT().Resolve(mock.Anything, mock.MatchedBy(func(req *model.Request) bool {
@@ -748,7 +734,6 @@ var _ = Describe("Running DNS server", func() {
 			_, err = rawConn.Write([]byte(proxyProtocolLine(expectedIP, netip.MustParseAddr("127.0.0.1"))))
 			Expect(err).Should(Succeed())
 
-			query := util.NewMsgWithQuestion("example.com.", A)
 			rawQuery, err := util.PackMsg(query)
 			Expect(err).Should(Succeed())
 
@@ -1209,12 +1194,19 @@ var _ = Describe("Running DNS server", func() {
 		}
 
 		// wireOPT returns the OPT record res carries once packed, or nil: the dns package decides
-		// on packing whether there is one.
-		wireOPT := func(res *dns.Msg) *dnsv1.OPT {
-			m1, err := util.MsgToV1(res)
+		// on packing whether there is one. Unpacking sets UDPSize exactly when there is.
+		wireOPT := func(res *dns.Msg) *wireEDNS {
+			buf, err := util.PackMsg(res)
 			Expect(err).Should(Succeed())
 
-			return m1.IsEdns0()
+			packed, err := util.UnpackMsg(buf)
+			Expect(err).Should(Succeed())
+
+			if packed.UDPSize == 0 {
+				return nil
+			}
+
+			return &wireEDNS{packed}
 		}
 
 		// answerTypes returns the RR types of the response's answer section.
@@ -1299,7 +1291,7 @@ var _ = Describe("Running DNS server", func() {
 				Expect(err).Should(Succeed())
 				Expect(wireOPT(resp.Res)).ShouldNot(BeNil())
 				Expect(wireOPT(resp.Res).Do()).Should(BeTrue())
-				Expect(wireOPT(resp.Res).UDPSize()).Should(BeNumerically(">", 0))
+				Expect(wireOPT(resp.Res).UDPSize()).Should(BeNumerically("==", ednsUDPSize))
 			})
 
 			It("adds an OPT record with the DO bit clear when the client cleared it", func() {
@@ -1316,7 +1308,7 @@ var _ = Describe("Running DNS server", func() {
 				Expect(err).Should(Succeed())
 				Expect(wireOPT(resp.Res)).ShouldNot(BeNil())
 				Expect(wireOPT(resp.Res).Do()).Should(BeFalse())
-				Expect(wireOPT(resp.Res).UDPSize()).Should(BeNumerically(">", 0))
+				Expect(wireOPT(resp.Res).UDPSize()).Should(BeNumerically("==", ednsUDPSize))
 			})
 		})
 
@@ -1340,7 +1332,7 @@ var _ = Describe("Running DNS server", func() {
 				Expect(err).Should(Succeed())
 				Expect(wireOPT(resp.Res)).ShouldNot(BeNil())
 				Expect(wireOPT(resp.Res).Do()).Should(BeTrue())
-				Expect(wireOPT(resp.Res).UDPSize()).Should(BeNumerically(">", 0))
+				Expect(wireOPT(resp.Res).UDPSize()).Should(BeNumerically("==", ednsUDPSize))
 			})
 		})
 
@@ -1909,3 +1901,9 @@ func writeKeyPem(tmpDir *TmpFolder) *TmpFile {
 		"EHK784GIxwVXKej/",
 		"-----END PRIVATE KEY-----")
 }
+
+// wireEDNS is the OPT record of a message that went through the wire format.
+type wireEDNS struct{ msg *dns.Msg }
+
+func (e *wireEDNS) Do() bool        { return e.msg.Security }
+func (e *wireEDNS) UDPSize() uint16 { return e.msg.UDPSize }

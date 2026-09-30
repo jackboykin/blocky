@@ -30,7 +30,6 @@ import (
 
 	"codeberg.org/miekg/dns"
 	"github.com/go-chi/chi/v5"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/pires/go-proxyproto"
 	"github.com/quic-go/quic-go"
 	"github.com/sirupsen/logrus"
@@ -48,7 +47,7 @@ const (
 
 // Server controls the endpoints for DNS and HTTP
 type Server struct {
-	dnsServers    []*dnsv1.Server
+	dnsServers    []*dnsServer
 	queryResolver resolver.ChainedResolver
 	cfg           *config.Config
 
@@ -75,7 +74,7 @@ func tlsCipherSuites() []uint16 {
 	return tlsCipherSuites
 }
 
-type NewServerFunc func(address string) (*dnsv1.Server, error)
+type NewServerFunc func(address string) (*dnsServer, error)
 
 func retrieveCertificate(cfg *config.Config) (cert tls.Certificate, err error) {
 	if cfg.CertFile == "" && cfg.KeyFile == "" {
@@ -226,8 +225,8 @@ func NewServer(ctx context.Context, cfg *config.Config) (server *Server, err err
 	return server, err
 }
 
-func createServers(ctx context.Context, cfg *config.Config, tlsCfg *tls.Config) ([]*dnsv1.Server, error) {
-	var dnsServers []*dnsv1.Server
+func createServers(ctx context.Context, cfg *config.Config, tlsCfg *tls.Config) ([]*dnsServer, error) {
+	var dnsServers []*dnsServer
 
 	var err *multierror.Error
 
@@ -247,16 +246,16 @@ func createServers(ctx context.Context, cfg *config.Config, tlsCfg *tls.Config) 
 	}
 
 	err = multierror.Append(err,
-		addServers(func(address string) (*dnsv1.Server, error) {
+		addServers(func(address string) (*dnsServer, error) {
 			return createUDPServer(ctx, address, listenerOptions{freeBind: freeBind})
 		}, cfg.Ports.DNS),
-		addServers(func(address string) (*dnsv1.Server, error) {
+		addServers(func(address string) (*dnsServer, error) {
 			return createTCPServer(ctx, address, listenerOptions{
 				freeBind:      freeBind,
 				proxyProtocol: cfg.Ports.ProxyProtocol.Has(config.ProxyProtocolTypeDns),
 			})
 		}, cfg.Ports.DNS),
-		addServers(func(address string) (*dnsv1.Server, error) {
+		addServers(func(address string) (*dnsServer, error) {
 			return createTLSServer(ctx, address, tlsCfg, listenerOptions{
 				freeBind:      freeBind,
 				proxyProtocol: cfg.Ports.ProxyProtocol.Has(config.ProxyProtocolTypeTls),
@@ -363,33 +362,27 @@ func newProxyProtocolListener(listener net.Listener, enabled bool) net.Listener 
 }
 
 // listenerOptions bundles the socket-level options applied when a DNS listener is pre-created
-// before miekg/dns starts serving (freebind socket option, PROXY protocol wrapping).
+// before the DNS server starts serving (freebind socket option, PROXY protocol wrapping).
 type listenerOptions struct {
 	freeBind      bool
 	proxyProtocol bool
 }
 
 func createDNSServer(ctx context.Context, network, address string, tlsCfg *tls.Config, opts listenerOptions,
-) (*dnsv1.Server, error) {
-	srv := &dnsv1.Server{
-		Addr:    address,
-		Net:     network,
-		Handler: dnsv1.NewServeMux(),
-		NotifyStartedFunc: func() {
-			logger().Infof("%s server is up and running on address %s", strings.ToUpper(network), address)
-		},
-	}
+) (*dnsServer, error) {
+	srv := &dnsServer{network: network, address: address, tlsConfig: tlsCfg}
 
 	if network == networkUDP {
-		srv.UDPSize = maxUDPBufferSize
+		srv.udp = &dns.Server{
+			Addr:          address,
+			Net:           networkUDP,
+			UDPSize:       maxUDPBufferSize,
+			MsgAcceptFunc: acceptMsg,
+		}
 	}
 
-	if tlsCfg != nil {
-		srv.TLSConfig = tlsCfg
-	}
-
-	// When freeBind is enabled (and supported), pre-create the listener with the IP_FREEBIND socket
-	// option and hand it to the server, which is then started via ActivateAndServe (see Server.Start).
+	// When freeBind is enabled (and supported), or PROXY protocol for TCP, pre-create the listener
+	// and hand it to the server.
 	if (opts.freeBind && freebind.Supported) || (opts.proxyProtocol && network != networkUDP) {
 		if err := attachListener(ctx, srv, network, address, tlsCfg, listenerOptions{
 			freeBind:      opts.freeBind && freebind.Supported,
@@ -403,8 +396,8 @@ func createDNSServer(ctx context.Context, network, address string, tlsCfg *tls.C
 }
 
 // attachListener creates a listener/packet connection for DNS servers that need custom socket handling
-// before miekg/dns starts serving, such as freebind or PROXY protocol wrapping.
-func attachListener(ctx context.Context, srv *dnsv1.Server, network, address string,
+// before the DNS server starts serving, such as freebind or PROXY protocol wrapping.
+func attachListener(ctx context.Context, srv *dnsServer, network, address string,
 	tlsCfg *tls.Config, opts listenerOptions,
 ) error {
 	lc := net.ListenConfig{}
@@ -419,7 +412,7 @@ func attachListener(ctx context.Context, srv *dnsv1.Server, network, address str
 			return fmt.Errorf("freebind udp listener on %s failed: %w", address, err)
 		}
 
-		srv.PacketConn = pc
+		srv.udp.PacketConn = pc
 	case networkTCP:
 		l, err := lc.Listen(ctx, networkTCP, address)
 		if err != nil {
@@ -444,15 +437,15 @@ func attachListener(ctx context.Context, srv *dnsv1.Server, network, address str
 }
 
 func createTLSServer(ctx context.Context, address string, tlsCfg *tls.Config, opts listenerOptions,
-) (*dnsv1.Server, error) {
+) (*dnsServer, error) {
 	return createDNSServer(ctx, networkTCPTLS, address, tlsCfg, opts)
 }
 
-func createTCPServer(ctx context.Context, address string, opts listenerOptions) (*dnsv1.Server, error) {
+func createTCPServer(ctx context.Context, address string, opts listenerOptions) (*dnsServer, error) {
 	return createDNSServer(ctx, networkTCP, address, nil, opts)
 }
 
-func createUDPServer(ctx context.Context, address string, opts listenerOptions) (*dnsv1.Server, error) {
+func createUDPServer(ctx context.Context, address string, opts listenerOptions) (*dnsServer, error) {
 	return createDNSServer(ctx, networkUDP, address, nil, opts)
 }
 
@@ -575,10 +568,10 @@ func createQueryResolver(
 
 func (s *Server) registerDNSHandlers(ctx context.Context) {
 	for _, server := range s.dnsServers {
-		//nolint:forcetypeassert // handler is always *dns.ServeMux; set during server construction
-		handler := server.Handler.(*dnsv1.ServeMux)
-		handler.HandleFunc(".", v1Handler(ctx, s.OnRequest))
-		handler.HandleFunc("healthcheck.blocky", v1Handler(ctx, s.OnHealthCheck))
+		// the handler serves in blocky's context, which carries its logger
+		server.handler = func(w dns.ResponseWriter, r *dns.Msg) {
+			s.serveDNS(ctx, w, r)
+		}
 	}
 }
 
@@ -634,15 +627,10 @@ func (s *Server) Start(ctx context.Context, errCh chan<- error) {
 
 	for _, srv := range s.dnsServers {
 		go func() {
-			// When a listener/packet connection was pre-created (freeBind), serve it via
-			// ActivateAndServe; otherwise let miekg/dns create the socket via ListenAndServe.
-			serve := srv.ListenAndServe
-			if srv.Listener != nil || srv.PacketConn != nil {
-				serve = srv.ActivateAndServe
-			}
-
-			if err := serve(); err != nil {
-				errCh <- fmt.Errorf("start %s listener failed: %w", srv.Net, err)
+			// serves a pre-created listener/packet connection (freeBind, PROXY protocol) if there
+			// is one, or creates the socket
+			if err := srv.serve(ctx); err != nil {
+				errCh <- fmt.Errorf("start %s listener failed: %w", srv.network, err)
 			}
 		}()
 	}
@@ -706,8 +694,8 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 
 	for _, server := range s.dnsServers {
-		if err := server.ShutdownContext(ctx); err != nil {
-			return fmt.Errorf("stop %s listener failed: %w", server.Net, err)
+		if err := server.shutdown(ctx); err != nil {
+			return fmt.Errorf("stop %s listener failed: %w", server.network, err)
 		}
 	}
 
@@ -751,7 +739,7 @@ func newRequest(
 	return ctx, &req
 }
 
-func newRequestFromDNS(ctx context.Context, rw dnsv1.ResponseWriter, msg *dns.Msg) (context.Context, *model.Request) {
+func newRequestFromDNS(ctx context.Context, rw dns.ResponseWriter, msg *dns.Msg) (context.Context, *model.Request) {
 	var (
 		clientIP netip.Addr
 		protocol model.RequestProtocol
@@ -762,8 +750,10 @@ func newRequestFromDNS(ctx context.Context, rw dnsv1.ResponseWriter, msg *dns.Ms
 	}
 
 	var clientID string
-	if con, ok := rw.(dnsv1.ConnectionStater); ok && con.ConnectionState() != nil {
-		clientID = extractClientIDFromHost(con.ConnectionState().ServerName)
+	if rw != nil {
+		if con, ok := rw.Conn().(*tls.Conn); ok {
+			clientID = extractClientIDFromHost(con.ConnectionState().ServerName)
+		}
 	}
 
 	return newRequest(ctx, clientIP, clientID, protocol, msg)
@@ -782,10 +772,10 @@ func newRequestFromHTTP(ctx context.Context, req *http.Request, msg *dns.Msg) (c
 }
 
 // OnRequest will be executed if a new DNS request is received
-func (s *Server) OnRequest(ctx context.Context, w dnsv1.ResponseWriter, msg *dns.Msg) {
+func (s *Server) OnRequest(ctx context.Context, w dns.ResponseWriter, msg *dns.Msg) {
 	ctx, request := newRequestFromDNS(ctx, w, msg)
 
-	s.handleReq(ctx, request, v1Writer{w})
+	s.handleReq(ctx, request, dnsWriter{w})
 }
 
 type msgWriter interface {
@@ -869,12 +859,12 @@ func (s *Server) resolve(ctx context.Context, request *model.Request) (response 
 }
 
 // OnHealthCheck Handler for docker health check. Just returns OK code without delegating to resolver chain
-func (s *Server) OnHealthCheck(ctx context.Context, w dnsv1.ResponseWriter, request *dns.Msg) {
+func (s *Server) OnHealthCheck(ctx context.Context, w dns.ResponseWriter, request *dns.Msg) {
 	resp := new(dns.Msg)
 	model.SetReply(resp, request)
 	resp.Rcode = dns.RcodeSuccess
 
-	err := v1Writer{w}.WriteMsg(resp)
+	err := dnsWriter{w}.WriteMsg(resp)
 	util.LogOnError(ctx, "can't write message: ", err)
 }
 

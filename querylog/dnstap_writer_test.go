@@ -8,10 +8,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/log"
 	"github.com/0xERR0R/blocky/model"
+	"github.com/0xERR0R/blocky/util"
 	dnstap "github.com/dnstap/golang-dnstap"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -99,14 +100,11 @@ var _ = Describe("DnstapWriter", func() {
 
 	Describe("marshalDnstapFrame", func() {
 		It("builds a CLIENT_RESPONSE frame", func() {
-			query := new(dnsv1.Msg)
-			query.SetQuestion("example.com.", dnsv1.TypeA)
-			queryWire, err := query.Pack()
+			query := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+			queryWire, err := util.PackMsg(query)
 			Expect(err).Should(Succeed())
 
-			response := new(dnsv1.Msg)
-			response.SetReply(query)
-			responseWire, err := response.Pack()
+			responseWire, err := util.PackMsg(model.SetReply(new(dns.Msg), query))
 			Expect(err).Should(Succeed())
 
 			queryTime := time.Unix(1_700_000_000, 123)
@@ -154,16 +152,13 @@ var _ = Describe("DnstapWriter", func() {
 		)
 
 		BeforeEach(func() {
-			query := new(dnsv1.Msg)
-			query.SetQuestion("example.com.", dnsv1.TypeA)
+			query := util.NewMsgWithQuestion("example.com.", dns.TypeA)
 
 			var err error
-			queryWire, err = query.Pack()
+			queryWire, err = util.PackMsg(query)
 			Expect(err).Should(Succeed())
 
-			response := new(dnsv1.Msg)
-			response.SetReply(query)
-			responseWire, err = response.Pack()
+			responseWire, err = util.PackMsg(model.SetReply(new(dns.Msg), query))
 			Expect(err).Should(Succeed())
 		})
 

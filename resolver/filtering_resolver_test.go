@@ -27,7 +27,7 @@ func svcbKeys(values []dnsv1.SVCBKeyValue) []dnsv1.SVCBKey {
 
 // newHTTPSRecord builds an HTTPS RR for example.com. carrying alpn, an ipv4hint and an ipv6hint.
 func newHTTPSRecord() *dnsv1.HTTPS {
-	return &dnsv1.HTTPS{SVCB: dnsv1.SVCB{
+	return &dnsv1.HTTPS{
 		Hdr:      dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeHTTPS, Class: dnsv1.ClassINET, Ttl: 300},
 		Priority: 1,
 		Target:   ".",
@@ -36,12 +36,12 @@ func newHTTPSRecord() *dnsv1.HTTPS {
 			&dnsv1.SVCBIPv4Hint{Hint: []net.IP{net.ParseIP("104.16.123.96")}},
 			&dnsv1.SVCBIPv6Hint{Hint: []net.IP{net.ParseIP("2606:4700::6810:7b60")}},
 		},
-	}}
+	}
 }
 
 // newHTTPSRecordNoV6Hint builds an HTTPS RR for example.com. with alpn and an ipv4hint, but no ipv6hint.
 func newHTTPSRecordNoV6Hint() *dnsv1.HTTPS {
-	return &dnsv1.HTTPS{SVCB: dnsv1.SVCB{
+	return &dnsv1.HTTPS{
 		Hdr:      dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeHTTPS, Class: dnsv1.ClassINET, Ttl: 300},
 		Priority: 1,
 		Target:   ".",
@@ -49,7 +49,7 @@ func newHTTPSRecordNoV6Hint() *dnsv1.HTTPS {
 			&dnsv1.SVCBAlpn{Alpn: []string{"h3", "h2"}},
 			&dnsv1.SVCBIPv4Hint{Hint: []net.IP{net.ParseIP("104.16.123.96")}},
 		},
-	}}
+	}
 }
 
 // newRRSIG builds a minimal RRSIG RR covering the given record type.

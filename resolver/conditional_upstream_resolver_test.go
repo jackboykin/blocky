@@ -195,7 +195,7 @@ var _ = Describe("ConditionalUpstreamResolver", Label("conditionalResolver"), fu
 
 	When("upstream is invalid", func() {
 		It("succeeds with bootstrap resolver during construction", func() {
-			b := newTestBootstrap(ctx, &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeServerFailure}})
+			b := newTestBootstrap(ctx, &dnsv1.Msg{Rcode: dnsv1.RcodeServerFailure})
 
 			upstreamsCfg := defaultUpstreamsConfig
 			upstreamsCfg.Init.Strategy = config.InitStrategyFailOnError

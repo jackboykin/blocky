@@ -118,7 +118,7 @@ var _ = Describe("ParallelBestResolver", Label("parallelBestResolver"), func() {
 
 	When("no upstream resolvers can be reached", func() {
 		BeforeEach(func() {
-			bootstrap = newTestBootstrap(ctx, &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeServerFailure}})
+			bootstrap = newTestBootstrap(ctx, &dnsv1.Msg{Rcode: dnsv1.RcodeServerFailure})
 
 			upstreams = []config.Upstream{{Host: "wrong"}, {Host: "127.0.0.2"}}
 		})
@@ -354,7 +354,7 @@ var _ = Describe("ParallelBestResolver", Label("parallelBestResolver"), func() {
 
 	When("upstream is invalid", func() {
 		It("errors during construction", func() {
-			b := newTestBootstrap(ctx, &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeServerFailure}})
+			b := newTestBootstrap(ctx, &dnsv1.Msg{Rcode: dnsv1.RcodeServerFailure})
 
 			upstreamsCfg := sut.cfg.Upstreams
 			upstreamsCfg.Init.Strategy = config.InitStrategyFailOnError

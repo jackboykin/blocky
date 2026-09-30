@@ -419,7 +419,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 
 		When("upstream returns an error response", func() {
 			It("an error is returned", func() {
-				bootstrapResponse := &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeServerFailure}}
+				bootstrapResponse := &dnsv1.Msg{Rcode: dnsv1.RcodeServerFailure}
 
 				bootstrapUpstream.On("Resolve", mock.Anything).Return(&model.Response{Res: bootstrapResponse}, nil)
 
@@ -538,7 +538,7 @@ var _ = Describe("Bootstrap", Label("bootstrap"), func() {
 			})
 
 			It("errors for unknown host", func() {
-				bootstrapResponse := &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeServerFailure}}
+				bootstrapResponse := &dnsv1.Msg{Rcode: dnsv1.RcodeServerFailure}
 
 				bootstrapUpstream.On("Resolve", mock.Anything).Return(&model.Response{Res: bootstrapResponse}, nil)
 

@@ -1116,7 +1116,7 @@ bootstrapDns:
 		})
 		It("handles panics", func() {
 			sut := SourceLoading{
-				Init: Init{Strategy: InitStrategyFailOnError},
+				Strategy: InitStrategyFailOnError,
 			}
 
 			panicMsg := "panic value"
@@ -1132,7 +1132,7 @@ bootstrapDns:
 
 		It("periodically calls refresh", func() {
 			sut := SourceLoading{
-				Init:          Init{Strategy: InitStrategyFast},
+				Strategy:      InitStrategyFast,
 				RefreshPeriod: Duration(5 * time.Millisecond),
 			}
 

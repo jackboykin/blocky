@@ -511,7 +511,7 @@ var _ = Describe("ClientResolver", Label("clientNamesResolver"), func() {
 	Describe("Connstruction", func() {
 		When("upstream is invalid", func() {
 			It("errors during construction", func() {
-				b := newTestBootstrap(ctx, &dnsv1.Msg{MsgHdr: dnsv1.MsgHdr{Rcode: dnsv1.RcodeServerFailure}})
+				b := newTestBootstrap(ctx, &dnsv1.Msg{Rcode: dnsv1.RcodeServerFailure})
 
 				upstreamsCfg := defaultUpstreamsConfig
 				upstreamsCfg.Init.Strategy = config.InitStrategyFailOnError

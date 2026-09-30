@@ -851,9 +851,7 @@ func (s *Server) resolve(ctx context.Context, request *model.Request) (response 
 
 		response, err = s.queryResolver.Resolve(ctx, request)
 		if err != nil {
-			var upstreamErr *resolver.UpstreamServerError
-
-			if errors.As(err, &upstreamErr) {
+			if upstreamErr, ok := errors.AsType[*resolver.UpstreamServerError](err); ok {
 				response = &model.Response{Res: upstreamErr.Msg, RType: model.ResponseTypeRESOLVED, Reason: upstreamErr.Error()}
 			} else {
 				return nil, fmt.Errorf("query resolution failed: %w", err)

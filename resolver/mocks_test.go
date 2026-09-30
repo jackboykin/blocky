@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"time"
 
 	"github.com/0xERR0R/blocky/config"
@@ -16,7 +17,7 @@ import (
 
 	"github.com/0xERR0R/blocky/model"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -25,8 +26,8 @@ type mockResolver struct {
 	NextResolver
 
 	ResolveFn  func(ctx context.Context, req *model.Request) (*model.Response, error)
-	ResponseFn func(req *dnsv1.Msg) *dnsv1.Msg
-	AnswerFn   func(qType dnsv1.Type, qName string) (*dnsv1.Msg, error)
+	ResponseFn func(req *dns.Msg) *dns.Msg
+	AnswerFn   func(qType uint16, qName string) (*dns.Msg, error)
 }
 
 // Type implements `Resolver`.
@@ -63,7 +64,7 @@ func (r *mockResolver) Resolve(ctx context.Context, req *model.Request) (*model.
 
 	if r.AnswerFn != nil {
 		for _, question := range req.Req.Question {
-			answer, err := r.AnswerFn(dnsv1.Type(question.Qtype), question.Name)
+			answer, err := r.AnswerFn(dns.RRToType(question), question.Header().Name)
 			if err != nil {
 				return nil, fmt.Errorf("AnswerFn error: %w", err)
 			}
@@ -77,8 +78,8 @@ func (r *mockResolver) Resolve(ctx context.Context, req *model.Request) (*model.
 			}
 		}
 
-		response := new(dnsv1.Msg)
-		response.SetRcode(req.Req, dnsv1.RcodeBadName)
+		response := new(dns.Msg)
+		model.SetRcode(response, req.Req, dns.RcodeBadName)
 
 		return &model.Response{
 			Res:    response,
@@ -96,30 +97,30 @@ func (r *mockResolver) Resolve(ctx context.Context, req *model.Request) (*model.
 }
 
 var (
-	autoAnswerIPv4 = net.IPv4(127, 0, 0, 1)
-	autoAnswerIPv6 = net.IPv6loopback
+	autoAnswerIPv4 = netip.MustParseAddr("127.0.0.1")
+	autoAnswerIPv6 = netip.IPv6Loopback()
 )
 
 // autoAnswer provides a valid fake answer.
 //
 // To be used as a value for `mockResolver.AnswerFn`.
-func autoAnswer(qType dnsv1.Type, qName string) (*dnsv1.Msg, error) {
-	var ip net.IP
+func autoAnswer(qType uint16, qName string) (*dns.Msg, error) {
+	var ip netip.Addr
 
-	switch uint16(qType) {
-	case dnsv1.TypeA:
+	switch qType {
+	case dns.TypeA:
 		ip = autoAnswerIPv4
-	case dnsv1.TypeAAAA:
+	case dns.TypeAAAA:
 		ip = autoAnswerIPv6
 	default:
-		return nil, fmt.Errorf("autoAnswer not implemented for qType=%s", dnsv1.TypeToString[uint16(qType)])
+		return nil, fmt.Errorf("autoAnswer not implemented for qType=%s", dns.TypeToString[qType])
 	}
 
 	return util.NewMsgWithAnswer(qName, 60, qType, ip.String())
 }
 
 // newTestBootstrap creates a test Bootstrap
-func newTestBootstrap(ctx context.Context, response *dnsv1.Msg) *Bootstrap {
+func newTestBootstrap(ctx context.Context, response *dns.Msg) *Bootstrap {
 	const cfgTxt = `
 upstream: https://mock
 ips:
@@ -147,7 +148,7 @@ ips:
 }
 
 // newTestDOHUpstream creates a test DoH Upstream
-func newTestDOHUpstream(fn func(request *dnsv1.Msg) (response *dnsv1.Msg),
+func newTestDOHUpstream(fn func(request *dns.Msg) (response *dns.Msg),
 	reqFn ...func(w http.ResponseWriter),
 ) config.Upstream {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -155,14 +156,13 @@ func newTestDOHUpstream(fn func(request *dnsv1.Msg) (response *dnsv1.Msg),
 
 		util.FatalOnError("can't read request: ", err)
 
-		msg := new(dnsv1.Msg)
-		err = msg.Unpack(body)
+		msg, err := util.UnpackMsg(body)
 		util.FatalOnError("can't deserialize message: ", err)
 
 		response := fn(msg)
-		response.SetReply(msg)
+		model.SetReply(response, msg)
 
-		b, err := response.Pack()
+		b, err := util.PackMsg(response)
 
 		util.FatalOnError("can't serialize message: ", err)
 
@@ -249,13 +249,13 @@ func (c *mockConn) SetWriteDeadline(time.Time) error {
 // newRecordingResolver returns a resolver that answers every query with the given
 // record, and a pointer to the question name it was last asked for. Use it to
 // assert which name a resolver hands down the chain.
-func newRecordingResolver(qType dnsv1.Type, address string) (*mockResolver, *string) {
+func newRecordingResolver(qType uint16, address string) (*mockResolver, *string) {
 	var seen string
 
 	m := &mockResolver{}
-	m.On("Resolve", mock.Anything).Return(&model.Response{Res: new(dnsv1.Msg)}, nil)
+	m.On("Resolve", mock.Anything).Return(&model.Response{Res: new(dns.Msg)}, nil)
 	m.ResolveFn = func(_ context.Context, req *model.Request) (*model.Response, error) {
-		seen = req.Req.Question[0].Name
+		seen = req.Req.Question[0].Header().Name
 
 		resp, err := util.NewMsgWithAnswer(seen, 250, qType, address)
 		if err != nil {
@@ -274,6 +274,6 @@ func newRecordingResolver(qType dnsv1.Type, address string) (*mockResolver, *str
 // and turn the "broken" upstream into a working one.
 func NewBrokenUDPUpstreamServer() config.Upstream {
 	return NewMockUDPUpstreamServer().
-		WithAnswerFn(func(*dnsv1.Msg) *dnsv1.Msg { return nil }).
+		WithAnswerFn(func(*dns.Msg) *dns.Msg { return nil }).
 		Start()
 }

@@ -55,7 +55,6 @@ import (
 	"github.com/0xERR0R/blocky/metrics"
 	"github.com/0xERR0R/blocky/model"
 	expirationcache "github.com/0xERR0R/expiration-cache"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
@@ -227,20 +226,13 @@ func NewValidator(
 // ValidationResultBogus, or ValidationResultIndeterminate
 func (v *Validator) ValidateResponse(
 	ctx context.Context,
-	response *dnsv1.Msg,
-	question dnsv1.Question,
+	response *dns.Msg,
+	question dns.RR,
 ) ValidationResult {
 	start := time.Now()
-	v.logger.Debugf("DNSSEC validation requested for %s", question.Name)
+	v.logger.Debugf("DNSSEC validation requested for %s", question.Header().Name)
 
-	// A response that can't be converted (see dnsv1.go) can't be validated, and serving it
-	// unvalidated would let a forger bypass validation by appending such a record: Bogus.
-	result := ValidationResultBogus
-	if msg, err := responseToV2(response, question); err != nil {
-		v.logger.Warnf("Failed to convert response for %s: %v", question.Name, err)
-	} else {
-		result = v.validateResponse(ctx, msg, msg.Question[0])
-	}
+	result := v.validateResponse(ctx, response, question)
 
 	v.recordMetrics(start, result)
 

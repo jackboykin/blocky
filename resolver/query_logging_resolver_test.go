@@ -21,7 +21,7 @@ import (
 	. "github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -47,7 +47,7 @@ var _ = Describe("QueryLoggingResolver", func() {
 		m          *mockResolver
 		tmpDir     *TmpFolder
 		mockRType  ResponseType
-		mockAnswer *dnsv1.Msg
+		mockAnswer *dns.Msg
 
 		ctx      context.Context
 		cancelFn context.CancelFunc
@@ -67,7 +67,7 @@ var _ = Describe("QueryLoggingResolver", func() {
 		Expect(err).Should(Succeed())
 
 		mockRType = ResponseTypeRESOLVED
-		mockAnswer = new(dnsv1.Msg)
+		mockAnswer = new(dns.Msg)
 		tmpDir = NewTmpFolder("queryLoggingResolver")
 	})
 
@@ -119,7 +119,7 @@ var _ = Describe("QueryLoggingResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				m.AssertExpectations(GinkgoT())
@@ -139,7 +139,7 @@ var _ = Describe("QueryLoggingResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				m.AssertExpectations(GinkgoT())
@@ -243,7 +243,7 @@ var _ = Describe("QueryLoggingResolver", func() {
 						Should(
 							SatisfyAll(
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 				By("request from client 2, has name with special chars, should be escaped", func() {
@@ -252,7 +252,7 @@ var _ = Describe("QueryLoggingResolver", func() {
 						Should(
 							SatisfyAll(
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 
@@ -311,7 +311,7 @@ var _ = Describe("QueryLoggingResolver", func() {
 						Should(
 							SatisfyAll(
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 				By("request from client 2, has name with special chars, should be escaped", func() {
@@ -319,7 +319,7 @@ var _ = Describe("QueryLoggingResolver", func() {
 						Should(
 							SatisfyAll(
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 
@@ -372,7 +372,7 @@ var _ = Describe("QueryLoggingResolver", func() {
 						Should(
 							SatisfyAll(
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 

@@ -9,7 +9,7 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
 	"github.com/sirupsen/logrus"
 )
 
@@ -134,7 +134,7 @@ func (r *ConditionalUpstreamResolver) internalResolve(ctx context.Context, reso 
 	// internal request resolution
 	ctx, logger := r.log(ctx)
 
-	req.Req.Question[0].Name = dnsv1.Fqdn(doFQ)
+	req.Req.Question[0].Header().Name = dnsutil.Fqdn(doFQ)
 	response, err := reso.Resolve(ctx, req)
 
 	if err == nil {
@@ -142,7 +142,7 @@ func (r *ConditionalUpstreamResolver) internalResolve(ctx context.Context, reso 
 		response.RType = model.ResponseTypeCONDITIONAL
 
 		if len(response.Res.Question) > 0 {
-			response.Res.Question[0].Name = req.Req.Question[0].Name
+			response.Res.Question[0].Header().Name = req.Req.Question[0].Header().Name
 		}
 	} else {
 		return nil, fmt.Errorf("conditional upstream resolution failed for domain '%s': %w", do, err)

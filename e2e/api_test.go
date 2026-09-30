@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -67,7 +67,7 @@ var _ = Describe("API endpoints", func() {
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 					Expect(resp.Answer).Should(HaveLen(1))
-					Expect(resp.Answer[0].Header().Ttl).Should(BeNumerically("<", 300))
+					Expect(resp.Answer[0].Header().TTL).Should(BeNumerically("<", 300))
 				})
 
 				By("flushing cache via API", func() {
@@ -82,7 +82,7 @@ var _ = Describe("API endpoints", func() {
 					resp, err := doDNSRequest(ctx, blocky, msg)
 					Expect(err).Should(Succeed())
 					Expect(resp.Answer).Should(HaveLen(1))
-					Expect(resp.Answer[0].Header().Ttl).Should(BeNumerically(">=", 295))
+					Expect(resp.Answer[0].Header().TTL).Should(BeNumerically(">=", 295))
 				})
 			})
 		})
@@ -203,7 +203,7 @@ var _ = Describe("API endpoints", func() {
 				})
 
 				By("waiting for duration to expire and verifying blocking is re-enabled", func() {
-					Eventually(func() *dnsv1.Msg {
+					Eventually(func() *dns.Msg {
 						msg := util.NewMsgWithQuestion("blocked.com.", A)
 						resp, _ := doDNSRequest(ctx, blocky, msg)
 

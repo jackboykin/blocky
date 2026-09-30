@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
@@ -205,7 +207,7 @@ func (b *Bootstrap) dialContext(ctx context.Context, network, addr string) (net.
 		return nil, fmt.Errorf("failed to parse dial address '%s': %w", addr, err)
 	}
 
-	var qTypes []dnsv1.Type
+	var qTypes []uint16
 
 	switch {
 	case b.cfg.connectIPVersion != config.IPVersionDual: // ignore `network` if a specific version is configured
@@ -253,7 +255,7 @@ func (b *Bootstrap) dialContext(ctx context.Context, network, addr string) (net.
 	return nil, fmt.Errorf("failed to dial '%s' (resolved from '%s'): %w", addr, host, dialErr.ErrorOrNil())
 }
 
-func (b *Bootstrap) resolve(ctx context.Context, hostname string, qTypes []dnsv1.Type) (ips []netip.Addr, err error) {
+func (b *Bootstrap) resolve(ctx context.Context, hostname string, qTypes []uint16) (ips []netip.Addr, err error) {
 	ips = make([]netip.Addr, 0, len(qTypes))
 
 	for _, qType := range qTypes {
@@ -278,7 +280,7 @@ func (b *Bootstrap) resolve(ctx context.Context, hostname string, qTypes []dnsv1
 	return ips, nil
 }
 
-func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType dnsv1.Type) (ips []netip.Addr, err error) {
+func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType uint16) (ips []netip.Addr, err error) {
 	if ip := util.ParseIP(hostname); ip.IsValid() {
 		return []netip.Addr{ip}, nil
 	}
@@ -291,10 +293,10 @@ func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType dnsv
 
 	rsp, err := b.resolver.Resolve(ctx, &req)
 	if err != nil {
-		return nil, fmt.Errorf("DNS query failed for %s (type %s): %w", hostname, qType, err)
+		return nil, fmt.Errorf("DNS query failed for %s (type %s): %w", hostname, dnsutil.TypeToString(qType), err)
 	}
 
-	if rsp.Res.Rcode != dnsv1.RcodeSuccess {
+	if rsp.Res.Rcode != dns.RcodeSuccess {
 		return nil, nil
 	}
 
@@ -302,10 +304,10 @@ func (b *Bootstrap) resolveType(ctx context.Context, hostname string, qType dnsv
 
 	for _, a := range rsp.Res.Answer {
 		switch rr := a.(type) {
-		case *dnsv1.A:
-			ips = append(ips, util.AddrFromIP(rr.A))
-		case *dnsv1.AAAA:
-			ips = append(ips, util.AddrFromIP(rr.AAAA))
+		case *dns.A:
+			ips = append(ips, rr.Addr.Unmap())
+		case *dns.AAAA:
+			ips = append(ips, rr.Addr.Unmap())
 		}
 	}
 

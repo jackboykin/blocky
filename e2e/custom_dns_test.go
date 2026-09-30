@@ -2,10 +2,11 @@ package e2e
 
 import (
 	"context"
+	"net/netip"
 
+	"codeberg.org/miekg/dns/dnsutil"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -293,8 +294,7 @@ var _ = Describe("Custom DNS tests", func() {
 			It("Should resolve PTR records for defined IP addresses", func(ctx context.Context) {
 				By("Resolving PTR record for a single IP mapping", func() {
 					// Create a PTR query for 192.168.178.3
-					ptrName, err := dnsv1.ReverseAddr("192.168.178.3")
-					Expect(err).Should(Succeed())
+					ptrName := dnsutil.ReverseAddr(netip.MustParseAddr("192.168.178.3"))
 
 					msg := util.NewMsgWithQuestion(ptrName, PTR)
 					Expect(doDNSRequest(ctx, blocky, msg)).
@@ -307,8 +307,7 @@ var _ = Describe("Custom DNS tests", func() {
 
 				By("Resolving PTR record for an IP with multiple domains", func() {
 					// Create a PTR query for 192.168.178.4
-					ptrName, err := dnsv1.ReverseAddr("192.168.178.4")
-					Expect(err).Should(Succeed())
+					ptrName := dnsutil.ReverseAddr(netip.MustParseAddr("192.168.178.4"))
 
 					msg := util.NewMsgWithQuestion(ptrName, PTR)
 					Expect(doDNSRequest(ctx, blocky, msg)).
@@ -321,8 +320,7 @@ var _ = Describe("Custom DNS tests", func() {
 
 				By("Returning empty result for undefined IP address", func() {
 					// Create a PTR query for 192.168.178.10 (not defined)
-					ptrName, err := dnsv1.ReverseAddr("192.168.178.10")
-					Expect(err).Should(Succeed())
+					ptrName := dnsutil.ReverseAddr(netip.MustParseAddr("192.168.178.10"))
 
 					msg := util.NewMsgWithQuestion(ptrName, PTR)
 					resp, err := doDNSRequest(ctx, blocky, msg)

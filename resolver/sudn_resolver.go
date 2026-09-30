@@ -2,13 +2,13 @@ package resolver
 
 import (
 	"context"
-	"net"
+	"net/netip"
 	"strings"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 )
 
 const exampleDomain = "example.com."
@@ -17,8 +17,8 @@ type sudnHandler = func(request *model.Request, cfg *config.SUDN) *model.Respons
 
 //nolint:gochecknoglobals
 var (
-	loopbackV4 = net.ParseIP(loopbackIPv4Str)
-	loopbackV6 = net.IPv6loopback
+	loopbackV4 = netip.MustParseAddr(loopbackIPv4Str)
+	loopbackV6 = netip.IPv6Loopback()
 
 	// See Wikipedia for an up-to-date reference:
 	// https://en.wikipedia.org/wiki/Special-use_domain_name
@@ -130,41 +130,41 @@ func (r *SpecialUseDomainNamesResolver) Resolve(ctx context.Context, request *mo
 
 func (r *SpecialUseDomainNamesResolver) handler(request *model.Request) sudnHandler {
 	// DNS names are case-insensitive (RFC 4343); the sudnHandlers keys are lowercase
-	_, handler, _ := searchDomainOrParent(sudnHandlers, strings.ToLower(request.Req.Question[0].Name))
+	_, handler, _ := searchDomainOrParent(sudnHandlers, strings.ToLower(request.Req.Question[0].Header().Name))
 
 	return handler
 }
 
-func newSUDNResponse(response *model.Request, rcode int) *model.Response {
+func newSUDNResponse(response *model.Request, rcode uint16) *model.Response {
 	return newResponse(response, rcode, model.ResponseTypeSPECIAL, "Special-Use Domain Name")
 }
 
 func sudnNXDomain(request *model.Request, _ *config.SUDN) *model.Response {
-	return newSUDNResponse(request, dnsv1.RcodeNameError)
+	return newSUDNResponse(request, dns.RcodeNameError)
 }
 
 func sudnNoData(request *model.Request, _ *config.SUDN) *model.Response {
-	return newSUDNResponse(request, dnsv1.RcodeSuccess)
+	return newSUDNResponse(request, dns.RcodeSuccess)
 }
 
 func sudnLocalhost(request *model.Request, cfg *config.SUDN) *model.Response {
 	q := request.Req.Question[0]
 
-	var rr dnsv1.RR
+	var rr dns.RR
 
-	switch q.Qtype {
-	case dnsv1.TypeA:
-		rr = &dnsv1.A{A: loopbackV4}
-	case dnsv1.TypeAAAA:
-		rr = &dnsv1.AAAA{AAAA: loopbackV6}
+	switch dns.RRToType(q) {
+	case dns.TypeA:
+		rr = &dns.A{Addr: loopbackV4}
+	case dns.TypeAAAA:
+		rr = &dns.AAAA{Addr: loopbackV6}
 	default:
 		return sudnNXDomain(request, cfg)
 	}
 
 	*rr.Header() = util.CreateHeader(q, 0)
 
-	response := newSUDNResponse(request, dnsv1.RcodeSuccess)
-	response.Res.Answer = []dnsv1.RR{rr}
+	response := newSUDNResponse(request, dns.RcodeSuccess)
+	response.Res.Answer = []dns.RR{rr}
 
 	return response
 }
@@ -178,7 +178,7 @@ func sudnRFC6762AppendixG(request *model.Request, cfg *config.SUDN) *model.Respo
 }
 
 func sudnHomeArpa(request *model.Request, cfg *config.SUDN) *model.Response {
-	if request.Req.Question[0].Qtype == dnsv1.TypeDS {
+	if dns.RRToType(request.Req.Question[0]) == dns.TypeDS {
 		// DS queries must be forwarded
 		return nil
 	}

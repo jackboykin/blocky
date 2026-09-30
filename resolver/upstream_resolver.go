@@ -25,6 +25,7 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
+	"codeberg.org/miekg/dns"
 	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
@@ -55,7 +56,7 @@ const (
 
 // UpstreamServerError wraps a response with RCode ServFail so no other resolver tries to use it.
 type UpstreamServerError struct {
-	Msg *dnsv1.Msg
+	Msg *dns.Msg
 }
 
 func (e *UpstreamServerError) Error() string {
@@ -106,8 +107,8 @@ type upstreamClient interface {
 
 	fmtURL(ip netip.Addr, port uint16, path string) string
 	callExternal(
-		ctx context.Context, msg *dnsv1.Msg, upstreamURL string,
-	) (response *dnsv1.Msg, rtt time.Duration, err error)
+		ctx context.Context, msg *dns.Msg, upstreamURL string,
+	) (response *dns.Msg, rtt time.Duration, err error)
 }
 
 type dnsUpstreamClient struct {
@@ -341,11 +342,11 @@ func (r *httpUpstreamClient) attempt(
 }
 
 func (r *httpUpstreamClient) callExternal(
-	ctx context.Context, msg *dnsv1.Msg, upstreamURL string,
-) (*dnsv1.Msg, time.Duration, error) {
+	ctx context.Context, msg *dns.Msg, upstreamURL string,
+) (*dns.Msg, time.Duration, error) {
 	start := time.Now()
 
-	rawDNSMessage, err := msg.Pack()
+	rawDNSMessage, err := util.PackMsg(msg)
 	if err != nil {
 		return nil, 0, fmt.Errorf("can't pack message: %w", err)
 	}
@@ -377,13 +378,12 @@ func (r *httpUpstreamClient) callExternal(
 		return nil, 0, fmt.Errorf("can't read response body:  %w", err)
 	}
 
-	response := dnsv1.Msg{}
-	err = response.Unpack(body)
+	response, err := util.UnpackMsg(body)
 	if err != nil {
 		return nil, 0, fmt.Errorf("can't unpack message: %w", err)
 	}
 
-	return &response, time.Since(start), nil
+	return response, time.Since(start), nil
 }
 
 func (r *dnsUpstreamClient) fmtURL(ip netip.Addr, port uint16, _ string) string {
@@ -401,14 +401,14 @@ func (r *dnsUpstreamClient) Close() error {
 }
 
 func (r *dnsUpstreamClient) callExternal(
-	ctx context.Context, msg *dnsv1.Msg, upstreamURL string,
-) (response *dnsv1.Msg, rtt time.Duration, err error) {
+	ctx context.Context, msg *dns.Msg, upstreamURL string,
+) (response *dns.Msg, rtt time.Duration, err error) {
 	if r.udpClient == nil {
 		// Single connection-oriented client (DoT): reuse pooled connections when a
 		// pool is configured, otherwise fall back to a one-shot exchange rather than
 		// dereferencing a nil pool.
 		var (
-			resp *dnsv1.Msg
+			resp *dns.Msg
 			rtt  time.Duration
 			err  error
 		)
@@ -416,7 +416,9 @@ func (r *dnsUpstreamClient) callExternal(
 		if r.pool != nil {
 			resp, rtt, err = r.pool.exchange(ctx, msg, upstreamURL)
 		} else {
-			resp, rtt, err = r.tcpClient.ExchangeContext(ctx, msg, upstreamURL)
+			resp, rtt, err = util.ExchangeV1(msg, func(m1 *dnsv1.Msg) (*dnsv1.Msg, time.Duration, error) {
+				return r.tcpClient.ExchangeContext(ctx, m1, upstreamURL)
+			})
 		}
 
 		if err != nil {
@@ -431,8 +433,8 @@ func (r *dnsUpstreamClient) callExternal(
 
 // servFailToError returns an UpstreamServerError if resp is a SERVFAIL, so no other resolver tries
 // to reuse the response; nil otherwise.
-func servFailToError(resp *dnsv1.Msg) error {
-	if resp.Rcode == dnsv1.RcodeServerFailure {
+func servFailToError(resp *dns.Msg) error {
+	if resp.Rcode == dns.RcodeServerFailure {
 		return &UpstreamServerError{resp}
 	}
 
@@ -441,9 +443,11 @@ func servFailToError(resp *dnsv1.Msg) error {
 
 // exchange performs a single DNS exchange and maps an upstream SERVFAIL to an UpstreamServerError.
 func (r *dnsUpstreamClient) exchange(
-	ctx context.Context, client *dnsv1.Client, msg *dnsv1.Msg, upstreamURL string,
-) (*dnsv1.Msg, time.Duration, error) {
-	resp, rtt, err := client.ExchangeContext(ctx, msg, upstreamURL)
+	ctx context.Context, client *dnsv1.Client, msg *dns.Msg, upstreamURL string,
+) (*dns.Msg, time.Duration, error) {
+	resp, rtt, err := util.ExchangeV1(msg, func(m1 *dnsv1.Msg) (*dnsv1.Msg, time.Duration, error) {
+		return client.ExchangeContext(ctx, m1, upstreamURL)
+	})
 	if err == nil {
 		err = servFailToError(resp)
 	}
@@ -463,8 +467,8 @@ func (r *dnsUpstreamClient) exchange(
 // timing out, the TCP fallback inherits an (almost) expired context and fails immediately, and the
 // retry in Resolve takes over. The fallback helps when UDP fails fast (e.g. ICMP port unreachable).
 func (r *dnsUpstreamClient) exchangeUDPWithTCPFallback(
-	ctx context.Context, msg *dnsv1.Msg, upstreamURL string,
-) (*dnsv1.Msg, time.Duration, error) {
+	ctx context.Context, msg *dns.Msg, upstreamURL string,
+) (*dns.Msg, time.Duration, error) {
 	resp, rtt, err := r.exchange(ctx, r.udpClient, udpRequestWithBufferFloor(msg), upstreamURL)
 
 	switch {
@@ -501,7 +505,7 @@ func (r *dnsUpstreamClient) exchangeUDPWithTCPFallback(
 		resp, rtt = tcpResp, tcpRTT
 	}
 
-	if msg.IsEdns0() == nil {
+	if !util.HasEdns0(msg) {
 		// We may have advertised the EDNS0 buffer floor the client never asked for; don't leak the
 		// resulting OPT record back to a client that didn't request EDNS0.
 		util.RemoveEdns0Record(resp)
@@ -515,18 +519,15 @@ func (r *dnsUpstreamClient) exchangeUDPWithTCPFallback(
 // enough it is returned unchanged; otherwise a copy with a raised (or newly added) OPT is returned,
 // so the caller's shared request — which also drives per-client response truncation in the Server —
 // is never mutated.
-func udpRequestWithBufferFloor(msg *dnsv1.Msg) *dnsv1.Msg {
-	if opt := msg.IsEdns0(); opt != nil && opt.UDPSize() >= upstreamUDPBufferFloor {
+func udpRequestWithBufferFloor(msg *dns.Msg) *dns.Msg {
+	if msg.UDPSize >= upstreamUDPBufferFloor {
 		return msg
 	}
 
+	// The OPT RR is part of the message header, so a shallow copy is enough to raise it without
+	// touching msg; the EDNS0 options and DO bit are kept.
 	clone := msg.Copy()
-	if opt := clone.IsEdns0(); opt != nil {
-		// raise the existing OPT in place so its options and DO bit are kept
-		opt.SetUDPSize(upstreamUDPBufferFloor)
-	} else {
-		clone.SetEdns0(upstreamUDPBufferFloor, false)
-	}
+	clone.UDPSize = upstreamUDPBufferFloor
 
 	return clone
 }
@@ -536,7 +537,7 @@ func udpRequestWithBufferFloor(msg *dnsv1.Msg) *dnsv1.Msg {
 // same questions, each with a matching type, class, and (case-insensitive) name. A question for
 // something else indicates a buggy or confused upstream whose UDP answer can't be trusted, so the
 // caller re-asks over TCP.
-func responseMatchesRequest(req, resp *dnsv1.Msg) bool {
+func responseMatchesRequest(req, resp *dns.Msg) bool {
 	if len(resp.Question) == 0 {
 		return true
 	}
@@ -547,7 +548,8 @@ func responseMatchesRequest(req, resp *dnsv1.Msg) bool {
 
 	for i := range req.Question {
 		q, rq := req.Question[i], resp.Question[i]
-		if rq.Qtype != q.Qtype || rq.Qclass != q.Qclass || !strings.EqualFold(rq.Name, q.Name) {
+		if dns.RRToType(rq) != dns.RRToType(q) || rq.Header().Class != q.Header().Class ||
+			!strings.EqualFold(rq.Header().Name, q.Header().Name) {
 			return false
 		}
 	}
@@ -605,7 +607,7 @@ func (r *UpstreamResolver) log(ctx context.Context) (context.Context, *logrus.En
 // testResolve sends a test query to verify the upstream is reachable and working
 func (r *UpstreamResolver) testResolve(ctx context.Context) error {
 	// example.com MUST always resolve. See SUDN resolver
-	request := newRequest(exampleDomain, dnsv1.Type(dnsv1.TypeA))
+	request := newRequest(exampleDomain, dns.TypeA)
 
 	_, err := r.Resolve(ctx, request)
 	if err != nil {
@@ -625,7 +627,7 @@ func (r *UpstreamResolver) Resolve(ctx context.Context, request *model.Request) 
 	}
 
 	var (
-		resp *dnsv1.Msg
+		resp *dns.Msg
 		ip   netip.Addr
 	)
 
@@ -671,7 +673,7 @@ func (r *UpstreamResolver) Resolve(ctx context.Context, request *model.Request) 
 }
 
 func (r *UpstreamResolver) logResponse(
-	logger *logrus.Entry, request *model.Request, resp *dnsv1.Msg, ip netip.Addr, rtt time.Duration,
+	logger *logrus.Entry, request *model.Request, resp *dns.Msg, ip netip.Addr, rtt time.Duration,
 ) {
 	// runs on every successful upstream response (every cache miss); skip building the
 	// (expensive) answer string / field map entirely when Debug isn't enabled.
@@ -681,7 +683,7 @@ func (r *UpstreamResolver) logResponse(
 
 	logger.WithFields(logrus.Fields{
 		logFieldAnswer:     util.Obfuscate(util.AnswerToString(resp.Answer)),
-		"return_code":      dnsv1.RcodeToString[resp.Rcode],
+		"return_code":      dns.RcodeToString[resp.Rcode],
 		logFieldUpstream:   r.cfg.String(),
 		"upstream_ip":      ip.String(),
 		logFieldProtocol:   request.Protocol,

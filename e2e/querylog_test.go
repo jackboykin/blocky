@@ -4,9 +4,9 @@ import (
 	"context"
 	"os"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/util"
 	sqliteDriver "github.com/glebarez/sqlite"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -71,9 +71,9 @@ var _ = Describe("Query logs functional tests", func() {
 			It("Should store query log in the mariaDB database", func(ctx context.Context) {
 				By("Performing 2 queries", func() {
 					Expect(doDNSRequest(ctx, blocky,
-						util.NewMsgWithQuestion("google.de.", dnsv1.Type(dnsv1.TypeA)))).ShouldNot(BeNil())
+						util.NewMsgWithQuestion("google.de.", dns.TypeA))).ShouldNot(BeNil())
 					Expect(doDNSRequest(ctx, blocky,
-						util.NewMsgWithQuestion("unknown.domain.", dnsv1.Type(dnsv1.TypeA)))).ShouldNot(BeNil())
+						util.NewMsgWithQuestion("unknown.domain.", dns.TypeA))).ShouldNot(BeNil())
 				})
 
 				By("check entries count asynchronously, since blocky flushes log entries in bulk", func() {
@@ -142,7 +142,7 @@ var _ = Describe("Query logs functional tests", func() {
 			Eventually(countEntries).WithArguments(db).Should(BeNumerically("==", 0))
 		})
 		When("Some queries were performed", func() {
-			msg := util.NewMsgWithQuestion("google.de.", dnsv1.Type(dnsv1.TypeA))
+			msg := util.NewMsgWithQuestion("google.de.", dns.TypeA)
 			It("Should store query log in the postgres database", func(ctx context.Context) {
 				By("Performing 2 queries", func() {
 					Expect(doDNSRequest(ctx, blocky, msg)).ShouldNot(BeNil())
@@ -215,7 +215,7 @@ var _ = Describe("Query logs functional tests", func() {
 			Eventually(countEntries).WithArguments(db).Should(BeNumerically("==", 0))
 		})
 		When("Some queries were performed", func() {
-			msg := util.NewMsgWithQuestion("google.de.", dnsv1.Type(dnsv1.TypeA))
+			msg := util.NewMsgWithQuestion("google.de.", dns.TypeA)
 			It("Should store query log in the timescale database", func(ctx context.Context) {
 				By("Performing 2 queries", func() {
 					Expect(doDNSRequest(ctx, blocky, msg)).ShouldNot(BeNil())
@@ -283,7 +283,7 @@ var _ = Describe("Query logs functional tests", func() {
 		})
 
 		When("Some queries were performed", func() {
-			msg := util.NewMsgWithQuestion("google.de.", dnsv1.Type(dnsv1.TypeA))
+			msg := util.NewMsgWithQuestion("google.de.", dns.TypeA)
 			It("Should store query log in the SQLite database", func(ctx context.Context) {
 				By("Performing 2 queries", func() {
 					Expect(doDNSRequest(ctx, blocky, msg)).ShouldNot(BeNil())

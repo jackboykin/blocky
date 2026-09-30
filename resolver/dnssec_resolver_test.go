@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/log"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -111,7 +111,7 @@ var _ = Describe("DNSSECResolver", func() {
 	Describe("Resolve", func() {
 		var (
 			request  *model.Request
-			response *dnsv1.Msg
+			response *dns.Msg
 		)
 
 		BeforeEach(func() {
@@ -155,10 +155,7 @@ var _ = Describe("DNSSECResolver", func() {
 				Expect(err).Should(Succeed())
 
 				// Verify DO bit was not set
-				opt := request.Req.IsEdns0()
-				if opt != nil {
-					Expect(opt.Do()).Should(BeFalse())
-				}
+				Expect(request.Req.Security).Should(BeFalse())
 			})
 		})
 
@@ -182,9 +179,8 @@ var _ = Describe("DNSSECResolver", func() {
 				Expect(err).Should(Succeed())
 
 				// Verify DO bit was set
-				opt := request.Req.IsEdns0()
-				Expect(opt).ShouldNot(BeNil())
-				Expect(opt.Do()).Should(BeTrue())
+				Expect(util.HasEdns0(request.Req)).Should(BeTrue())
+				Expect(request.Req.Security).Should(BeTrue())
 			})
 
 			It("should clear AD flag for insecure responses", func() {
@@ -200,17 +196,16 @@ var _ = Describe("DNSSECResolver", func() {
 
 			It("should return SERVFAIL when validation is bogus", func() {
 				// Response with expired RRSIG
-				response.Answer = append(response.Answer, &dnsv1.RRSIG{
-					Hdr: dnsv1.RR_Header{
-						Name:   "example.com.",
-						Rrtype: dnsv1.TypeRRSIG,
-						Class:  dnsv1.ClassINET,
-						Ttl:    300,
+				response.Answer = append(response.Answer, &dns.RRSIG{
+					Hdr: dns.Header{
+						Name:  "example.com.",
+						Class: dns.ClassINET,
+						TTL:   300,
 					},
-					TypeCovered: dnsv1.TypeA,
+					TypeCovered: dns.TypeA,
 					Algorithm:   8,
 					Labels:      2,
-					OrigTtl:     300,
+					OrigTTL:     300,
 					Expiration:  uint32(time.Now().Add(-48 * time.Hour).Unix()), // Expired
 					Inception:   uint32(time.Now().Add(-72 * time.Hour).Unix()),
 					KeyTag:      12345,
@@ -219,15 +214,15 @@ var _ = Describe("DNSSECResolver", func() {
 				})
 
 				// Mock empty DNSKEY response (missing DNSKEY = Bogus per RFC 4035)
-				dnskeyResp := new(dnsv1.Msg)
-				dnskeyResp.SetRcode(&dnsv1.Msg{}, dnsv1.RcodeSuccess)
+				dnskeyResp := new(dns.Msg)
+				model.SetRcode(dnskeyResp, &dns.Msg{}, dns.RcodeSuccess)
 				mockUpstream.On("Resolve", mock.Anything).Return(&model.Response{Res: response}, nil).Once()
 				mockUpstream.On("Resolve", mock.Anything).Return(&model.Response{Res: dnskeyResp}, nil)
 
 				resp, err := sut.Resolve(ctx, request)
 				Expect(err).Should(Succeed())
 				// Should return SERVFAIL per RFC 4035: RRSIG present + missing DNSKEY = Bogus = SERVFAIL
-				Expect(resp.Res.Rcode).Should(Equal(dnsv1.RcodeServerFailure))
+				Expect(resp.Res.Rcode).Should(Equal(uint16(dns.RcodeServerFailure)))
 				Expect(resp.Res.AuthenticatedData).Should(BeFalse())
 			})
 
@@ -249,7 +244,7 @@ var _ = Describe("DNSSECResolver", func() {
 					resp, err := sut.Resolve(ctx, request)
 					Expect(err).Should(Succeed())
 					// passes through untouched - not turned into SERVFAIL
-					Expect(resp.Res.Rcode).Should(Equal(dnsv1.RcodeSuccess))
+					Expect(resp.Res.Rcode).Should(Equal(uint16(dns.RcodeSuccess)))
 					Expect(resp.Res.Answer).Should(HaveLen(1))
 					Expect(resp.RType).Should(Equal(rType))
 					// AD cleared: we did not authenticate it
@@ -275,7 +270,7 @@ var _ = Describe("DNSSECResolver", func() {
 					resp, err := sut.Resolve(ctx, request)
 					Expect(err).Should(Succeed())
 					// unsigned answer under the default root anchor -> bogus -> SERVFAIL
-					Expect(resp.Res.Rcode).Should(Equal(dnsv1.RcodeServerFailure))
+					Expect(resp.Res.Rcode).Should(Equal(uint16(dns.RcodeServerFailure)))
 				},
 				Entry("resolved - public upstream", model.ResponseTypeRESOLVED),
 				Entry("cached upstream answer - re-validated on hit", model.ResponseTypeCACHED),
@@ -292,7 +287,7 @@ var _ = Describe("DNSSECResolver", func() {
 			})
 
 			It("should return the error", func() {
-				mockUpstream.On("Resolve", mock.Anything).Return(nil, dnsv1.ErrTime)
+				mockUpstream.On("Resolve", mock.Anything).Return(nil, dns.ErrTime)
 
 				resp, err := sut.Resolve(ctx, request)
 				Expect(err).Should(HaveOccurred())
@@ -323,7 +318,7 @@ var _ = Describe("DNSSECResolver", func() {
 	})
 
 	Describe("EDNS0 buffer size handling", func() {
-		var response *dnsv1.Msg
+		var response *dns.Msg
 
 		BeforeEach(func() {
 			sutConfig.Validate = true
@@ -341,7 +336,7 @@ var _ = Describe("DNSSECResolver", func() {
 		It("should increase EDNS0 buffer size if too small", func() {
 			req := util.NewMsgWithQuestion("example.com.", A)
 			// Add EDNS0 with small buffer
-			req.SetEdns0(512, false)
+			util.SetEdns0(req, 512, false)
 
 			request := &model.Request{
 				Req:      req,
@@ -354,16 +349,14 @@ var _ = Describe("DNSSECResolver", func() {
 			Expect(err).Should(Succeed())
 
 			// Verify buffer size was increased
-			opt := request.Req.IsEdns0()
-			Expect(opt).ShouldNot(BeNil())
-			Expect(opt.UDPSize()).Should(BeNumerically(">=", 4096))
-			Expect(opt.Do()).Should(BeTrue())
+			Expect(request.Req.UDPSize).Should(BeNumerically(">=", 4096))
+			Expect(request.Req.Security).Should(BeTrue())
 		})
 
 		It("should preserve existing EDNS0 buffer size if adequate", func() {
 			req := util.NewMsgWithQuestion("example.com.", A)
 			// Add EDNS0 with large buffer
-			req.SetEdns0(8192, false)
+			util.SetEdns0(req, 8192, false)
 
 			request := &model.Request{
 				Req:      req,
@@ -376,10 +369,8 @@ var _ = Describe("DNSSECResolver", func() {
 			Expect(err).Should(Succeed())
 
 			// Verify buffer size was preserved
-			opt := request.Req.IsEdns0()
-			Expect(opt).ShouldNot(BeNil())
-			Expect(opt.UDPSize()).Should(Equal(uint16(8192)))
-			Expect(opt.Do()).Should(BeTrue())
+			Expect(request.Req.UDPSize).Should(Equal(uint16(8192)))
+			Expect(request.Req.Security).Should(BeTrue())
 		})
 	})
 
@@ -392,22 +383,21 @@ var _ = Describe("DNSSECResolver", func() {
 			response := createServFailResponseDNSSEC(modelReq, reason)
 
 			Expect(response).ShouldNot(BeNil())
-			Expect(response.Res.Rcode).Should(Equal(dnsv1.RcodeServerFailure))
+			Expect(response.Res.Rcode).Should(Equal(uint16(dns.RcodeServerFailure)))
 			Expect(response.Reason).Should(Equal(reason))
 			// a validation failure is an error, not a block: it must not be counted
 			// as one in the statistics, nor reported to the client as EDE "Blocked"
 			Expect(response.RType).Should(Equal(model.ResponseTypeBOGUS))
-			Expect(response.RType.ToExtendedErrorCode()).Should(Equal(dnsv1.ExtendedErrorCodeDNSBogus))
+			Expect(response.RType.ToExtendedErrorCode()).Should(Equal(dns.ExtendedErrorDNSBogus))
 
 			// Check for EDNS0 with EDE
-			opt := response.Res.IsEdns0()
-			Expect(opt).ShouldNot(BeNil())
+			Expect(util.HasEdns0(response.Res)).Should(BeTrue())
 
 			// Verify EDE option exists
 			edeFound := false
-			for _, option := range opt.Option {
-				if ede, ok := option.(*dnsv1.EDNS0_EDE); ok {
-					Expect(ede.InfoCode).Should(Equal(dnsv1.ExtendedErrorCodeDNSBogus))
+			for _, option := range response.Res.Pseudo {
+				if ede, ok := option.(*dns.EDE); ok {
+					Expect(ede.InfoCode).Should(Equal(dns.ExtendedErrorDNSBogus))
 					Expect(ede.ExtraText).Should(Equal(reason))
 					edeFound = true
 				}
@@ -421,14 +411,12 @@ var _ = Describe("DNSSECResolver", func() {
 
 			response := createServFailResponseDNSSEC(modelReq, "test reason")
 
-			opt := response.Res.IsEdns0()
-			Expect(opt).ShouldNot(BeNil())
-			Expect(opt.UDPSize()).Should(Equal(uint16(4096)))
+			Expect(response.Res.UDPSize).Should(Equal(uint16(4096)))
 		})
 	})
 
 	Describe("Resolve with validation edge cases", func() {
-		var response *dnsv1.Msg
+		var response *dns.Msg
 
 		BeforeEach(func() {
 			sutConfig.Validate = true
@@ -451,7 +439,7 @@ var _ = Describe("DNSSECResolver", func() {
 			}
 
 			// Response without question section
-			emptyResponse := &dnsv1.Msg{}
+			emptyResponse := &dns.Msg{}
 
 			mockUpstream.On("Resolve", mock.Anything).Return(&model.Response{Res: emptyResponse}, nil)
 

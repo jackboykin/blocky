@@ -9,16 +9,17 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
 	"github.com/sirupsen/logrus"
 )
 
 // rewriteRequest applies domain rewrites to the DNS request
 func rewriteRequest(
 	logger *logrus.Entry,
-	request *dnsv1.Msg,
+	request *dns.Msg,
 	rewriteMap map[string]string,
-) (rewritten *dnsv1.Msg, originalNames map[string]string) {
+) (rewritten *dns.Msg, originalNames map[string]string) {
 	if len(rewriteMap) == 0 {
 		return nil, nil
 	}
@@ -26,21 +27,21 @@ func rewriteRequest(
 	originalNames = make(map[string]string, len(request.Question))
 
 	for i := range request.Question {
-		nameOriginal := request.Question[i].Name
+		nameOriginal := request.Question[i].Header().Name
 
 		domainOriginal := util.ExtractDomainOnly(nameOriginal)
 		domainRewritten, rewriteKey := rewriteDomain(domainOriginal, rewriteMap)
 
 		if domainRewritten != domainOriginal {
-			rewrittenFQDN := dnsv1.Fqdn(domainRewritten)
+			rewrittenFQDN := dnsutil.Fqdn(domainRewritten)
 
 			originalNames[rewrittenFQDN] = nameOriginal
 
 			if rewritten == nil {
-				rewritten = request.Copy()
+				rewritten = util.CloneMsg(request)
 			}
 
-			rewritten.Question[i].Name = rewrittenFQDN
+			rewritten.Question[i].Header().Name = rewrittenFQDN
 
 			logger.WithFields(logrus.Fields{
 				"rewrite": util.Obfuscate(rewriteKey) + ":" + util.Obfuscate(rewriteMap[rewriteKey]),
@@ -88,7 +89,7 @@ func shouldFallbackUpstream(cfg *config.RewriterConfig, response *model.Response
 }
 
 // revertRewritesInResponse reverts domain rewrites in the DNS response
-func revertRewritesInResponse(response *dnsv1.Msg, originalNames map[string]string) {
+func revertRewritesInResponse(response *dns.Msg, originalNames map[string]string) {
 	if len(originalNames) == 0 {
 		return
 	}
@@ -96,9 +97,9 @@ func revertRewritesInResponse(response *dnsv1.Msg, originalNames map[string]stri
 	n := max(len(response.Question), len(response.Answer))
 	for i := range n {
 		if i < len(response.Question) {
-			original, ok := originalNames[response.Question[i].Name]
+			original, ok := originalNames[response.Question[i].Header().Name]
 			if ok {
-				response.Question[i].Name = original
+				response.Question[i].Header().Name = original
 			}
 		}
 

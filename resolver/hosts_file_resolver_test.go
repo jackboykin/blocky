@@ -5,11 +5,11 @@ import (
 	"net/netip"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/log"
 	. "github.com/0xERR0R/blocky/model"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -60,7 +60,7 @@ var _ = Describe("HostsFileResolver", func() {
 		Expect(err).Should(Succeed())
 
 		m = &mockResolver{}
-		m.On("Resolve", mock.Anything).Return(&Response{Res: new(dnsv1.Msg)}, nil)
+		m.On("Resolve", mock.Anything).Return(&Response{Res: new(dns.Msg)}, nil)
 		sut.Next(m)
 	})
 
@@ -101,7 +101,7 @@ var _ = Describe("HostsFileResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 				m.AssertExpectations(GinkgoT())
 			})
@@ -121,7 +121,7 @@ var _ = Describe("HostsFileResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 				m.AssertExpectations(GinkgoT())
 			})
@@ -182,7 +182,7 @@ var _ = Describe("HostsFileResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeHOSTSFILE),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							BeDNSRecord("ipv4host.", A, "192.168.2.1"),
 							HaveTTL(BeNumerically("==", TTL)),
 						))
@@ -192,7 +192,7 @@ var _ = Describe("HostsFileResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeHOSTSFILE),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							BeDNSRecord("router2.", A, "10.0.0.1"),
 							HaveTTL(BeNumerically("==", TTL)),
 						))
@@ -202,7 +202,7 @@ var _ = Describe("HostsFileResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveNoAnswer(),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveResponseType(ResponseTypeRESOLVED),
 						))
 			})
@@ -214,7 +214,7 @@ var _ = Describe("HostsFileResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveResponseType(ResponseTypeHOSTSFILE),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							BeDNSRecord("ipv6host.", AAAA, "faaf:faaf:faaf:faaf::1"),
 							HaveTTL(BeNumerically("==", TTL)),
 						))
@@ -224,7 +224,7 @@ var _ = Describe("HostsFileResolver", func() {
 					Should(
 						SatisfyAll(
 							HaveNoAnswer(),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveResponseType(ResponseTypeRESOLVED),
 						))
 			})
@@ -255,7 +255,7 @@ var _ = Describe("HostsFileResolver", func() {
 						Should(
 							SatisfyAll(
 								HaveResponseType(ResponseTypeHOSTSFILE),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 								BeDNSRecord("2.0.0.10.in-addr.arpa.", PTR, "router3."),
 								HaveTTL(BeNumerically("==", TTL)),
 							))
@@ -265,7 +265,7 @@ var _ = Describe("HostsFileResolver", func() {
 						Should(
 							SatisfyAll(
 								HaveResponseType(ResponseTypeHOSTSFILE),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 								WithTransform(ToAnswer, ContainElements(
 									BeDNSRecord("1.0.0.10.in-addr.arpa.", PTR, "router0."),
 									BeDNSRecord("1.0.0.10.in-addr.arpa.", PTR, "router1."),
@@ -280,7 +280,7 @@ var _ = Describe("HostsFileResolver", func() {
 						Should(
 							SatisfyAll(
 								HaveResponseType(ResponseTypeHOSTSFILE),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 								WithTransform(ToAnswer, ContainElements(
 									BeDNSRecord("1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.a.a.f.f.a.a.f.f.a.a.f.f.a.a.f.ip6.arpa.",
 										PTR, "ipv6host."),
@@ -326,7 +326,7 @@ var _ = Describe("HostsFileResolver", func() {
 						Should(
 							SatisfyAll(
 								HaveResponseType(ResponseTypeHOSTSFILE),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 								WithTransform(ToAnswer, ContainElements(
 									BeDNSRecord("1.1.0.127.in-addr.arpa.", PTR, "localhost2."),
 									BeDNSRecord("1.1.0.127.in-addr.arpa.", PTR, "localhost2.local.lan."),

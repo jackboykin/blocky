@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -52,7 +52,7 @@ func (c *DNS64) validate(logger *logrus.Entry, filtering *Filtering, caching *Ca
 	}
 
 	// Check for AAAA filtering conflict
-	if filtering.QueryTypes.Contains(dnsv1.Type(dnsv1.TypeAAAA)) {
+	if filtering.QueryTypes.Contains(dns.TypeAAAA) {
 		return errors.New("DNS64 will have no effect when filtering.queryTypes contains AAAA " +
 			"(all AAAA queries are filtered before reaching DNS64)")
 	}

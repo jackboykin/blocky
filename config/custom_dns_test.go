@@ -2,12 +2,12 @@ package config
 
 import (
 	"errors"
-	"net"
+	"net/netip"
 	"strings"
 
+	"codeberg.org/miekg/dns"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/creasty/defaults"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -20,12 +20,12 @@ var _ = Describe("CustomDNSConfig", func() {
 	BeforeEach(func() {
 		cfg = CustomDNS{
 			Mapping: CustomDNSMapping{
-				"custom.domain": {&dnsv1.A{A: net.ParseIP("192.168.143.123")}},
-				"ip6.domain":    {&dnsv1.AAAA{AAAA: net.ParseIP("2001:0db8:85a3:0000:0000:8a2e:0370:7334")}},
+				"custom.domain": {&dns.A{Addr: netip.MustParseAddr("192.168.143.123")}},
+				"ip6.domain":    {&dns.AAAA{Addr: netip.MustParseAddr("2001:0db8:85a3:0000:0000:8a2e:0370:7334")}},
 				"multiple.ips": {
-					&dnsv1.A{A: net.ParseIP("192.168.143.123")},
-					&dnsv1.A{A: net.ParseIP("192.168.143.125")},
-					&dnsv1.AAAA{AAAA: net.ParseIP("2001:0db8:85a3:0000:0000:8a2e:0370:7334")},
+					&dns.A{Addr: netip.MustParseAddr("192.168.143.123")},
+					&dns.A{Addr: netip.MustParseAddr("192.168.143.125")},
+					&dns.AAAA{Addr: netip.MustParseAddr("2001:0db8:85a3:0000:0000:8a2e:0370:7334")},
 				},
 			},
 		}
@@ -78,8 +78,8 @@ var _ = Describe("CustomDNSConfig", func() {
 			Expect(err).Should(Succeed())
 			Expect(c).Should(HaveLen(1))
 
-			aRecord := c[0].(*dnsv1.A)
-			Expect(aRecord.A).Should(Equal(net.ParseIP("1.2.3.4")))
+			aRecord := c[0].(*dns.A)
+			Expect(aRecord.Addr).Should(Equal(netip.MustParseAddr("1.2.3.4")))
 		})
 
 		It("Should parse multiple ips as comma separated string", func() {
@@ -92,8 +92,8 @@ var _ = Describe("CustomDNSConfig", func() {
 			Expect(err).Should(Succeed())
 			Expect(c).Should(HaveLen(2))
 
-			Expect(c[0].(*dnsv1.A).A).Should(Equal(net.ParseIP("1.2.3.4")))
-			Expect(c[1].(*dnsv1.A).A).Should(Equal(net.ParseIP("2.3.4.5")))
+			Expect(c[0].(*dns.A).Addr).Should(Equal(netip.MustParseAddr("1.2.3.4")))
+			Expect(c[1].(*dns.A).Addr).Should(Equal(netip.MustParseAddr("2.3.4.5")))
 		})
 
 		It("Should parse multiple ips as comma separated string with whitespace", func() {
@@ -106,9 +106,9 @@ var _ = Describe("CustomDNSConfig", func() {
 			Expect(err).Should(Succeed())
 			Expect(c).Should(HaveLen(3))
 
-			Expect(c[0].(*dnsv1.A).A).Should(Equal(net.ParseIP("1.2.3.4")))
-			Expect(c[1].(*dnsv1.A).A).Should(Equal(net.ParseIP("2.3.4.5")))
-			Expect(c[2].(*dnsv1.A).A).Should(Equal(net.ParseIP("3.4.5.6")))
+			Expect(c[0].(*dns.A).Addr).Should(Equal(netip.MustParseAddr("1.2.3.4")))
+			Expect(c[1].(*dns.A).Addr).Should(Equal(netip.MustParseAddr("2.3.4.5")))
+			Expect(c[2].(*dns.A).Addr).Should(Equal(netip.MustParseAddr("3.4.5.6")))
 		})
 
 		It("should fail if wrong YAML format", func() {

@@ -10,7 +10,7 @@ import (
 	. "github.com/0xERR0R/blocky/helpertest"
 	. "github.com/0xERR0R/blocky/model"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
@@ -39,7 +39,7 @@ var _ = Describe("MetricResolver", func() {
 
 		sut = NewMetricsResolver(config.Metrics{Enable: true})
 		m = &mockResolver{}
-		m.On("Resolve", mock.Anything).Return(&Response{Res: new(dnsv1.Msg)}, nil)
+		m.On("Resolve", mock.Anything).Return(&Response{Res: new(dns.Msg)}, nil)
 		sut.Next(m)
 	})
 
@@ -67,7 +67,7 @@ var _ = Describe("MetricResolver", func() {
 						Should(
 							SatisfyAll(
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 
 					cnt, err := sut.totalQueries.GetMetricWith(prometheus.Labels{"client": "client", "type": "A"})
@@ -89,7 +89,7 @@ var _ = Describe("MetricResolver", func() {
 				BeforeEach(func() {
 					m = &mockResolver{}
 					m.On("Resolve", mock.Anything).Return(&Response{
-						Res:         new(dnsv1.Msg),
+						Res:         new(dns.Msg),
 						RType:       ResponseTypeBLOCKED,
 						Reason:      "BLOCKED (ads: /snapchat/)",
 						ReasonLabel: "BLOCKED (ads)",
@@ -124,7 +124,7 @@ var _ = Describe("MetricResolver", func() {
 				BeforeEach(func() {
 					m = &mockResolver{}
 					m.On("Resolve", mock.Anything).Return(&Response{
-						Res:    new(dnsv1.Msg),
+						Res:    new(dns.Msg),
 						RType:  ResponseTypeRESOLVED,
 						Reason: "CACHED",
 					}, nil)

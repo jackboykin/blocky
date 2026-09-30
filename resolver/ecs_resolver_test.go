@@ -2,7 +2,6 @@ package resolver
 
 import (
 	"context"
-	"net"
 	"net/netip"
 
 	"github.com/0xERR0R/blocky/config"
@@ -12,7 +11,7 @@ import (
 	. "github.com/0xERR0R/blocky/helpertest"
 	. "github.com/0xERR0R/blocky/model"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -23,7 +22,7 @@ var _ = Describe("EcsResolver", func() {
 		sut        *ECSResolver
 		sutConfig  config.ECS
 		m          *mockResolver
-		mockAnswer *dnsv1.Msg
+		mockAnswer *dns.Msg
 		err        error
 		origIP     netip.Addr
 		ecsIP      netip.Addr
@@ -39,7 +38,7 @@ var _ = Describe("EcsResolver", func() {
 		err = defaults.Set(&sutConfig)
 		Expect(err).Should(Succeed())
 
-		mockAnswer = new(dnsv1.Msg)
+		mockAnswer = new(dns.Msg)
 		origIP = netip.MustParseAddr("1.2.3.4")
 		ecsIP = netip.MustParseAddr("4.3.2.1")
 	})
@@ -87,7 +86,7 @@ var _ = Describe("EcsResolver", func() {
 				request.ClientIP = origIP
 
 				m.ResolveFn = func(ctx context.Context, req *Request) (*Response, error) {
-					Expect(req.Req).ShouldNot(HaveEdnsOption(dnsv1.EDNS0SUBNET))
+					Expect(req.Req).ShouldNot(HaveEdnsOption(dns.CodeSUBNET))
 
 					return respondWith(mockAnswer), nil
 				}
@@ -108,7 +107,7 @@ var _ = Describe("EcsResolver", func() {
 
 				m.ResolveFn = func(ctx context.Context, req *Request) (*Response, error) {
 					Expect(req.ClientIP).Should(Equal(origIP))
-					Expect(req.Req).Should(HaveEdnsOption(dnsv1.EDNS0SUBNET))
+					Expect(req.Req).Should(HaveEdnsOption(dns.CodeSUBNET))
 
 					return respondWith(mockAnswer), nil
 				}
@@ -118,7 +117,7 @@ var _ = Describe("EcsResolver", func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("Test")))
 			})
 
@@ -127,7 +126,7 @@ var _ = Describe("EcsResolver", func() {
 				request.ClientIP = netip.MustParseAddr("2001:db8::68")
 
 				m.ResolveFn = func(ctx context.Context, req *Request) (*Response, error) {
-					Expect(req.Req).Should(HaveEdnsOption(dnsv1.EDNS0SUBNET))
+					Expect(req.Req).Should(HaveEdnsOption(dns.CodeSUBNET))
 
 					return respondWith(mockAnswer), nil
 				}
@@ -137,7 +136,7 @@ var _ = Describe("EcsResolver", func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("Test")))
 			})
 		})
@@ -157,10 +156,10 @@ var _ = Describe("EcsResolver", func() {
 
 				m.ResolveFn = func(ctx context.Context, req *Request) (*Response, error) {
 					Expect(req.ClientIP).Should(Equal(origIP))
-					Expect(req.Req).Should(HaveEdnsOption(dnsv1.EDNS0SUBNET))
+					Expect(req.Req).Should(HaveEdnsOption(dns.CodeSUBNET))
 
-					so := util.GetEdns0Option[*dnsv1.EDNS0_SUBNET](req.Req)
-					Expect(so.Address).Should(Equal(net.IP(ecsIP.AsSlice())))
+					so := util.GetEdns0Option[*dns.SUBNET](req.Req)
+					Expect(so.Address).Should(Equal(ecsIP))
 
 					return respondWith(mockAnswer), nil
 				}
@@ -170,7 +169,7 @@ var _ = Describe("EcsResolver", func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("Test")))
 			})
 
@@ -187,10 +186,10 @@ var _ = Describe("EcsResolver", func() {
 
 					m.ResolveFn = func(ctx context.Context, req *Request) (*Response, error) {
 						Expect(req.ClientIP).Should(Equal(origIP))
-						Expect(req.Req).Should(HaveEdnsOption(dnsv1.EDNS0SUBNET))
+						Expect(req.Req).Should(HaveEdnsOption(dns.CodeSUBNET))
 
-						so := util.GetEdns0Option[*dnsv1.EDNS0_SUBNET](req.Req)
-						Expect(so.Address).Should(Equal(net.ParseIP("4.3.2.0").To4()))
+						so := util.GetEdns0Option[*dns.SUBNET](req.Req)
+						Expect(so.Address).Should(Equal(netip.MustParseAddr("4.3.2.0")))
 
 						return respondWith(mockAnswer), nil
 					}
@@ -200,7 +199,7 @@ var _ = Describe("EcsResolver", func() {
 							SatisfyAll(
 								HaveNoAnswer(),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 								HaveReason("Test")))
 				})
 			})
@@ -212,10 +211,10 @@ var _ = Describe("EcsResolver", func() {
 				addEcsOption(request.Req, netip.MustParseAddr("2001:db8::68"), 128)
 
 				m.ResolveFn = func(ctx context.Context, req *Request) (*Response, error) {
-					Expect(req.Req).Should(HaveEdnsOption(dnsv1.EDNS0SUBNET))
+					Expect(req.Req).Should(HaveEdnsOption(dns.CodeSUBNET))
 
-					so := util.GetEdns0Option[*dnsv1.EDNS0_SUBNET](req.Req)
-					Expect(so.Address).Should(Equal(net.ParseIP("2001:db8::68")))
+					so := util.GetEdns0Option[*dns.SUBNET](req.Req)
+					Expect(so.Address).Should(Equal(netip.MustParseAddr("2001:db8::68")))
 
 					return respondWith(mockAnswer), nil
 				}
@@ -225,7 +224,7 @@ var _ = Describe("EcsResolver", func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("Test")))
 			})
 		})
@@ -242,17 +241,16 @@ var _ = Describe("EcsResolver", func() {
 				request := newRequest("example.com.", A)
 				request.ClientIP = origIP
 
-				request.Req.SetEdns0(1232, true)
+				util.SetEdns0(request.Req, 1232, true)
 				addEcsOption(request.Req, ecsIP, 32)
 
 				m.ResolveFn = func(ctx context.Context, req *Request) (*Response, error) {
-					Expect(req.Req).ShouldNot(HaveEdnsOption(dnsv1.EDNS0SUBNET))
+					Expect(req.Req).ShouldNot(HaveEdnsOption(dns.CodeSUBNET))
 
 					// the OPT record still carries the DO bit and the buffer size the client advertised
-					opt := req.Req.IsEdns0()
-					Expect(opt).ShouldNot(BeNil())
-					Expect(opt.Do()).Should(BeTrue())
-					Expect(opt.UDPSize()).Should(BeNumerically("==", 1232))
+					Expect(util.HasEdns0(req.Req)).Should(BeTrue())
+					Expect(req.Req.Security).Should(BeTrue())
+					Expect(req.Req.UDPSize).Should(BeNumerically("==", 1232))
 
 					return respondWith(mockAnswer), nil
 				}
@@ -262,7 +260,7 @@ var _ = Describe("EcsResolver", func() {
 						SatisfyAll(
 							HaveNoAnswer(),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 							HaveReason("Test")))
 			})
 		})
@@ -281,17 +279,16 @@ var _ = Describe("EcsResolver", func() {
 })
 
 // addEcsOption adds the subnet information to the request as EDNS0 option
-func addEcsOption(req *dnsv1.Msg, ip netip.Addr, netmask uint8) {
-	e := new(dnsv1.EDNS0_SUBNET)
-	e.Code = dnsv1.EDNS0SUBNET
-	e.SourceScope = ecsSourceScope
+func addEcsOption(req *dns.Msg, ip netip.Addr, netmask uint8) {
+	e := new(dns.SUBNET)
+	e.Scope = ecsSourceScope
 	e.Family = ecsFamilyIPv4
-	e.SourceNetmask = netmask
-	e.Address = ip.AsSlice()
+	e.Netmask = netmask
+	e.Address = ip
 	util.SetEdns0Option(req, e)
 }
 
 // respondWith creates a new Response with the given request and message
-func respondWith(res *dnsv1.Msg) *Response {
+func respondWith(res *dns.Msg) *Response {
 	return &Response{Res: res, RType: ResponseTypeRESOLVED, Reason: "Test"}
 }

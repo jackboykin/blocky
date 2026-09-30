@@ -15,9 +15,9 @@ import (
 	"strconv"
 	"sync/atomic"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/quic-go/quic-go"
 )
@@ -29,7 +29,7 @@ type MockDoQUpstreamServer struct {
 	listener  *quic.Listener
 	transport *quic.Transport
 	udpConn   *net.UDPConn
-	answerFn  func(request *dnsv1.Msg) (response *dnsv1.Msg)
+	answerFn  func(request *dns.Msg) (response *dns.Msg)
 }
 
 func NewMockDoQUpstreamServer() *MockDoQUpstreamServer {
@@ -45,7 +45,7 @@ func (t *MockDoQUpstreamServer) WithAnswerRR(answers ...string) *MockDoQUpstream
 	return t
 }
 
-func (t *MockDoQUpstreamServer) WithAnswerError(errorCode int) *MockDoQUpstreamServer {
+func (t *MockDoQUpstreamServer) WithAnswerError(errorCode uint16) *MockDoQUpstreamServer {
 	t.answerFn = errorAnswerFn(errorCode)
 
 	return t
@@ -165,14 +165,14 @@ func (t *MockDoQUpstreamServer) handleStream(stream *quic.Stream) {
 		return
 	}
 
-	msg := new(dnsv1.Msg)
-	if err := msg.Unpack(data[2:]); err != nil {
+	msg, err := util.UnpackMsg(data[2:])
+	if err != nil {
 		return
 	}
 
 	// RFC 9250 §4.2: DNS Message ID MUST be 0
-	if msg.Id != 0 {
-		ginkgo.Fail(fmt.Sprintf("DoQ request must have ID=0, got %d", msg.Id))
+	if msg.ID != 0 {
+		ginkgo.Fail(fmt.Sprintf("DoQ request must have ID=0, got %d", msg.ID))
 
 		return
 	}
@@ -181,7 +181,7 @@ func (t *MockDoQUpstreamServer) handleStream(stream *quic.Stream) {
 
 	response := mockReply(msg, t.answerFn(msg))
 
-	packed, err := response.Pack()
+	packed, err := util.PackMsg(response)
 	util.FatalOnError("can't serialize message", err)
 
 	buf := make([]byte, 2+len(packed))

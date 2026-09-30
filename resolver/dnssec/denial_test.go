@@ -7,6 +7,7 @@ import (
 	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/log"
 	"github.com/0xERR0R/blocky/model"
+	"github.com/0xERR0R/blocky/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -40,7 +41,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("example.com.", dns.TypeA)
+			question := util.NewQuestion("example.com.", dns.TypeA)
 
 			result := sut.validateDenialOfExistence(ctx, response, question)
 			Expect(result).Should(Equal(ValidationResultInsecure))
@@ -54,12 +55,12 @@ var _ = Describe("Denial of existence validation", func() {
 
 			// Mock DNSKEY query for authority section validation
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDNSKEY {
+				if dns.RRToType(req.Req.Question[0]) == dns.TypeDNSKEY {
 					// Return empty DNSKEY response to make authority validation fail
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{},
-						}),
+						},
 					}, nil
 				}
 
@@ -71,7 +72,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("m.example.com.", dns.TypeA)
+			question := util.NewQuestion("m.example.com.", dns.TypeA)
 
 			// Will fail on authority validation but should attempt NSEC validation
 			result := sut.validateDenialOfExistence(ctx, response, question)
@@ -92,7 +93,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("example.com.", dns.TypeA)
+			question := util.NewQuestion("example.com.", dns.TypeA)
 
 			// Will attempt NSEC3 validation
 			result := sut.validateDenialOfExistence(ctx, response, question)
@@ -116,7 +117,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("example.com.", dns.TypeA)
+			question := util.NewQuestion("example.com.", dns.TypeA)
 
 			// Should use NSEC3 (checked first in the code)
 			result := sut.validateDenialOfExistence(ctx, response, question)
@@ -135,7 +136,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("m.example.com.", dns.TypeA)
+			question := util.NewQuestion("m.example.com.", dns.TypeA)
 
 			// Authority section validation will determine the result
 			result := sut.validateDenialOfExistence(ctx, response, question)
@@ -154,7 +155,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeSuccess // NODATA, not NXDOMAIN
 
-			question := newQuestion("example.com.", dns.TypeAAAA)
+			question := util.NewQuestion("example.com.", dns.TypeAAAA)
 
 			result := sut.validateDenialOfExistence(ctx, response, question)
 			Expect(result).ShouldNot(BeNil())
@@ -173,7 +174,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("example.com.", dns.TypeA)
+			question := util.NewQuestion("example.com.", dns.TypeA)
 
 			result := sut.validateDenialOfExistence(ctx, response, question)
 			Expect(result).Should(Equal(ValidationResultInsecure))
@@ -193,7 +194,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("m.example.com.", dns.TypeA)
+			question := util.NewQuestion("m.example.com.", dns.TypeA)
 
 			// Should detect and use NSEC
 			result := sut.validateDenialOfExistence(ctx, response, question)
@@ -214,7 +215,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("m.example.com.", dns.TypeA)
+			question := util.NewQuestion("m.example.com.", dns.TypeA)
 
 			// Should fail on query budget when trying to validate authority section
 			result := sut.validateDenialOfExistence(exhaustedCtx, response, question)
@@ -231,9 +232,9 @@ var _ = Describe("Denial of existence validation", func() {
 			// Mock upstream to return empty DNSKEY (causing validation to fail)
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{},
-					}),
+					},
 				}, nil
 			}
 
@@ -242,7 +243,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("m.example.com.", dns.TypeA)
+			question := util.NewQuestion("m.example.com.", dns.TypeA)
 
 			// Authority section validation should fail
 			result := sut.validateDenialOfExistence(ctx, response, question)
@@ -266,7 +267,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("m.example.com.", dns.TypeA)
+			question := util.NewQuestion("m.example.com.", dns.TypeA)
 
 			// Authority section validation should fail
 			result := sut.validateDenialOfExistence(ctx, response, question)
@@ -279,7 +280,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("example.com.", dns.TypeA)
+			question := util.NewQuestion("example.com.", dns.TypeA)
 
 			result := sut.validateDenialOfExistence(ctx, response, question)
 			Expect(result).Should(Equal(ValidationResultInsecure))
@@ -306,7 +307,7 @@ var _ = Describe("Denial of existence validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("test.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.example.com.", dns.TypeA)
 
 			// Should use NSEC3 (checked first)
 			result := sut.validateDenialOfExistence(ctx, response, question)
@@ -338,7 +339,7 @@ var _ = Describe("Denial of existence validation", func() {
 				}
 				response.Rcode = dns.RcodeNameError
 
-				question := newQuestion("nonexistent.example.com.", dns.TypeA)
+				question := util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 
 				// Without RRSIG, authority validation will return Insecure
 				// But this tests the scanning logic
@@ -363,7 +364,7 @@ var _ = Describe("Denial of existence validation", func() {
 				}
 				response.Rcode = dns.RcodeNameError
 
-				question := newQuestion("nonexistent.example.com.", dns.TypeA)
+				question := util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 
 				// This will fail authority validation (no RRSIG) but tests the flow
 				result := sut.validateDenialOfExistence(ctx, response, question)
@@ -394,7 +395,7 @@ var _ = Describe("Denial of existence validation", func() {
 				}
 				response.Rcode = dns.RcodeNameError
 
-				question := newQuestion("nonexistent.example.com.", dns.TypeA)
+				question := util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 
 				// This will fail authority validation (no RRSIG) but tests the flow
 				result := sut.validateDenialOfExistence(ctx, response, question)
@@ -427,7 +428,7 @@ var _ = Describe("Denial of existence validation", func() {
 				}
 				response.Rcode = dns.RcodeNameError
 
-				question := newQuestion("p.example.com.", dns.TypeA)
+				question := util.NewQuestion("p.example.com.", dns.TypeA)
 
 				result := sut.validateDenialOfExistence(ctx, response, question)
 				Expect(result).ShouldNot(BeNil())
@@ -457,7 +458,7 @@ var _ = Describe("Denial of existence validation", func() {
 					}
 					response.Rcode = dns.RcodeNameError
 
-					question := newQuestion("nonexistent.example.com.", dns.TypeA)
+					question := util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 
 					result := sut.validateDenialOfExistence(ctx, response, question)
 					Expect(result).ShouldNot(BeNil())
@@ -486,7 +487,7 @@ var _ = Describe("Denial of existence validation", func() {
 				}
 				response.Rcode = dns.RcodeNameError
 
-				question := newQuestion("nonexistent.example.com.", dns.TypeA)
+				question := util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 
 				result := sut.validateDenialOfExistence(ctx, response, question)
 				Expect(result).ShouldNot(BeNil())
@@ -511,7 +512,7 @@ var _ = Describe("Denial of existence validation", func() {
 				}
 				response.Rcode = dns.RcodeNameError
 
-				question := newQuestion("nonexistent.example.com.", dns.TypeA)
+				question := util.NewQuestion("nonexistent.example.com.", dns.TypeA)
 
 				result := sut.validateDenialOfExistence(ctx, response, question)
 				Expect(result).ShouldNot(BeNil())

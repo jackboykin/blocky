@@ -113,16 +113,15 @@ var _ = Describe("Query functions", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				// Verify EDNS0 and DO bit are set
-				Expect(req.Req.IsEdns0()).ShouldNot(BeNil())
-				opt := req.Req.IsEdns0()
-				Expect(opt.Do()).Should(BeTrue())
+				Expect(req.Req.UDPSize).ShouldNot(BeZero())
+				Expect(req.Req.Security).Should(BeTrue())
 
 				// Verify question
 				Expect(req.Req.Question).Should(HaveLen(1))
-				Expect(req.Req.Question[0].Name).Should(Equal("example.com."))
-				Expect(req.Req.Question[0].Qtype).Should(Equal(dns.TypeA))
+				Expect(req.Req.Question[0].Header().Name).Should(Equal("example.com."))
+				Expect(dns.RRToType(req.Req.Question[0])).Should(Equal(dns.TypeA))
 
-				return &model.Response{Res: toV1(expectedResponse)}, nil
+				return &model.Response{Res: expectedResponse}, nil
 			}
 
 			newCtx, response, err := sut.queryRecords(ctx, "example.com", dns.TypeA)
@@ -144,9 +143,9 @@ var _ = Describe("Query functions", func() {
 			ctx := context.WithValue(context.Background(), queryBudgetKey{}, 10)
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-				Expect(req.Req.Question[0].Name).Should(Equal("example.com."))
+				Expect(req.Req.Question[0].Header().Name).Should(Equal("example.com."))
 
-				return &model.Response{Res: toV1(&dns.Msg{})}, nil
+				return &model.Response{Res: &dns.Msg{}}, nil
 			}
 
 			_, _, err := sut.queryRecords(ctx, "example.com", dns.TypeA)
@@ -188,9 +187,9 @@ var _ = Describe("Query functions", func() {
 
 			for _, qtype := range testCases {
 				mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-					Expect(req.Req.Question[0].Qtype).Should(Equal(qtype))
+					Expect(dns.RRToType(req.Req.Question[0])).Should(Equal(qtype))
 
-					return &model.Response{Res: toV1(&dns.Msg{})}, nil
+					return &model.Response{Res: &dns.Msg{}}, nil
 				}
 
 				_, _, err := sut.queryRecords(ctx, "example.com", qtype)
@@ -204,7 +203,7 @@ var _ = Describe("Query functions", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				Expect(req.Protocol).Should(Equal(model.RequestProtocolUDP))
 
-				return &model.Response{Res: toV1(&dns.Msg{})}, nil
+				return &model.Response{Res: &dns.Msg{}}, nil
 			}
 
 			_, _, err := sut.queryRecords(ctx, "example.com", dns.TypeA)
@@ -229,12 +228,12 @@ var _ = Describe("Query functions", func() {
 			}
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-				Expect(req.Req.Question[0].Qtype).Should(Equal(dns.TypeDNSKEY))
+				Expect(dns.RRToType(req.Req.Question[0])).Should(Equal(dns.TypeDNSKEY))
 
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{dnskey},
-					}),
+					},
 				}, nil
 			}
 
@@ -253,7 +252,7 @@ var _ = Describe("Query functions", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{
 							&dns.A{
 								Hdr: dns.Header{
@@ -264,7 +263,7 @@ var _ = Describe("Query functions", func() {
 								Addr: netip.AddrFrom4([4]byte{192, 0, 2, 1}),
 							},
 						},
-					}),
+					},
 				}, nil
 			}
 
@@ -313,9 +312,9 @@ var _ = Describe("Query functions", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{dnskey1, dnskey2},
-					}),
+					},
 				}, nil
 			}
 

@@ -20,9 +20,9 @@ import (
 	"github.com/0xERR0R/blocky/util"
 	"github.com/0xERR0R/blocky/web"
 
+	"codeberg.org/miekg/dns"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	dnsv1 "github.com/miekg/dns"
 )
 
 const (
@@ -130,8 +130,8 @@ func (s *Server) dohPostRequestHandler(rw http.ResponseWriter, req *http.Request
 }
 
 func (s *Server) processDohMessage(rawMsg []byte, rw http.ResponseWriter, httpReq *http.Request) {
-	msg := new(dnsv1.Msg)
-	if err := msg.Unpack(rawMsg); err != nil {
+	msg, err := util.UnpackMsg(rawMsg)
+	if err != nil {
 		logger().Error("can't deserialize message: ", err)
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 
@@ -147,8 +147,8 @@ type httpMsgWriter struct {
 	rw http.ResponseWriter
 }
 
-func (r httpMsgWriter) WriteMsg(msg *dnsv1.Msg) error {
-	b, err := msg.Pack()
+func (r httpMsgWriter) WriteMsg(msg *dns.Msg) error {
+	b, err := util.PackMsg(msg)
 	if err != nil {
 		return fmt.Errorf("failed to pack DNS message for DoH response: %w", err)
 	}
@@ -170,11 +170,11 @@ func (r httpMsgWriter) WriteMsg(msg *dnsv1.Msg) error {
 	return nil
 }
 
-func getSmallestTTLFromAnswer(msg *dnsv1.Msg) uint32 {
+func getSmallestTTLFromAnswer(msg *dns.Msg) uint32 {
 	var ttl uint32 = 0
 	for _, a := range msg.Answer {
-		if a.Header().Ttl < ttl || ttl == 0 {
-			ttl = a.Header().Ttl
+		if a.Header().TTL < ttl || ttl == 0 {
+			ttl = a.Header().TTL
 		}
 	}
 
@@ -182,7 +182,7 @@ func getSmallestTTLFromAnswer(msg *dnsv1.Msg) uint32 {
 }
 
 func (s *Server) Query(
-	ctx context.Context, serverHost string, clientIP netip.Addr, question string, qType dnsv1.Type,
+	ctx context.Context, serverHost string, clientIP netip.Addr, question string, qType uint16,
 ) (*model.Response, error) {
 	msg := util.NewMsgWithQuestion(question, qType)
 	clientID := extractClientIDFromHost(serverHost)

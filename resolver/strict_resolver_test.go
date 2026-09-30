@@ -4,12 +4,12 @@ import (
 	"context"
 	"time"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/log"
 	. "github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -93,8 +93,8 @@ var _ = Describe("StrictResolver", Label("strictResolver"), func() {
 
 	When("some default upstream resolvers cannot be reached", func() {
 		BeforeEach(func() {
-			mockUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dnsv1.Msg) (response *dnsv1.Msg) {
-				response, _ = util.NewMsgWithAnswer(request.Question[0].Name, 123, A, "123.124.122.122")
+			mockUpstream := NewMockUDPUpstreamServer().WithAnswerFn(func(request *dns.Msg) (response *dns.Msg) {
+				response, _ = util.NewMsgWithAnswer(request.Question[0].Header().Name, 123, A, "123.124.122.122")
 
 				return response
 			})
@@ -155,7 +155,7 @@ var _ = Describe("StrictResolver", Label("strictResolver"), func() {
 									BeDNSRecord("example.com.", A, "123.124.122.122"),
 									HaveTTL(BeNumerically("==", 123)),
 									HaveResponseType(ResponseTypeRESOLVED),
-									HaveReturnCode(dnsv1.RcodeSuccess),
+									HaveReturnCode(dns.RcodeSuccess),
 								))
 					})
 				})
@@ -176,7 +176,7 @@ var _ = Describe("StrictResolver", Label("strictResolver"), func() {
 								BeDNSRecord("example.com.", A, "123.124.122.2"),
 								HaveTTL(BeNumerically("==", 123)),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 					})
 				})
@@ -213,7 +213,7 @@ var _ = Describe("StrictResolver", Label("strictResolver"), func() {
 								BeDNSRecord("example.com.", A, "123.124.122.123"),
 								HaveTTL(BeNumerically("==", 123)),
 								HaveResponseType(ResponseTypeRESOLVED),
-								HaveReturnCode(dnsv1.RcodeSuccess),
+								HaveReturnCode(dns.RcodeSuccess),
 							))
 				})
 			})
@@ -244,7 +244,7 @@ var _ = Describe("StrictResolver", Label("strictResolver"), func() {
 							BeDNSRecord("example.com.", A, "123.124.122.122"),
 							HaveTTL(BeNumerically("==", 123)),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 		})

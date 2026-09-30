@@ -507,9 +507,9 @@ var _ = Describe("Chain of trust validation", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				// Return empty DNSKEY response
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{},
-					}),
+					},
 				}, nil
 			}
 
@@ -555,9 +555,9 @@ var _ = Describe("Chain of trust validation", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{},
-					}),
+					},
 				}, nil
 			}
 
@@ -579,9 +579,9 @@ var _ = Describe("Chain of trust validation", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{revokedKey},
-					}),
+					},
 				}, nil
 			}
 
@@ -603,9 +603,9 @@ var _ = Describe("Chain of trust validation", func() {
 		It("should return Indeterminate when no trust anchors for domain", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{},
-					}),
+					},
 				}, nil
 			}
 
@@ -633,9 +633,9 @@ var _ = Describe("Chain of trust validation", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{keyWithoutZone},
-					}),
+					},
 				}, nil
 			}
 
@@ -663,9 +663,9 @@ var _ = Describe("Chain of trust validation", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{revokedKey},
-					}),
+					},
 				}, nil
 			}
 
@@ -713,9 +713,9 @@ var _ = Describe("Chain of trust validation", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{dnskey},
-					}),
+					},
 				}, nil
 			}
 
@@ -755,9 +755,9 @@ var _ = Describe("Chain of trust validation", func() {
 				}
 
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{dnskey},
-					}),
+					},
 				}, nil
 			}
 
@@ -851,9 +851,9 @@ var _ = Describe("Chain of trust validation", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				// Return empty response for all queries
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{},
-					}),
+					},
 				}, nil
 			}
 
@@ -875,7 +875,7 @@ var _ = Describe("Chain of trust validation", func() {
 		It("should return Indeterminate when DNSKEY query fails", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				// Return DS records successfully, but fail DNSKEY query
-				qtype := req.Req.Question[0].Qtype
+				qtype := dns.RRToType(req.Req.Question[0])
 				if qtype == dns.TypeDS {
 					ds := &dns.DS{
 						Hdr: dns.Header{
@@ -898,9 +898,9 @@ var _ = Describe("Chain of trust validation", func() {
 					}
 
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{ds, rrsig},
-						}),
+						},
 					}, nil
 				}
 				// Fail DNSKEY query
@@ -913,7 +913,7 @@ var _ = Describe("Chain of trust validation", func() {
 
 		It("should return Bogus when DNSKEY doesn't match DS", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-				qtype := req.Req.Question[0].Qtype
+				qtype := dns.RRToType(req.Req.Question[0])
 				if qtype == dns.TypeDS {
 					// Return valid DS record
 					ds := &dns.DS{
@@ -937,9 +937,9 @@ var _ = Describe("Chain of trust validation", func() {
 					}
 
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{ds, rrsig},
-						}),
+						},
 					}, nil
 				}
 				if qtype == dns.TypeDNSKEY {
@@ -957,13 +957,13 @@ var _ = Describe("Chain of trust validation", func() {
 					}
 
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{dnskey},
-						}),
+						},
 					}, nil
 				}
 
-				return &model.Response{Res: toV1(&dns.Msg{})}, nil
+				return &model.Response{Res: &dns.Msg{}}, nil
 			}
 
 			result := sut.validateDomainLevel(ctx, "example.com.")
@@ -1002,9 +1002,9 @@ var _ = Describe("Chain of trust validation", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				// Return empty response - this will cause validation to fail
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{},
-					}),
+					},
 				}, nil
 			}
 
@@ -1045,7 +1045,7 @@ var _ = Describe("Chain of trust validation", func() {
 			}
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-				qtype := req.Req.Question[0].Qtype
+				qtype := dns.RRToType(req.Req.Question[0])
 
 				switch qtype {
 				case dns.TypeDS:
@@ -1064,21 +1064,21 @@ var _ = Describe("Chain of trust validation", func() {
 					}
 
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{ds, rrsig},
-						}),
+						},
 					}, nil
 				case dns.TypeDNSKEY:
 					// Return DNSKEY
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{dnskey},
-						}),
+						},
 					}, nil
 				}
 
 				return &model.Response{
-					Res: toV1(&dns.Msg{}),
+					Res: &dns.Msg{},
 				}, nil
 			}
 
@@ -1149,8 +1149,8 @@ var _ = Describe("Chain of trust validation", func() {
 			}
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-				qname := req.Req.Question[0].Name
-				qtype := req.Req.Question[0].Qtype
+				qname := req.Req.Question[0].Header().Name
+				qtype := dns.RRToType(req.Req.Question[0])
 
 				if qtype == dns.TypeDS && qname == "example.com." {
 					// Return DS with RRSIG
@@ -1167,33 +1167,33 @@ var _ = Describe("Chain of trust validation", func() {
 					}
 
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{ds, rrsig},
-						}),
+						},
 					}, nil
 				}
 
 				if qtype == dns.TypeDNSKEY && qname == "example.com." {
 					// Return matching DNSKEY
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{dnskey},
-						}),
+						},
 					}, nil
 				}
 
 				if qtype == dns.TypeDNSKEY && qname == "com." {
 					// Return parent DNSKEY
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{parentKey},
-						}),
+						},
 					}, nil
 				}
 
 				// Default empty response
 				return &model.Response{
-					Res: toV1(&dns.Msg{}),
+					Res: &dns.Msg{},
 				}, nil
 			}
 
@@ -1208,10 +1208,10 @@ var _ = Describe("Chain of trust validation", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				// Return empty response for all queries
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{},
 						Ns:     []dns.RR{},
-					}),
+					},
 				}, nil
 			}
 
@@ -1235,16 +1235,16 @@ var _ = Describe("Chain of trust validation", func() {
 
 			// Mock to make NSEC validation succeed
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDNSKEY {
+				if dns.RRToType(req.Req.Question[0]) == dns.TypeDNSKEY {
 					// Return empty DNSKEY - validation will fail
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{},
-						}),
+						},
 					}, nil
 				}
 
-				return &model.Response{Res: toV1(&dns.Msg{})}, nil
+				return &model.Response{Res: &dns.Msg{}}, nil
 			}
 
 			response := &dns.Msg{
@@ -1295,15 +1295,15 @@ var _ = Describe("Chain of trust validation", func() {
 			}
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDNSKEY {
+				if dns.RRToType(req.Req.Question[0]) == dns.TypeDNSKEY {
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{parentDnskey},
-						}),
+						},
 					}, nil
 				}
 
-				return &model.Response{Res: toV1(&dns.Msg{})}, nil
+				return &model.Response{Res: &dns.Msg{}}, nil
 			}
 
 			response := &dns.Msg{
@@ -1330,9 +1330,9 @@ var _ = Describe("Chain of trust validation", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: toV1(&dns.Msg{
+					Res: &dns.Msg{
 						Answer: []dns.RR{},
-					}),
+					},
 				}, nil
 			}
 
@@ -1366,15 +1366,15 @@ var _ = Describe("Chain of trust validation", func() {
 			}
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-				if req.Req.Question[0].Qtype == dns.TypeDNSKEY && req.Req.Question[0].Name == "test.com." {
+				if dns.RRToType(req.Req.Question[0]) == dns.TypeDNSKEY && req.Req.Question[0].Header().Name == "test.com." {
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{testKey},
-						}),
+						},
 					}, nil
 				}
 
-				return &model.Response{Res: toV1(&dns.Msg{})}, nil
+				return &model.Response{Res: &dns.Msg{}}, nil
 			}
 
 			result := sut.walkChainOfTrust(ctx, "test.com.")
@@ -1402,14 +1402,14 @@ var _ = Describe("Chain of trust validation", func() {
 			}
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-				qname := req.Req.Question[0].Name
-				qtype := req.Req.Question[0].Qtype
+				qname := req.Req.Question[0].Header().Name
+				qtype := dns.RRToType(req.Req.Question[0])
 
 				if qtype == dns.TypeDNSKEY && qname == "example.com." {
 					return &model.Response{
-						Res: toV1(&dns.Msg{
+						Res: &dns.Msg{
 							Answer: []dns.RR{parentKey},
-						}),
+						},
 					}, nil
 				}
 

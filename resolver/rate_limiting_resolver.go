@@ -12,6 +12,7 @@ import (
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
+	"codeberg.org/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
@@ -130,7 +131,7 @@ func (r *RateLimitingResolver) recordDrop(req *model.Request, e *bucketEntry) {
 		"bucket_tokens":  e.limiter.Tokens(),
 	}
 	if len(req.Req.Question) > 0 {
-		fields["qtype"] = req.Req.Question[0].Qtype
+		fields["qtype"] = dns.RRToType(req.Req.Question[0])
 	}
 	r.logger.WithFields(fields).Warn("dropped query")
 }

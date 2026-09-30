@@ -8,8 +8,8 @@ import (
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 
+	"codeberg.org/miekg/dns"
 	"github.com/creasty/defaults"
-	dnsv1 "github.com/miekg/dns"
 )
 
 // benchBackend is a zero-overhead next resolver that always returns a cacheable
@@ -19,15 +19,15 @@ type benchBackend struct {
 }
 
 func (benchBackend) Resolve(_ context.Context, req *model.Request) (*model.Response, error) {
-	resp := new(dnsv1.Msg)
-	resp.SetReply(req.Req)
+	resp := new(dns.Msg)
+	model.SetReply(resp, req.Req)
 
-	rr, err := dnsv1.NewRR(req.Req.Question[0].Name + " 3600 IN A 1.2.3.4")
+	rr, err := dns.New(req.Req.Question[0].Header().Name + " 3600 IN A 1.2.3.4")
 	if err != nil {
 		return nil, err
 	}
 
-	resp.Answer = []dnsv1.RR{rr}
+	resp.Answer = []dns.RR{rr}
 
 	return &model.Response{Res: resp, RType: model.ResponseTypeRESOLVED, Reason: "BENCH"}, nil
 }
@@ -58,7 +58,7 @@ func BenchmarkCachingResolverResolve(b *testing.B) {
 
 	reqs := make([]*model.Request, numDomains)
 	for i := range reqs {
-		reqs[i] = newRequest(fmt.Sprintf("domain%d.example.", i), dnsv1.Type(dnsv1.TypeA))
+		reqs[i] = newRequest(fmt.Sprintf("domain%d.example.", i), dns.TypeA)
 	}
 
 	// warm the cache: each first Resolve is a miss that fills the cache

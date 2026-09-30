@@ -5,6 +5,7 @@ import (
 
 	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/log"
+	"github.com/0xERR0R/blocky/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -84,7 +85,7 @@ var _ = Describe("NSEC validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("test.example.com.", dns.TypeA)
+			question := util.NewQuestion("test.example.com.", dns.TypeA)
 
 			result := sut.validateNSECDenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultInsecure))
@@ -102,7 +103,7 @@ var _ = Describe("NSEC validation", func() {
 			}
 			response.Rcode = dns.RcodeNameError
 
-			question := newQuestion("m.example.com.", dns.TypeA) // Falls between a and z
+			question := util.NewQuestion("m.example.com.", dns.TypeA) // Falls between a and z
 
 			result := sut.validateNSECDenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultSecure))
@@ -121,7 +122,7 @@ var _ = Describe("NSEC validation", func() {
 			}
 			response.Rcode = dns.RcodeSuccess // NODATA
 
-			question := newQuestion("example.com.", dns.TypeAAAA)
+			question := util.NewQuestion("example.com.", dns.TypeAAAA)
 
 			result := sut.validateNSECDenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultSecure))

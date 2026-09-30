@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
 )
 
 // FuzzParseIPFromArpaAddr exercises ParseIPFromArpaAddr, which parses reverse-DNS
@@ -28,7 +28,7 @@ func FuzzParseIPFromArpaAddr(f *testing.F) {
 }
 
 // FuzzParseIPFromArpaAddrRoundtrip cross-checks ParseIPFromArpaAddr against
-// dns.ReverseAddr (from miekg/dns, already a dependency) as an oracle: for any
+// dnsutil.ReverseAddr (from miekg/dns, already a dependency) as an oracle: for any
 // valid IPv4 or IPv6 address, the arpa name produced by ReverseAddr must parse
 // back to the same address.
 func FuzzParseIPFromArpaAddrRoundtrip(f *testing.F) {
@@ -42,10 +42,7 @@ func FuzzParseIPFromArpaAddrRoundtrip(f *testing.F) {
 			return // only 4- and 16-byte inputs map to a concrete IP
 		}
 
-		arpa, err := dnsv1.ReverseAddr(ip.String())
-		if err != nil {
-			t.Fatalf("dns.ReverseAddr(%s) failed: %v", ip, err)
-		}
+		arpa := dnsutil.ReverseAddr(ip)
 
 		got, err := ParseIPFromArpaAddr(arpa)
 		if err != nil {

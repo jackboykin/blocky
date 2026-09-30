@@ -17,8 +17,9 @@ import (
 	"github.com/0xERR0R/blocky/util"
 	expirationcache "github.com/0xERR0R/expiration-cache"
 
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
 	"github.com/0xERR0R/blocky/cache/prefetching"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
@@ -167,16 +168,16 @@ func (r *CachingResolver) reloadCacheEntry(ctx context.Context, cacheKey string)
 	qType, domainName := util.ExtractCacheKey(cacheKey)
 	ctx, logger := r.log(ctx)
 
-	logger.Debugf("prefetching '%s' (%s)", util.Obfuscate(domainName), qType)
+	logger.Debugf("prefetching '%s' (%s)", util.Obfuscate(domainName), dnsutil.TypeToString(qType))
 
-	req := newRequest(dnsv1.Fqdn(domainName), qType)
+	req := newRequest(dnsutil.Fqdn(domainName), qType)
 
 	// Prefetch reloads bypass the resolvers above the cache, including the DNSSEC
 	// resolver that sets DO on normal queries. When validation is enabled, request
 	// DNSSEC records so a reload can't replace a signed entry with an unsigned one
 	// (which would then fail re-validation as bogus on the next hit).
 	if r.prefetchDO {
-		req.Req.SetEdns0(ednsUDPSize, true)
+		util.SetEdns0(req.Req, ednsUDPSize, true)
 	}
 
 	response, err := r.next.Resolve(ctx, req)
@@ -189,7 +190,7 @@ func (r *CachingResolver) reloadCacheEntry(ctx context.Context, cacheKey string)
 	// only refresh entries the normal put path would cache: upstream-derived,
 	// successful, not truncated and without the CD flag (mirrors putInCache).
 	if !isCacheableResponseType(response.RType) ||
-		response.Res.Rcode != dnsv1.RcodeSuccess || !isResponseCacheable(response.Res) {
+		response.Res.Rcode != dns.RcodeSuccess || !isResponseCacheable(response.Res) {
 		return nil, 0
 	}
 
@@ -225,7 +226,7 @@ func (r *CachingResolver) Resolve(ctx context.Context, request *model.Request) (
 
 	for _, question := range request.Req.Question {
 		domain := util.ExtractDomain(question)
-		cacheKey := util.GenerateCacheKey(dnsv1.Type(question.Qtype), domain)
+		cacheKey := util.GenerateCacheKey(dns.RRToType(question), domain)
 		logger := logger.WithField(logFieldDomain, util.Obfuscate(domain))
 
 		val, ttl := r.getFromCache(logger, cacheKey)
@@ -233,12 +234,12 @@ func (r *CachingResolver) Resolve(ctx context.Context, request *model.Request) (
 		if val != nil {
 			logger.Debug("domain is cached")
 
-			val.SetRcode(request.Req, val.Rcode)
+			model.SetRcode(val, request.Req, val.Rcode)
 
 			// Adjust TTL
 			r.setTTLInCachedResponse(val, ttl)
 
-			if val.Rcode == dnsv1.RcodeSuccess {
+			if val.Rcode == dns.RcodeSuccess {
 				return &model.Response{Res: val, RType: model.ResponseTypeCACHED, Reason: cachedReason}, nil
 			}
 
@@ -259,15 +260,13 @@ func (r *CachingResolver) Resolve(ctx context.Context, request *model.Request) (
 	return response, nil
 }
 
-func (r *CachingResolver) getFromCache(logger *logrus.Entry, key string) (*dnsv1.Msg, time.Duration) {
+func (r *CachingResolver) getFromCache(logger *logrus.Entry, key string) (*dns.Msg, time.Duration) {
 	val, ttl := r.resultCache.Get(key)
 	if val == nil {
 		return nil, 0
 	}
 
-	res := new(dnsv1.Msg)
-
-	err := res.Unpack(*val)
+	res, err := util.UnpackMsg(*val)
 	if err != nil {
 		logger.Error("can't unpack cached entry. Cache malformed?", err)
 
@@ -280,17 +279,17 @@ func (r *CachingResolver) getFromCache(logger *logrus.Entry, key string) (*dnsv1
 // setTTLInCachedResponse ages all records of a cached message by the time the entry has
 // already spent in the cache, so that every section counts down instead of repeating the
 // TTLs the upstream sent. `ttl` is the entry's remaining lifetime.
-func (r *CachingResolver) setTTLInCachedResponse(resp *dnsv1.Msg, ttl time.Duration) {
+func (r *CachingResolver) setTTLInCachedResponse(resp *dns.Msg, ttl time.Duration) {
 	// Mirrors putInCache: only a successful, non-empty answer is stored with the smallest
 	// answer TTL (see adjustTTLs). Everything else -- NXDOMAIN (even one carrying a CNAME
 	// chain) and NODATA -- is stored with the negative cache time. That baseline is what
 	// the remaining lifetime has been counting down from.
 	baseTTL := r.cfg.CacheTimeNegative.SecondsU32()
 
-	if resp.Rcode == dnsv1.RcodeSuccess && len(resp.Answer) > 0 {
+	if resp.Rcode == dns.RcodeSuccess && len(resp.Answer) > 0 {
 		baseTTL = uint32(math.MaxInt32)
 		for _, rr := range resp.Answer {
-			baseTTL = min(baseTTL, rr.Header().Ttl)
+			baseTTL = min(baseTTL, rr.Header().TTL)
 		}
 	}
 
@@ -299,14 +298,9 @@ func (r *CachingResolver) setTTLInCachedResponse(resp *dnsv1.Msg, ttl time.Durat
 		elapsed = baseTTL - remaining
 	}
 
-	for _, section := range [][]dnsv1.RR{resp.Answer, resp.Ns, resp.Extra} {
+	for _, section := range [][]dns.RR{resp.Answer, resp.Ns, resp.Extra} {
 		for _, rr := range section {
-			// An OPT record's TTL field carries flags and the extended rcode, not a lifetime.
-			if rr.Header().Rrtype == dnsv1.TypeOPT {
-				continue
-			}
-
-			rr.Header().Ttl = max(rr.Header().Ttl, elapsed) - elapsed
+			rr.Header().TTL = max(rr.Header().TTL, elapsed) - elapsed
 		}
 	}
 }
@@ -318,9 +312,9 @@ func (r *CachingResolver) isRequestCacheable(request *model.Request) bool {
 		return false
 	}
 	// don't cache responses with EDNS Client Subnet option with masks that include more than one client
-	if so := util.GetEdns0Option[*dnsv1.EDNS0_SUBNET](request.Req); so != nil {
-		if (so.Family == ecsFamilyIPv4 && so.SourceNetmask != ecsMaskIPv4) ||
-			(so.Family == ecsFamilyIPv6 && so.SourceNetmask != ecsMaskIPv6) {
+	if so := util.GetEdns0Option[*dns.SUBNET](request.Req); so != nil {
+		if (so.Family == ecsFamilyIPv4 && so.Netmask != ecsMaskIPv4) ||
+			(so.Family == ecsFamilyIPv6 && so.Netmask != ecsMaskIPv6) {
 			return false
 		}
 	}
@@ -328,9 +322,9 @@ func (r *CachingResolver) isRequestCacheable(request *model.Request) bool {
 	return true
 }
 
-func questionsMatchAnyExcludedElement(questions []dnsv1.Question, exclutions []*regexp.Regexp) bool {
+func questionsMatchAnyExcludedElement(questions []dns.RR, exclutions []*regexp.Regexp) bool {
 	for _, q := range questions {
-		if matchAnyElementOfArray(q.Name[:len(q.Name)-1], exclutions) {
+		if matchAnyElementOfArray(q.Header().Name[:len(q.Header().Name)-1], exclutions) {
 			return true
 		}
 	}
@@ -350,7 +344,7 @@ func matchAnyElementOfArray(givingText string, arr []*regexp.Regexp) bool {
 }
 
 // isResponseCacheable returns true if the response is not truncated and its CD flag isn't set.
-func isResponseCacheable(msg *dnsv1.Msg) bool {
+func isResponseCacheable(msg *dns.Msg) bool {
 	// we don't cache truncated responses and responses with CD flag
 	return !msg.Truncated && !msg.CheckingDisabled
 }
@@ -358,11 +352,11 @@ func isResponseCacheable(msg *dnsv1.Msg) bool {
 // packForCache copies the message, strips EDNS0 OPT records (which must never be
 // cached) and returns the packed wire bytes. Both the normal put path and the
 // prefetch reload path use it so cached and prefetched entries are byte-identical.
-func packForCache(ctx context.Context, msg *dnsv1.Msg) ([]byte, error) {
+func packForCache(ctx context.Context, msg *dns.Msg) ([]byte, error) {
 	msgCopy := msg.Copy()
 	util.RemoveEdns0Record(msgCopy)
 
-	packed, err := msgCopy.Pack()
+	packed, err := util.PackMsg(msgCopy)
 	util.LogOnError(ctx, "error on packing", err)
 
 	return packed, err
@@ -390,10 +384,10 @@ func (r *CachingResolver) putInCache(
 		return
 	}
 
-	if response.Res.Rcode == dnsv1.RcodeSuccess && isResponseCacheable(response.Res) {
+	if response.Res.Rcode == dns.RcodeSuccess && isResponseCacheable(response.Res) {
 		// put value into cache
 		r.resultCache.Put(cacheKey, &packed, ttl)
-	} else if response.Res.Rcode == dnsv1.RcodeNameError {
+	} else if response.Res.Rcode == dns.RcodeNameError {
 		if r.cfg.CacheTimeNegative.IsAboveZero() {
 			// put negative cache if result code is NXDOMAIN
 			r.resultCache.Put(cacheKey, &packed, r.cfg.CacheTimeNegative.ToDuration())
@@ -404,7 +398,7 @@ func (r *CachingResolver) putInCache(
 // adjustTTLs calculates and returns the min TTL (considers also the min and max cache time)
 // for all records from answer or a negative cache time for empty answer
 // adjust the TTL in the answer header accordingly
-func (r *CachingResolver) adjustTTLs(answer []dnsv1.RR) (ttl time.Duration) {
+func (r *CachingResolver) adjustTTLs(answer []dns.RR) (ttl time.Duration) {
 	minTTL := uint32(math.MaxInt32)
 
 	if len(answer) == 0 {
@@ -414,18 +408,18 @@ func (r *CachingResolver) adjustTTLs(answer []dnsv1.RR) (ttl time.Duration) {
 	for _, a := range answer {
 		// if TTL < mitTTL -> adjust the value, set minTTL
 		if r.cfg.MinCachingTime.IsAboveZero() {
-			if atomic.LoadUint32(&a.Header().Ttl) < r.cfg.MinCachingTime.SecondsU32() {
-				atomic.StoreUint32(&a.Header().Ttl, r.cfg.MinCachingTime.SecondsU32())
+			if atomic.LoadUint32(&a.Header().TTL) < r.cfg.MinCachingTime.SecondsU32() {
+				atomic.StoreUint32(&a.Header().TTL, r.cfg.MinCachingTime.SecondsU32())
 			}
 		}
 
 		if r.cfg.MaxCachingTime.IsAboveZero() {
-			if atomic.LoadUint32(&a.Header().Ttl) > r.cfg.MaxCachingTime.SecondsU32() {
-				atomic.StoreUint32(&a.Header().Ttl, r.cfg.MaxCachingTime.SecondsU32())
+			if atomic.LoadUint32(&a.Header().TTL) > r.cfg.MaxCachingTime.SecondsU32() {
+				atomic.StoreUint32(&a.Header().TTL, r.cfg.MaxCachingTime.SecondsU32())
 			}
 		}
 
-		headerTTL := atomic.LoadUint32(&a.Header().Ttl)
+		headerTTL := atomic.LoadUint32(&a.Header().TTL)
 		if minTTL > headerTTL {
 			minTTL = headerTTL
 		}

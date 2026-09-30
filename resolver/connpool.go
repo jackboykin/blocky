@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"codeberg.org/miekg/dns"
+	"github.com/0xERR0R/blocky/util"
 	dnsv1 "github.com/miekg/dns"
 )
 
@@ -174,6 +176,14 @@ func (p *connPool) dial(ctx context.Context, addr string) (*dnsv1.Conn, error) {
 // pooled connection is transparently replaced by a single fresh dial, so callers
 // never see an error caused purely by connection reuse.
 func (p *connPool) exchange(
+	ctx context.Context, msg *dns.Msg, addr string,
+) (*dns.Msg, time.Duration, error) {
+	return util.ExchangeV1(msg, func(m1 *dnsv1.Msg) (*dnsv1.Msg, time.Duration, error) {
+		return p.exchangeV1(ctx, m1, addr)
+	})
+}
+
+func (p *connPool) exchangeV1(
 	ctx context.Context, msg *dnsv1.Msg, addr string,
 ) (*dnsv1.Msg, time.Duration, error) {
 	if conn := p.acquire(addr); conn != nil {

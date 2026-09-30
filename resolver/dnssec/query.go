@@ -93,18 +93,10 @@ func (v *Validator) queryRecords(
 	// instead of correctly rejected as Bogus. This is what makes validation independent (#1287).
 	msg.CheckingDisabled = true
 
-	// A query or response that doesn't survive conversion is handled like a failed
-	// upstream query: the caller gets an error, and treats it as unavailable data rather
-	// than as proof of anything. See dnsv1.go.
-	msgV1, err := msgToV1(msg)
-	if err != nil {
-		return ctx, nil, fmt.Errorf("converting query: %w", err)
-	}
-
 	// Create model request, preserving the originating client's identity so the
 	// upstream tree selects the same group/view as the user-facing answer.
 	req := &model.Request{
-		Req:      msgV1,
+		Req:      msg,
 		Protocol: model.RequestProtocolUDP,
 	}
 	if cc, ok := clientContextFrom(ctx); ok {
@@ -119,15 +111,10 @@ func (v *Validator) queryRecords(
 		return ctx, nil, fmt.Errorf("upstream query failed: %w", err)
 	}
 
-	res, err := msgToV2(response.Res)
-	if err != nil {
-		return ctx, nil, fmt.Errorf("converting upstream response: %w", err)
-	}
-
 	// Decrement budget after successful query
 	newCtx := v.decrementQueryBudget(ctx)
 
-	return newCtx, res, nil
+	return newCtx, response.Res, nil
 }
 
 // queryDNSKEY queries upstream for DNSKEY records

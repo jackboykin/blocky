@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/resolver/dnssec"
-	dnsv1 "github.com/miekg/dns"
+	"github.com/0xERR0R/blocky/util"
 )
 
 const (
@@ -72,20 +73,9 @@ func (r *DNSSECResolver) Resolve(ctx context.Context, request *model.Request) (*
 	// client afterwards (see clientQuery.normalizeResponse in server/client_query.go), so don't
 	// make this conditional on the client's DO bit without adapting that.
 	if r.cfg.Validate {
-		// Check if EDNS0 is already present in the request
-		if opt := request.Req.IsEdns0(); opt != nil {
-			// EDNS0 already exists - just set the DO bit
-			opt.SetDo(true)
-			// Ensure buffer size is adequate for DNSSEC responses
-			if opt.UDPSize() < ednsUDPSize {
-				opt.SetUDPSize(ednsUDPSize)
-			}
-			logger.Debugf("DNSSEC DO bit set for query (existing EDNS0): %s", request.Req.Question[0].Name)
-		} else {
-			// No EDNS0 present - add it with DO bit
-			request.Req.SetEdns0(ednsUDPSize, true)
-			logger.Debugf("DNSSEC DO bit set for query (new EDNS0): %s", request.Req.Question[0].Name)
-		}
+		// Keep the client's EDNS0 options, but ensure the buffer size is adequate for DNSSEC responses
+		util.SetEdns0(request.Req, max(request.Req.UDPSize, ednsUDPSize), true)
+		logger.Debugf("DNSSEC DO bit set for query: %s", request.Req.Question[0].Header().Name)
 	}
 
 	// Get response from next resolver (upstream)
@@ -112,7 +102,7 @@ func (r *DNSSECResolver) Resolve(ctx context.Context, request *model.Request) (*
 			response.RType != model.ResponseTypeRESOLVED && response.RType != model.ResponseTypeCACHED {
 			response.Res.AuthenticatedData = false
 			logger.Debugf("skipping DNSSEC validation for trusted-local/synthesized response (%s): %s",
-				response.RType, request.Req.Question[0].Name)
+				response.RType, request.Req.Question[0].Header().Name)
 
 			return response, nil
 		}
@@ -123,13 +113,13 @@ func (r *DNSSECResolver) Resolve(ctx context.Context, request *model.Request) (*
 		result := r.validator.ValidateResponse(validationCtx, response.Res, request.Req.Question[0])
 
 		logger.Debugf("DNSSEC validation result for %s: %s",
-			request.Req.Question[0].Name, result.String())
+			request.Req.Question[0].Header().Name, result.String())
 
 		switch result {
 		case dnssec.ValidationResultBogus:
 			// Invalid DNSSEC - return SERVFAIL
 			logger.Warnf("DNSSEC validation failed for %s - returning SERVFAIL",
-				request.Req.Question[0].Name)
+				request.Req.Question[0].Header().Name)
 
 			return createServFailResponseDNSSEC(request, "DNSSEC validation failed: bogus signatures"), nil
 
@@ -138,13 +128,13 @@ func (r *DNSSECResolver) Resolve(ctx context.Context, request *model.Request) (*
 			// neither DO nor AD, per RFC 6840 §5.8 (see clientQuery.normalizeResponse).
 			response.Res.AuthenticatedData = true
 			logger.Debugf("DNSSEC validation succeeded for %s - AD flag set",
-				request.Req.Question[0].Name)
+				request.Req.Question[0].Header().Name)
 
 		case dnssec.ValidationResultInsecure, dnssec.ValidationResultIndeterminate:
 			// No DNSSEC or cannot validate - clear AD flag
 			response.Res.AuthenticatedData = false
 			logger.Debugf("DNSSEC validation result %s for %s - AD flag cleared",
-				result.String(), request.Req.Question[0].Name)
+				result.String(), request.Req.Question[0].Header().Name)
 		}
 	}
 
@@ -159,22 +149,18 @@ func (r *DNSSECResolver) Resolve(ctx context.Context, request *model.Request) (*
 // sits above this resolver and rewrites the EDE option from the response type — from
 // overwriting the Bogus code set below with "Blocked".
 func createServFailResponseDNSSEC(request *model.Request, reason string) *model.Response {
-	modelResp := model.NewResponseWithRcode(request, dnsv1.RcodeServerFailure, model.ResponseTypeBOGUS, reason)
+	modelResp := model.NewResponseWithRcode(request, dns.RcodeServerFailure, model.ResponseTypeBOGUS, reason)
 
 	// Add EDE (Extended DNS Error) code for DNSSEC Bogus
 	// RFC 8914: https://www.rfc-editor.org/rfc/rfc8914.html#section-5.2
-	edeOption := &dnsv1.EDNS0_EDE{
-		InfoCode:  dnsv1.ExtendedErrorCodeDNSBogus,
+	edeOption := &dns.EDE{
+		InfoCode:  dns.ExtendedErrorDNSBogus,
 		ExtraText: reason,
 	}
 
 	// Add EDNS0 OPT record with EDE option
-	opt := new(dnsv1.OPT)
-	opt.Hdr.Name = "."
-	opt.Hdr.Rrtype = dnsv1.TypeOPT
-	opt.SetUDPSize(ednsUDPSize)
-	opt.Option = append(opt.Option, edeOption)
-	modelResp.Res.Extra = append(modelResp.Res.Extra, opt)
+	modelResp.Res.UDPSize = ednsUDPSize
+	modelResp.Res.Pseudo = append(modelResp.Res.Pseudo, edeOption)
 
 	return modelResp
 }

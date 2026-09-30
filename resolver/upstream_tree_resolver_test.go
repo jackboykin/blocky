@@ -3,11 +3,11 @@ package resolver
 import (
 	"context"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/log"
 	. "github.com/0xERR0R/blocky/model"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -174,7 +174,7 @@ var _ = Describe("UpstreamTreeResolver", Label("upstreamTreeResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, groups["default"]),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("Should use client specific resolver if client name matches exact", func() {
@@ -185,7 +185,7 @@ var _ = Describe("UpstreamTreeResolver", Label("upstreamTreeResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, groups["laptop"]),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("Should use client specific resolver if client name matches with wildcard", func() {
@@ -196,7 +196,7 @@ var _ = Describe("UpstreamTreeResolver", Label("upstreamTreeResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, groups["client-*-m"]),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("Should use client specific resolver if client name matches with range wildcard", func() {
@@ -207,7 +207,7 @@ var _ = Describe("UpstreamTreeResolver", Label("upstreamTreeResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, groups["client[0-9]"]),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("Should use client specific resolver if client IP matches", func() {
@@ -218,7 +218,7 @@ var _ = Describe("UpstreamTreeResolver", Label("upstreamTreeResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, groups["192.168.178.33"]),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("Should use client specific resolver if client name (containing IP) matches", func() {
@@ -229,7 +229,7 @@ var _ = Describe("UpstreamTreeResolver", Label("upstreamTreeResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, groups["192.168.178.33"]),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("Should use client specific resolver if client's CIDR (10.43.8.64 - 10.43.8.79) matches", func() {
@@ -240,7 +240,7 @@ var _ = Describe("UpstreamTreeResolver", Label("upstreamTreeResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, groups["10.43.8.67/28"]),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("Should use exact IP match before client name match", func() {
@@ -251,7 +251,7 @@ var _ = Describe("UpstreamTreeResolver", Label("upstreamTreeResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, groups["192.168.178.33"]),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("Should use client name match before CIDR match", func() {
@@ -262,7 +262,7 @@ var _ = Describe("UpstreamTreeResolver", Label("upstreamTreeResolver"), func() {
 						SatisfyAll(
 							BeDNSRecord("example.com.", A, groups["laptop"]),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 			})
 			It("Should use one of the matching resolvers & log warning", func() {
@@ -278,7 +278,7 @@ var _ = Describe("UpstreamTreeResolver", Label("upstreamTreeResolver"), func() {
 								BeDNSRecord("example.com.", A, groups["name-matches*"]),
 							),
 							HaveResponseType(ResponseTypeRESOLVED),
-							HaveReturnCode(dnsv1.RcodeSuccess),
+							HaveReturnCode(dns.RcodeSuccess),
 						))
 
 				Expect(hook.Messages).Should(ContainElement(ContainSubstring("client matches multiple groups")))

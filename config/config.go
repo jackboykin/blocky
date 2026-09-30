@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	"github.com/sirupsen/logrus"
 
 	. "github.com/0xERR0R/blocky/config/migration"
@@ -69,7 +69,7 @@ func (ipv IPVersion) Net() string {
 	panic(fmt.Errorf("bad value: %s", ipv))
 }
 
-func (ipv IPVersion) QTypes() []dnsv1.Type {
+func (ipv IPVersion) QTypes() []uint16 {
 	if qtypes, ok := ipVersionQTypes[ipv]; ok {
 		return qtypes
 	}
@@ -176,10 +176,10 @@ var ipVersionNets = map[IPVersion]string{
 }
 
 //nolint:gochecknoglobals
-var ipVersionQTypes = map[IPVersion][]dnsv1.Type{
-	IPVersionDual: {dnsv1.Type(dnsv1.TypeA), dnsv1.Type(dnsv1.TypeAAAA)},
-	IPVersionV4:   {dnsv1.Type(dnsv1.TypeA)},
-	IPVersionV6:   {dnsv1.Type(dnsv1.TypeAAAA)},
+var ipVersionQTypes = map[IPVersion][]uint16{
+	IPVersionDual: {dns.TypeA, dns.TypeAAAA},
+	IPVersionV4:   {dns.TypeA},
+	IPVersionV6:   {dns.TypeAAAA},
 }
 
 // ListenConfig is a list of address(es) to listen on
@@ -953,7 +953,7 @@ func (cfg *Config) migrate(logger *logrus.Entry) bool {
 		"upstreamTimeout": Move(To("upstreams.timeout", &cfg.Upstreams)),
 		"disableIPv6": Apply(To("filtering.queryTypes", &cfg.Filtering), func(oldValue bool) {
 			if oldValue {
-				cfg.Filtering.QueryTypes.Insert(dnsv1.Type(dnsv1.TypeAAAA))
+				cfg.Filtering.QueryTypes.Insert(dns.TypeAAAA)
 			}
 		}),
 		"port":         Move(To("ports.dns", &cfg.Ports)),

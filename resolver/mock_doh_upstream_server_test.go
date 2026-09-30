@@ -12,9 +12,10 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/config"
+	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/onsi/ginkgo/v2"
 )
 
@@ -44,7 +45,7 @@ type MockDoHUpstreamServer struct {
 	barrier          atomic.Pointer[chan struct{}]
 	barrierRemaining atomic.Int32
 
-	answerFn func(request *dnsv1.Msg) (response *dnsv1.Msg)
+	answerFn func(request *dns.Msg) (response *dns.Msg)
 
 	// mu guards conns, the set of open connections and whether each is poisoned.
 	mu    sync.Mutex
@@ -172,14 +173,13 @@ func (m *MockDoHUpstreamServer) handle(w http.ResponseWriter, r *http.Request) {
 	m.callCount.Add(1)
 	m.awaitBarrier()
 
-	msg := new(dnsv1.Msg)
-	err = msg.Unpack(body)
+	msg, err := util.UnpackMsg(body)
 	util.FatalOnError("can't deserialize message: ", err)
 
 	response := m.answerFn(msg)
-	response.SetReply(msg)
+	model.SetReply(response, msg)
 
-	raw, err := response.Pack()
+	raw, err := util.PackMsg(response)
 	util.FatalOnError("can't serialize message: ", err)
 
 	w.Header().Set("Content-Type", dnsContentType)
@@ -233,7 +233,7 @@ type stalePooledConnTransport struct {
 	staleAttempts atomic.Int32
 	calls         atomic.Int32
 
-	answerFn func(request *dnsv1.Msg) (response *dnsv1.Msg)
+	answerFn func(request *dns.Msg) (response *dns.Msg)
 }
 
 func (t *stalePooledConnTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -252,10 +252,10 @@ func (t *stalePooledConnTransport) RoundTrip(req *http.Request) (*http.Response,
 	body, err := io.ReadAll(req.Body)
 	util.FatalOnError("can't read request: ", err)
 
-	msg := new(dnsv1.Msg)
-	util.FatalOnError("can't deserialize message: ", msg.Unpack(body))
+	msg, err := util.UnpackMsg(body)
+	util.FatalOnError("can't deserialize message: ", err)
 
-	raw, err := mockReply(msg, t.answerFn(msg)).Pack()
+	raw, err := util.PackMsg(mockReply(msg, t.answerFn(msg)))
 	util.FatalOnError("can't serialize message: ", err)
 
 	return &http.Response{

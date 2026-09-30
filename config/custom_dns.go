@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"codeberg.org/miekg/dns"
+
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	"github.com/sirupsen/logrus"
 )
 
@@ -25,7 +26,7 @@ type CustomDNS struct {
 
 type (
 	CustomDNSMapping map[string]CustomDNSEntries
-	CustomDNSEntries []dnsv1.RR
+	CustomDNSEntries []dns.RR
 
 	ZoneFileDNS struct {
 		RRs        CustomDNSMapping
@@ -41,8 +42,10 @@ func (z *ZoneFileDNS) UnmarshalYAML(unmarshal func(any) error) error {
 
 	result := make(CustomDNSMapping)
 
-	zoneParser := dnsv1.NewZoneParser(strings.NewReader(input), "", z.configPath)
-	zoneParser.SetIncludeAllowed(true)
+	zoneParser := dns.NewZoneParser(strings.NewReader(input), "", z.configPath)
+	// The default only allows includes below the zone file's path taken as a directory, which
+	// refuses even a file next to it; blocky has always allowed any include.
+	zoneParser.IncludeAllowFunc = func(string, string) bool { return true }
 
 	for {
 		zoneRR, ok := zoneParser.Next()
@@ -110,21 +113,15 @@ func (c *CustomDNS) LogConfig(logger *logrus.Entry) {
 	}
 }
 
-func configToRR(ipStr string) (dnsv1.RR, error) {
+func configToRR(ipStr string) (dns.RR, error) {
 	ip := util.ParseIP(ipStr)
 	if !ip.IsValid() {
 		return nil, fmt.Errorf("invalid IP address '%s'", ipStr)
 	}
 
 	if ip.Is4() {
-		a := new(dnsv1.A)
-		a.A = util.IPFromAddr(ip)
-
-		return a, nil
+		return &dns.A{Addr: ip}, nil
 	}
 
-	aaaa := new(dnsv1.AAAA)
-	aaaa.AAAA = util.IPFromAddr(ip)
-
-	return aaaa, nil
+	return &dns.AAAA{Addr: ip}, nil
 }

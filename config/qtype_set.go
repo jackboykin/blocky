@@ -7,12 +7,13 @@ import (
 	"slices"
 	"strings"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
 )
 
 type QTypeSet map[QType]struct{}
 
-func NewQTypeSet(qTypes ...dnsv1.Type) QTypeSet {
+func NewQTypeSet(qTypes ...uint16) QTypeSet {
 	s := make(QTypeSet, len(qTypes))
 
 	for _, qType := range qTypes {
@@ -22,13 +23,13 @@ func NewQTypeSet(qTypes ...dnsv1.Type) QTypeSet {
 	return s
 }
 
-func (s QTypeSet) Contains(qType dnsv1.Type) bool {
+func (s QTypeSet) Contains(qType uint16) bool {
 	_, found := s[QType(qType)]
 
 	return found
 }
 
-func (s *QTypeSet) Insert(qType dnsv1.Type) {
+func (s *QTypeSet) Insert(qType uint16) {
 	if *s == nil {
 		*s = make(QTypeSet, 1)
 	}
@@ -65,19 +66,19 @@ func (s *QTypeSet) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-type QType dnsv1.Type
+type QType uint16
 
 func (c QType) String() string {
-	return dnsv1.Type(c).String()
+	return dnsutil.TypeToString(uint16(c))
 }
 
 // UnmarshalText implements `encoding.TextUnmarshaler`.
 func (c *QType) UnmarshalText(data []byte) error {
 	input := string(data)
 
-	t, found := dnsv1.StringToType[input]
+	t, found := dns.StringToType[input]
 	if !found {
-		types := slices.Sorted(maps.Keys(dnsv1.StringToType))
+		types := slices.Sorted(maps.Keys(dns.StringToType))
 
 		return fmt.Errorf("unknown DNS query type: '%s'. Please use following types '%s'",
 			input, strings.Join(types, ", "))

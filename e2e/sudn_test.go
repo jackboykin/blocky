@@ -3,9 +3,9 @@ package e2e
 import (
 	"context"
 
+	"codeberg.org/miekg/dns"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -56,14 +56,14 @@ var _ = Describe("Special Use Domain Names (SUDN)", func() {
 				msg := util.NewMsgWithQuestion("something.invalid.", A)
 				resp, err := doDNSRequest(ctx, blocky, msg)
 				Expect(err).Should(Succeed())
-				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+				Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 			})
 
 			It("should handle PTR for private ranges locally", func(ctx context.Context) {
-				msg := util.NewMsgWithQuestion("1.0.168.192.in-addr.arpa.", dnsv1.Type(dnsv1.TypePTR))
+				msg := util.NewMsgWithQuestion("1.0.168.192.in-addr.arpa.", dns.TypePTR)
 				resp, err := doDNSRequest(ctx, blocky, msg)
 				Expect(err).Should(Succeed())
-				Expect(resp.Rcode).ShouldNot(Equal(dnsv1.RcodeServerFailure))
+				Expect(resp.Rcode).ShouldNot(Equal(uint16(dns.RcodeServerFailure)))
 			})
 		})
 	})
@@ -105,28 +105,28 @@ var _ = Describe("Special Use Domain Names (SUDN)", func() {
 				msg := util.NewMsgWithQuestion("myhost.lan.", A)
 				resp, err := doDNSRequest(ctx, blocky, msg)
 				Expect(err).Should(Succeed())
-				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+				Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 			})
 
 			It("should block .internal domains", func(ctx context.Context) {
 				msg := util.NewMsgWithQuestion("myhost.internal.", A)
 				resp, err := doDNSRequest(ctx, blocky, msg)
 				Expect(err).Should(Succeed())
-				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+				Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 			})
 
 			It("should block .home domains", func(ctx context.Context) {
 				msg := util.NewMsgWithQuestion("myhost.home.", A)
 				resp, err := doDNSRequest(ctx, blocky, msg)
 				Expect(err).Should(Succeed())
-				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+				Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 			})
 
 			It("should block .corp domains", func(ctx context.Context) {
 				msg := util.NewMsgWithQuestion("myhost.corp.", A)
 				resp, err := doDNSRequest(ctx, blocky, msg)
 				Expect(err).Should(Succeed())
-				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+				Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 			})
 
 			It("should still resolve normal domains via upstream", func(ctx context.Context) {
@@ -183,7 +183,7 @@ var _ = Describe("Special Use Domain Names (SUDN)", func() {
 				msg := util.NewMsgWithQuestion("something.invalid.", A)
 				resp, err := doDNSRequest(ctx, blocky, msg)
 				Expect(err).Should(Succeed())
-				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+				Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 			})
 
 			It("should forward Appendix G TLDs to upstream", func(ctx context.Context) {

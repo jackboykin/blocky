@@ -15,7 +15,8 @@ import (
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/log"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
+	"github.com/0xERR0R/blocky/util"
 	"github.com/quic-go/quic-go"
 )
 
@@ -52,8 +53,8 @@ func (r *quicUpstreamClient) fmtURL(ip netip.Addr, port uint16, _ string) string
 }
 
 func (r *quicUpstreamClient) callExternal(
-	ctx context.Context, msg *dnsv1.Msg, upstreamURL string,
-) (*dnsv1.Msg, time.Duration, error) {
+	ctx context.Context, msg *dns.Msg, upstreamURL string,
+) (*dns.Msg, time.Duration, error) {
 	start := time.Now()
 
 	conn, err := r.getConnection(ctx, upstreamURL)
@@ -119,8 +120,8 @@ func (r *quicUpstreamClient) openStream(
 // a 2-byte length prefix followed by the DNS message. The message ID MUST
 // be set to 0 for security (preventing correlation attacks).
 func (r *quicUpstreamClient) exchangeDoQ(
-	ctx context.Context, msg *dnsv1.Msg, stream *quic.Stream,
-) (*dnsv1.Msg, error) {
+	ctx context.Context, msg *dns.Msg, stream *quic.Stream,
+) (*dns.Msg, error) {
 	// Set stream deadline from context to prevent indefinite blocking
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := stream.SetDeadline(deadline); err != nil {
@@ -128,9 +129,9 @@ func (r *quicUpstreamClient) exchangeDoQ(
 		}
 	}
 
-	originalID := msg.Id // read-only; used to restore response ID
+	originalID := msg.ID // read-only; used to restore response ID
 
-	packed, err := msg.Pack()
+	packed, err := util.PackMsg(msg)
 	if err != nil {
 		return nil, fmt.Errorf("can't pack message: %w", err)
 	}
@@ -171,13 +172,13 @@ func (r *quicUpstreamClient) exchangeDoQ(
 		return nil, fmt.Errorf("can't read DoQ response body: %w", err)
 	}
 
-	resp := new(dnsv1.Msg)
-	if err = resp.Unpack(respBuf); err != nil {
+	resp, err := util.UnpackMsg(respBuf)
+	if err != nil {
 		return nil, fmt.Errorf("can't unpack response: %w", err)
 	}
 
 	// Restore the original message ID in the response
-	resp.Id = originalID
+	resp.ID = originalID
 
 	return resp, nil
 }

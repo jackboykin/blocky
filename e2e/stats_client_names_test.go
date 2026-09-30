@@ -3,12 +3,13 @@ package e2e
 import (
 	"context"
 	"net"
+	"net/netip"
 
 	"github.com/0xERR0R/blocky/api"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -72,9 +73,9 @@ var _ = Describe("Statistics client identity (issue #2152)", func() {
 			Expect(err).Should(Succeed())
 			statsURL := "http://" + net.JoinHostPort(host, port) + "/api/stats"
 
-			ecsQuery := func(question string, qType dnsv1.Type) (*dnsv1.Msg, error) {
+			ecsQuery := func(question string, qType uint16) (*dns.Msg, error) {
 				msg := util.NewMsgWithQuestion(question, qType)
-				addECSOption(msg, net.ParseIP("10.0.0.1"))
+				addECSOption(msg, netip.MustParseAddr("10.0.0.1"))
 
 				return doDNSRequest(ctx, blocky, msg)
 			}
@@ -86,7 +87,7 @@ var _ = Describe("Statistics client identity (issue #2152)", func() {
 			By("sending a query the filtering resolver answers", func() {
 				resp, err := ecsQuery("example.com.", AAAA)
 				Expect(err).Should(Succeed())
-				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
+				Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeSuccess)))
 				Expect(resp.Answer).Should(BeEmpty())
 			})
 
@@ -97,7 +98,7 @@ var _ = Describe("Statistics client identity (issue #2152)", func() {
 				// and is counted, which is what this test is about.
 				resp, err := ecsQuery("myserver.", A)
 				if err == nil {
-					Expect(resp.Rcode).Should(Equal(dnsv1.RcodeNameError))
+					Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 				}
 			})
 

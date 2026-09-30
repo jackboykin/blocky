@@ -2,14 +2,13 @@ package resolver
 
 import (
 	"context"
-	"net"
 	"net/netip"
 
 	"github.com/0xERR0R/blocky/config"
 	"github.com/0xERR0R/blocky/model"
 	"github.com/0xERR0R/blocky/util"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
@@ -59,12 +58,12 @@ var _ = Describe("DNS64Resolver", func() {
 
 		It("should pass through all queries without processing when disabled", func() {
 			// Test AAAA query that would normally trigger synthesis
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
 			// Mock response with no AAAA records (would trigger synthesis if enabled)
-			mockResponse := new(dnsv1.Msg)
-			mockResponse.SetReply(request)
-			mockResponse.Rcode = dnsv1.RcodeSuccess
+			mockResponse := new(dns.Msg)
+			model.SetReply(mockResponse, request)
+			mockResponse.Rcode = dns.RcodeSuccess
 			// Empty answer section - would trigger A query if DNS64 was enabled
 
 			m.On("Resolve", mock.Anything).Return(&model.Response{Res: mockResponse}, nil)
@@ -77,16 +76,16 @@ var _ = Describe("DNS64Resolver", func() {
 			m.AssertNumberOfCalls(GinkgoT(), "Resolve", 1)
 			// Verify it was the AAAA query that was passed through
 			m.AssertCalled(GinkgoT(), "Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 			}))
 		})
 
 		It("should not perform synthesis even with A records available", func() {
-			request := util.NewMsgWithQuestion("ipv4only.example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+			request := util.NewMsgWithQuestion("ipv4only.example.com.", dns.TypeAAAA)
 
 			// Empty AAAA response
-			aaaaResponse := new(dnsv1.Msg)
-			aaaaResponse.SetReply(request)
+			aaaaResponse := new(dns.Msg)
+			model.SetReply(aaaaResponse, request)
 
 			m.On("Resolve", mock.Anything).Return(&model.Response{Res: aaaaResponse}, nil)
 
@@ -101,13 +100,13 @@ var _ = Describe("DNS64Resolver", func() {
 		})
 
 		It("should pass through A queries unchanged when disabled", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-			mockResponse := new(dnsv1.Msg)
-			mockResponse.SetReply(request)
-			mockResponse.Answer = []dnsv1.RR{
-				&dnsv1.A{
-					Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-					A:   net.ParseIP("192.0.2.1"),
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+			mockResponse := new(dns.Msg)
+			model.SetReply(mockResponse, request)
+			mockResponse.Answer = []dns.RR{
+				&dns.A{
+					Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+					Addr: netip.MustParseAddr("192.0.2.1"),
 				},
 			}
 			m.On("Resolve", mock.Anything).Return(&model.Response{Res: mockResponse}, nil)
@@ -176,9 +175,9 @@ var _ = Describe("DNS64Resolver", func() {
 
 	Describe("Non-AAAA queries", func() {
 		It("should pass through A queries unchanged", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-			mockResponse := new(dnsv1.Msg)
-			mockResponse.SetReply(request)
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+			mockResponse := new(dns.Msg)
+			model.SetReply(mockResponse, request)
 			m.On("Resolve", mock.Anything).Return(&model.Response{Res: mockResponse}, nil)
 
 			resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -189,9 +188,9 @@ var _ = Describe("DNS64Resolver", func() {
 		})
 
 		It("should pass through MX queries unchanged", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeMX))
-			mockResponse := new(dnsv1.Msg)
-			mockResponse.SetReply(request)
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeMX)
+			mockResponse := new(dns.Msg)
+			model.SetReply(mockResponse, request)
 			m.On("Resolve", mock.Anything).Return(&model.Response{Res: mockResponse}, nil)
 
 			resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -203,15 +202,15 @@ var _ = Describe("DNS64Resolver", func() {
 
 	Describe("AAAA queries with existing valid records", func() {
 		It("should return existing AAAA records without synthesis", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
 			// Mock response with existing AAAA record
-			mockResponse := new(dnsv1.Msg)
-			mockResponse.SetReply(request)
-			mockResponse.Answer = []dnsv1.RR{
-				&dnsv1.AAAA{
-					Hdr:  dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeAAAA, Class: dnsv1.ClassINET, Ttl: 300},
-					AAAA: net.ParseIP("2001:db8::1"),
+			mockResponse := new(dns.Msg)
+			model.SetReply(mockResponse, request)
+			mockResponse.Answer = []dns.RR{
+				&dns.AAAA{
+					Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+					Addr: netip.MustParseAddr("2001:db8::1"),
 				},
 			}
 			m.On("Resolve", mock.Anything).Return(&model.Response{Res: mockResponse}, nil)
@@ -220,7 +219,7 @@ var _ = Describe("DNS64Resolver", func() {
 
 			Expect(err).Should(Succeed())
 			Expect(resp.Res.Answer).Should(HaveLen(1))
-			Expect(resp.Res.Answer[0].(*dnsv1.AAAA).AAAA.String()).Should(Equal("2001:db8::1"))
+			Expect(resp.Res.Answer[0].(*dns.AAAA).AAAA.String()).Should(Equal("2001:db8::1"))
 			// Should only call next resolver once (for AAAA query)
 			m.AssertNumberOfCalls(GinkgoT(), "Resolve", 1)
 		})
@@ -228,76 +227,76 @@ var _ = Describe("DNS64Resolver", func() {
 
 	Describe("Basic DNS64 synthesis", func() {
 		It("should synthesize AAAA from A record when no AAAA exists", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
 			// AAAA response: empty
-			aaaaResponse := new(dnsv1.Msg)
-			aaaaResponse.SetReply(request)
+			aaaaResponse := new(dns.Msg)
+			model.SetReply(aaaaResponse, request)
 
 			// A response: has A record
-			aRequest := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-			aResponse := new(dnsv1.Msg)
-			aResponse.SetReply(aRequest)
-			aResponse.Answer = []dnsv1.RR{
-				&dnsv1.A{
-					Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-					A:   net.ParseIP("192.0.2.1"),
+			aRequest := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+			aResponse := new(dns.Msg)
+			model.SetReply(aResponse, aRequest)
+			aResponse.Answer = []dns.RR{
+				&dns.A{
+					Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+					Addr: netip.MustParseAddr("192.0.2.1"),
 				},
 			}
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 			})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 			})).Return(&model.Response{Res: aResponse}, nil)
 
 			resp, err := sut.Resolve(ctx, &model.Request{Req: request})
 
 			Expect(err).Should(Succeed())
 			Expect(resp.Res.Answer).Should(HaveLen(1))
-			aaaa := resp.Res.Answer[0].(*dnsv1.AAAA)
+			aaaa := resp.Res.Answer[0].(*dns.AAAA)
 			Expect(aaaa.AAAA.String()).Should(Equal("64:ff9b::c000:201")) // 192.0.2.1 embedded
-			Expect(aaaa.Hdr.Ttl).Should(Equal(uint32(300)))
+			Expect(aaaa.Hdr.TTL).Should(Equal(uint32(300)))
 			Expect(resp.RType).Should(Equal(model.ResponseTypeSYNTHESIZED))
 			Expect(resp.Reason).Should(Equal("DNS64"))
 		})
 
 		It("should synthesize multiple AAAA records from multiple A records", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
-			aaaaResponse := new(dnsv1.Msg)
-			aaaaResponse.SetReply(request)
+			aaaaResponse := new(dns.Msg)
+			model.SetReply(aaaaResponse, request)
 
-			aRequest := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-			aResponse := new(dnsv1.Msg)
-			aResponse.SetReply(aRequest)
-			aResponse.Answer = []dnsv1.RR{
-				&dnsv1.A{
-					Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-					A:   net.ParseIP("192.0.2.1"),
+			aRequest := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+			aResponse := new(dns.Msg)
+			model.SetReply(aResponse, aRequest)
+			aResponse.Answer = []dns.RR{
+				&dns.A{
+					Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+					Addr: netip.MustParseAddr("192.0.2.1"),
 				},
-				&dnsv1.A{
-					Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-					A:   net.ParseIP("192.0.2.2"),
+				&dns.A{
+					Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+					Addr: netip.MustParseAddr("192.0.2.2"),
 				},
 			}
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 			})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 			})).Return(&model.Response{Res: aResponse}, nil)
 
 			resp, err := sut.Resolve(ctx, &model.Request{Req: request})
 
 			Expect(err).Should(Succeed())
 			Expect(resp.Res.Answer).Should(HaveLen(2))
-			Expect(resp.Res.Answer[0].(*dnsv1.AAAA).AAAA.String()).Should(Equal("64:ff9b::c000:201"))
-			Expect(resp.Res.Answer[1].(*dnsv1.AAAA).AAAA.String()).Should(Equal("64:ff9b::c000:202"))
+			Expect(resp.Res.Answer[0].(*dns.AAAA).AAAA.String()).Should(Equal("64:ff9b::c000:201"))
+			Expect(resp.Res.Answer[1].(*dns.AAAA).AAAA.String()).Should(Equal("64:ff9b::c000:202"))
 		})
 	})
 
@@ -310,35 +309,35 @@ var _ = Describe("DNS64Resolver", func() {
 		})
 
 		It("should generate one AAAA per prefix per A record", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
-			aaaaResponse := new(dnsv1.Msg)
-			aaaaResponse.SetReply(request)
+			aaaaResponse := new(dns.Msg)
+			model.SetReply(aaaaResponse, request)
 
-			aRequest := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-			aResponse := new(dnsv1.Msg)
-			aResponse.SetReply(aRequest)
-			aResponse.Answer = []dnsv1.RR{
-				&dnsv1.A{
-					Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-					A:   net.ParseIP("192.0.2.1"),
+			aRequest := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+			aResponse := new(dns.Msg)
+			model.SetReply(aResponse, aRequest)
+			aResponse.Answer = []dns.RR{
+				&dns.A{
+					Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+					Addr: netip.MustParseAddr("192.0.2.1"),
 				},
 			}
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 			})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 			})).Return(&model.Response{Res: aResponse}, nil)
 
 			resp, err := sut.Resolve(ctx, &model.Request{Req: request})
 
 			Expect(err).Should(Succeed())
 			Expect(resp.Res.Answer).Should(HaveLen(2)) // 1 A record × 2 prefixes = 2 AAAA records
-			Expect(resp.Res.Answer[0].(*dnsv1.AAAA).AAAA.String()).Should(Equal("64:ff9b::c000:201"))
-			Expect(resp.Res.Answer[1].(*dnsv1.AAAA).AAAA.String()).Should(Equal("2001:db8:64::c000:201"))
+			Expect(resp.Res.Answer[0].(*dns.AAAA).AAAA.String()).Should(Equal("64:ff9b::c000:201"))
+			Expect(resp.Res.Answer[1].(*dns.AAAA).AAAA.String()).Should(Equal("2001:db8:64::c000:201"))
 		})
 	})
 
@@ -360,94 +359,94 @@ var _ = Describe("DNS64Resolver", func() {
 		for _, tc := range testCases {
 			It("should correctly embed "+tc.ipv4+" in "+tc.prefix, func() {
 				prefix := netip.MustParsePrefix(tc.prefix)
-				ipv4 := net.ParseIP(tc.ipv4)
+				ipv4 := netip.MustParseAddr(tc.ipv4)
 				result := embedIPv4InIPv6(ipv4, prefix)
 
-				Expect(result).ShouldNot(BeNil())
+				Expect(result.IsValid()).Should(BeTrue())
 				Expect(result.String()).Should(Equal(tc.expected))
 			})
 		}
 
-		It("should return nil for invalid IPv4", func() {
+		It("should return the zero Addr for invalid IPv4", func() {
 			prefix := netip.MustParsePrefix("64:ff9b::/96")
-			invalidIPv4 := net.ParseIP("2001:db8::1") // IPv6, not IPv4
+			invalidIPv4 := netip.MustParseAddr("2001:db8::1") // IPv6, not IPv4
 			result := embedIPv4InIPv6(invalidIPv4, prefix)
 
-			Expect(result).Should(BeNil())
+			Expect(result.IsValid()).Should(BeFalse())
 		})
 	})
 
 	Describe("Exclusion set", func() {
 		When("AAAA record is IPv4-mapped", func() {
 			It("should synthesize when all AAAA records are IPv4-mapped", func() {
-				request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
 				// AAAA response with IPv4-mapped address
-				aaaaResponse := new(dnsv1.Msg)
-				aaaaResponse.SetReply(request)
-				aaaaResponse.Answer = []dnsv1.RR{
-					&dnsv1.AAAA{
-						Hdr:  dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeAAAA, Class: dnsv1.ClassINET, Ttl: 300},
-						AAAA: net.ParseIP("::ffff:192.0.2.1"), // IPv4-mapped
+				aaaaResponse := new(dns.Msg)
+				model.SetReply(aaaaResponse, request)
+				aaaaResponse.Answer = []dns.RR{
+					&dns.AAAA{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+						Addr: netip.MustParseAddr("::ffff:192.0.2.1"), // IPv4-mapped
 					},
 				}
 
-				aRequest := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-				aResponse := new(dnsv1.Msg)
-				aResponse.SetReply(aRequest)
-				aResponse.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   net.ParseIP("192.0.2.1"),
+				aRequest := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+				aResponse := new(dns.Msg)
+				model.SetReply(aResponse, aRequest)
+				aResponse.Answer = []dns.RR{
+					&dns.A{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+						Addr: netip.MustParseAddr("192.0.2.1"),
 					},
 				}
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 				})).Return(&model.Response{Res: aResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
 
 				Expect(err).Should(Succeed())
 				Expect(resp.Res.Answer).Should(HaveLen(1))
-				Expect(resp.Res.Answer[0].(*dnsv1.AAAA).AAAA.String()).Should(Equal("64:ff9b::c000:201"))
+				Expect(resp.Res.Answer[0].(*dns.AAAA).AAAA.String()).Should(Equal("64:ff9b::c000:201"))
 			})
 		})
 
 		When("AAAA record matches configured DNS64 prefix", func() {
 			It("should synthesize to prevent double-synthesis loop", func() {
-				request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
 				// AAAA response with address in DNS64 prefix range
-				aaaaResponse := new(dnsv1.Msg)
-				aaaaResponse.SetReply(request)
-				aaaaResponse.Answer = []dnsv1.RR{
-					&dnsv1.AAAA{
-						Hdr:  dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeAAAA, Class: dnsv1.ClassINET, Ttl: 300},
-						AAAA: net.ParseIP("64:ff9b::c000:201"), // Already synthesized
+				aaaaResponse := new(dns.Msg)
+				model.SetReply(aaaaResponse, request)
+				aaaaResponse.Answer = []dns.RR{
+					&dns.AAAA{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+						Addr: netip.MustParseAddr("64:ff9b::c000:201"), // Already synthesized
 					},
 				}
 
-				aRequest := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-				aResponse := new(dnsv1.Msg)
-				aResponse.SetReply(aRequest)
-				aResponse.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   net.ParseIP("192.0.2.1"),
+				aRequest := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+				aResponse := new(dns.Msg)
+				model.SetReply(aResponse, aRequest)
+				aResponse.Answer = []dns.RR{
+					&dns.A{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+						Addr: netip.MustParseAddr("192.0.2.1"),
 					},
 				}
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 				})).Return(&model.Response{Res: aResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -460,33 +459,33 @@ var _ = Describe("DNS64Resolver", func() {
 
 		When("AAAA record is loopback", func() {
 			It("should synthesize when AAAA is loopback", func() {
-				request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
-				aaaaResponse := new(dnsv1.Msg)
-				aaaaResponse.SetReply(request)
-				aaaaResponse.Answer = []dnsv1.RR{
-					&dnsv1.AAAA{
-						Hdr:  dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeAAAA, Class: dnsv1.ClassINET, Ttl: 300},
-						AAAA: net.ParseIP("::1"), // Loopback
+				aaaaResponse := new(dns.Msg)
+				model.SetReply(aaaaResponse, request)
+				aaaaResponse.Answer = []dns.RR{
+					&dns.AAAA{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+						Addr: netip.MustParseAddr("::1"), // Loopback
 					},
 				}
 
-				aRequest := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-				aResponse := new(dnsv1.Msg)
-				aResponse.SetReply(aRequest)
-				aResponse.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   net.ParseIP("192.0.2.1"),
+				aRequest := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+				aResponse := new(dns.Msg)
+				model.SetReply(aResponse, aRequest)
+				aResponse.Answer = []dns.RR{
+					&dns.A{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+						Addr: netip.MustParseAddr("192.0.2.1"),
 					},
 				}
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 				})).Return(&model.Response{Res: aResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -498,23 +497,23 @@ var _ = Describe("DNS64Resolver", func() {
 
 		When("mixed excluded and non-excluded AAAA records", func() {
 			It("should NOT synthesize when mix exists", func() {
-				request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
-				aaaaResponse := new(dnsv1.Msg)
-				aaaaResponse.SetReply(request)
-				aaaaResponse.Answer = []dnsv1.RR{
-					&dnsv1.AAAA{
-						Hdr:  dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeAAAA, Class: dnsv1.ClassINET, Ttl: 300},
-						AAAA: net.ParseIP("2001:db8::1"), // Valid
+				aaaaResponse := new(dns.Msg)
+				model.SetReply(aaaaResponse, request)
+				aaaaResponse.Answer = []dns.RR{
+					&dns.AAAA{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+						Addr: netip.MustParseAddr("2001:db8::1"), // Valid
 					},
-					&dnsv1.AAAA{
-						Hdr:  dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeAAAA, Class: dnsv1.ClassINET, Ttl: 300},
-						AAAA: net.ParseIP("::1"), // Excluded (loopback)
+					&dns.AAAA{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+						Addr: netip.MustParseAddr("::1"), // Excluded (loopback)
 					},
 				}
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -529,48 +528,48 @@ var _ = Describe("DNS64Resolver", func() {
 
 	Describe("RCODE handling", func() {
 		It("should return NXDOMAIN without synthesis", func() {
-			request := util.NewMsgWithQuestion("notexist.com.", dnsv1.Type(dnsv1.TypeAAAA))
+			request := util.NewMsgWithQuestion("notexist.com.", dns.TypeAAAA)
 
-			aaaaResponse := new(dnsv1.Msg)
-			aaaaResponse.SetReply(request)
+			aaaaResponse := new(dns.Msg)
+			model.SetReply(aaaaResponse, request)
 
-			aRequest := util.NewMsgWithQuestion("notexist.com.", dnsv1.Type(dnsv1.TypeA))
-			aResponse := new(dnsv1.Msg)
-			aResponse.SetReply(aRequest)
-			aResponse.Rcode = dnsv1.RcodeNameError // NXDOMAIN
+			aRequest := util.NewMsgWithQuestion("notexist.com.", dns.TypeA)
+			aResponse := new(dns.Msg)
+			model.SetReply(aResponse, aRequest)
+			aResponse.Rcode = dns.RcodeNameError // NXDOMAIN
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 			})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 			})).Return(&model.Response{Res: aResponse}, nil)
 
 			resp, err := sut.Resolve(ctx, &model.Request{Req: request})
 
 			Expect(err).Should(Succeed())
-			Expect(resp.Res.Rcode).Should(Equal(dnsv1.RcodeNameError))
+			Expect(resp.Res.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 			Expect(resp.Reason).Should(Equal("NXDOMAIN"))
 		})
 
 		It("should treat SERVFAIL as empty response (alternative behavior)", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
-			aaaaResponse := new(dnsv1.Msg)
-			aaaaResponse.SetReply(request)
+			aaaaResponse := new(dns.Msg)
+			model.SetReply(aaaaResponse, request)
 
-			aRequest := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-			aResponse := new(dnsv1.Msg)
-			aResponse.SetReply(aRequest)
-			aResponse.Rcode = dnsv1.RcodeServerFailure // SERVFAIL
+			aRequest := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+			aResponse := new(dns.Msg)
+			model.SetReply(aResponse, aRequest)
+			aResponse.Rcode = dns.RcodeServerFailure // SERVFAIL
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 			})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 			})).Return(&model.Response{Res: aResponse}, nil)
 
 			resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -584,69 +583,69 @@ var _ = Describe("DNS64Resolver", func() {
 	Describe("TTL handling", func() {
 		When("multiple A records with different TTLs", func() {
 			It("should use minimum TTL for all AAAA records", func() {
-				request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
-				aaaaResponse := new(dnsv1.Msg)
-				aaaaResponse.SetReply(request)
+				aaaaResponse := new(dns.Msg)
+				model.SetReply(aaaaResponse, request)
 
-				aRequest := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-				aResponse := new(dnsv1.Msg)
-				aResponse.SetReply(aRequest)
-				aResponse.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   net.ParseIP("192.0.2.1"),
+				aRequest := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+				aResponse := new(dns.Msg)
+				model.SetReply(aResponse, aRequest)
+				aResponse.Answer = []dns.RR{
+					&dns.A{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+						Addr: netip.MustParseAddr("192.0.2.1"),
 					},
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 600},
-						A:   net.ParseIP("192.0.2.2"),
+					&dns.A{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 600},
+						Addr: netip.MustParseAddr("192.0.2.2"),
 					},
 				}
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 				})).Return(&model.Response{Res: aResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
 
 				Expect(err).Should(Succeed())
 				Expect(resp.Res.Answer).Should(HaveLen(2))
-				Expect(resp.Res.Answer[0].(*dnsv1.AAAA).Hdr.Ttl).Should(Equal(uint32(300))) // min(300, 600)
-				Expect(resp.Res.Answer[1].(*dnsv1.AAAA).Hdr.Ttl).Should(Equal(uint32(300))) // min(300, 600)
+				Expect(resp.Res.Answer[0].(*dns.AAAA).Hdr.TTL).Should(Equal(uint32(300))) // min(300, 600)
+				Expect(resp.Res.Answer[1].(*dns.AAAA).Hdr.TTL).Should(Equal(uint32(300))) // min(300, 600)
 			})
 		})
 
 		When("CNAME chain with different TTLs", func() {
 			It("should use minimum TTL across CNAME and A records (cache coherency)", func() {
-				request := util.NewMsgWithQuestion("app.example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("app.example.com.", dns.TypeAAAA)
 
-				aaaaResponse := new(dnsv1.Msg)
-				aaaaResponse.SetReply(request)
+				aaaaResponse := new(dns.Msg)
+				model.SetReply(aaaaResponse, request)
 
-				aRequest := util.NewMsgWithQuestion("app.example.com.", dnsv1.Type(dnsv1.TypeA))
-				aResponse := new(dnsv1.Msg)
-				aResponse.SetReply(aRequest)
-				aResponse.Answer = []dnsv1.RR{
-					&dnsv1.CNAME{
-						Hdr:    dnsv1.RR_Header{Name: "app.example.com.", Rrtype: dnsv1.TypeCNAME, Class: dnsv1.ClassINET, Ttl: 60},
+				aRequest := util.NewMsgWithQuestion("app.example.com.", dns.TypeA)
+				aResponse := new(dns.Msg)
+				model.SetReply(aResponse, aRequest)
+				aResponse.Answer = []dns.RR{
+					&dns.CNAME{
+						Hdr:    dns.Header{Name: "app.example.com.", Class: dns.ClassINET, TTL: 60},
 						Target: "cdn.provider.net.",
 					},
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "cdn.provider.net.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 3600},
-						A:   net.ParseIP("192.0.2.1"),
+					&dns.A{
+						Hdr:  dns.Header{Name: "cdn.provider.net.", Class: dns.ClassINET, TTL: 3600},
+						Addr: netip.MustParseAddr("192.0.2.1"),
 					},
 				}
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 				})).Return(&model.Response{Res: aResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -654,108 +653,107 @@ var _ = Describe("DNS64Resolver", func() {
 				Expect(err).Should(Succeed())
 				Expect(resp.Res.Answer).Should(HaveLen(2)) // CNAME + AAAA
 				// First record is CNAME
-				Expect(resp.Res.Answer[0].Header().Rrtype).Should(Equal(dnsv1.TypeCNAME))
+				Expect(dns.RRToType(resp.Res.Answer[0])).Should(Equal(dns.TypeCNAME))
 				// Second record is synthesized AAAA with minimum TTL
-				aaaa := resp.Res.Answer[1].(*dnsv1.AAAA)
-				Expect(aaaa.Hdr.Ttl).Should(Equal(uint32(60))) // min(60, 3600) = 60 (CNAME TTL)
+				aaaa := resp.Res.Answer[1].(*dns.AAAA)
+				Expect(aaaa.Hdr.TTL).Should(Equal(uint32(60))) // min(60, 3600) = 60 (CNAME TTL)
 				Expect(aaaa.Hdr.Name).Should(Equal("cdn.provider.net."))
 			})
 		})
 
 		When("DNAME chain with different TTLs", func() {
 			It("should use minimum TTL across DNAME, CNAME, and A records", func() {
-				request := util.NewMsgWithQuestion("sub.example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("sub.example.com.", dns.TypeAAAA)
 
-				aaaaResponse := new(dnsv1.Msg)
-				aaaaResponse.SetReply(request)
+				aaaaResponse := new(dns.Msg)
+				model.SetReply(aaaaResponse, request)
 
-				aRequest := util.NewMsgWithQuestion("sub.example.com.", dnsv1.Type(dnsv1.TypeA))
-				aResponse := new(dnsv1.Msg)
-				aResponse.SetReply(aRequest)
-				aResponse.Answer = []dnsv1.RR{
-					&dnsv1.DNAME{
-						Hdr:    dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeDNAME, Class: dnsv1.ClassINET, Ttl: 300},
+				aRequest := util.NewMsgWithQuestion("sub.example.com.", dns.TypeA)
+				aResponse := new(dns.Msg)
+				model.SetReply(aResponse, aRequest)
+				aResponse.Answer = []dns.RR{
+					&dns.DNAME{
+						Hdr:    dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
 						Target: "cdn.example.net.",
 					},
-					&dnsv1.CNAME{
-						Hdr:    dnsv1.RR_Header{Name: "sub.example.com.", Rrtype: dnsv1.TypeCNAME, Class: dnsv1.ClassINET, Ttl: 300},
+					&dns.CNAME{
+						Hdr:    dns.Header{Name: "sub.example.com.", Class: dns.ClassINET, TTL: 300},
 						Target: "sub.cdn.example.net.",
 					},
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "sub.cdn.example.net.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 1800},
-						A:   net.ParseIP("192.0.2.50"),
+					&dns.A{
+						Hdr:  dns.Header{Name: "sub.cdn.example.net.", Class: dns.ClassINET, TTL: 1800},
+						Addr: netip.MustParseAddr("192.0.2.50"),
 					},
 				}
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 				})).Return(&model.Response{Res: aResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
 
 				Expect(err).Should(Succeed())
 				Expect(resp.Res.Answer).Should(HaveLen(3)) // DNAME + CNAME + AAAA
-				aaaa := resp.Res.Answer[2].(*dnsv1.AAAA)
-				Expect(aaaa.Hdr.Ttl).Should(Equal(uint32(300))) // min(300, 300, 1800) = 300
+				aaaa := resp.Res.Answer[2].(*dns.AAAA)
+				Expect(aaaa.Hdr.TTL).Should(Equal(uint32(300))) // min(300, 300, 1800) = 300
 			})
 		})
 	})
 
 	Describe("DNSSEC flag handling", func() {
 		It("should copy DO bit from AAAA query to A query", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
-			request.SetEdns0(4096, true) // Set DO=1
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
+			util.SetEdns0(request, 4096, true) // Set DO=1
 
-			aaaaResponse := new(dnsv1.Msg)
-			aaaaResponse.SetReply(request)
+			aaaaResponse := new(dns.Msg)
+			model.SetReply(aaaaResponse, request)
 
-			var capturedAReq *dnsv1.Msg
+			var capturedAReq *dns.Msg
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				if req.Req.Question[0].Qtype == dnsv1.TypeA {
+				if dns.RRToType(req.Req.Question[0]) == dns.TypeA {
 					capturedAReq = req.Req
 
 					return true
 				}
 
-				return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 			})).Return(&model.Response{Res: aaaaResponse}, nil).Twice()
 
 			_, err := sut.Resolve(ctx, &model.Request{Req: request})
 			Expect(err).Should(Succeed())
 
 			Expect(capturedAReq).ShouldNot(BeNil())
-			opt := capturedAReq.IsEdns0()
-			Expect(opt).ShouldNot(BeNil())
-			Expect(opt.Do()).Should(BeTrue()) // DO bit copied
+			Expect(util.HasEdns0(capturedAReq)).Should(BeTrue())
+			Expect(capturedAReq.Security).Should(BeTrue()) // DO bit copied
 		})
 
 		It("should clear AD bit in synthesized response", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
-			aaaaResponse := new(dnsv1.Msg)
-			aaaaResponse.SetReply(request)
+			aaaaResponse := new(dns.Msg)
+			model.SetReply(aaaaResponse, request)
 
-			aRequest := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-			aResponse := new(dnsv1.Msg)
-			aResponse.SetReply(aRequest)
+			aRequest := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+			aResponse := new(dns.Msg)
+			model.SetReply(aResponse, aRequest)
 			aResponse.AuthenticatedData = true // AD=1 from upstream
-			aResponse.Answer = []dnsv1.RR{
-				&dnsv1.A{
-					Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-					A:   net.ParseIP("192.0.2.1"),
+			aResponse.Answer = []dns.RR{
+				&dns.A{
+					Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+					Addr: netip.MustParseAddr("192.0.2.1"),
 				},
 			}
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 			})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 			})).Return(&model.Response{Res: aResponse}, nil)
 
 			resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -765,29 +763,29 @@ var _ = Describe("DNS64Resolver", func() {
 		})
 
 		It("should copy AA and RA bits from A response", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
-			aaaaResponse := new(dnsv1.Msg)
-			aaaaResponse.SetReply(request)
+			aaaaResponse := new(dns.Msg)
+			model.SetReply(aaaaResponse, request)
 
-			aRequest := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-			aResponse := new(dnsv1.Msg)
-			aResponse.SetReply(aRequest)
+			aRequest := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+			aResponse := new(dns.Msg)
+			model.SetReply(aResponse, aRequest)
 			aResponse.Authoritative = true
 			aResponse.RecursionAvailable = true
-			aResponse.Answer = []dnsv1.RR{
-				&dnsv1.A{
-					Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-					A:   net.ParseIP("192.0.2.1"),
+			aResponse.Answer = []dns.RR{
+				&dns.A{
+					Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+					Addr: netip.MustParseAddr("192.0.2.1"),
 				},
 			}
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 			})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 			})).Return(&model.Response{Res: aResponse}, nil)
 
 			resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -800,29 +798,29 @@ var _ = Describe("DNS64Resolver", func() {
 
 	Describe("Empty AAAA response vs NXDOMAIN", func() {
 		It("should synthesize for NOERROR with zero AAAA records", func() {
-			request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+			request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
 			// AAAA response: NOERROR with empty answer
-			aaaaResponse := new(dnsv1.Msg)
-			aaaaResponse.SetReply(request)
-			aaaaResponse.Rcode = dnsv1.RcodeSuccess
+			aaaaResponse := new(dns.Msg)
+			model.SetReply(aaaaResponse, request)
+			aaaaResponse.Rcode = dns.RcodeSuccess
 
-			aRequest := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA))
-			aResponse := new(dnsv1.Msg)
-			aResponse.SetReply(aRequest)
-			aResponse.Answer = []dnsv1.RR{
-				&dnsv1.A{
-					Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-					A:   net.ParseIP("192.0.2.1"),
+			aRequest := util.NewMsgWithQuestion("example.com.", dns.TypeA)
+			aResponse := new(dns.Msg)
+			model.SetReply(aResponse, aRequest)
+			aResponse.Answer = []dns.RR{
+				&dns.A{
+					Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+					Addr: netip.MustParseAddr("192.0.2.1"),
 				},
 			}
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 			})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 			m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-				return req.Req.Question[0].Qtype == dnsv1.TypeA
+				return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 			})).Return(&model.Response{Res: aResponse}, nil)
 
 			resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -847,34 +845,34 @@ var _ = Describe("DNS64Resolver", func() {
 			})
 
 			It("should exclude addresses matching custom exclusion set", func() {
-				request := util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("example.com.", dns.TypeAAAA)
 
 				// Mock AAAA response with address in custom exclusion set
-				aaaaResponse := new(dnsv1.Msg)
-				aaaaResponse.SetReply(request)
-				aaaaResponse.Answer = []dnsv1.RR{
-					&dnsv1.AAAA{
-						Hdr:  dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeAAAA, Class: dnsv1.ClassINET, Ttl: 300},
-						AAAA: net.ParseIP("2001:db8::1"), // Matches our custom exclusion
+				aaaaResponse := new(dns.Msg)
+				model.SetReply(aaaaResponse, request)
+				aaaaResponse.Answer = []dns.RR{
+					&dns.AAAA{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+						Addr: netip.MustParseAddr("2001:db8::1"), // Matches our custom exclusion
 					},
 				}
 
 				// Mock A response for synthesis
-				aResponse := new(dnsv1.Msg)
-				aResponse.SetReply(request)
-				aResponse.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 300},
-						A:   net.ParseIP("192.0.2.1"),
+				aResponse := new(dns.Msg)
+				model.SetReply(aResponse, request)
+				aResponse.Answer = []dns.RR{
+					&dns.A{
+						Hdr:  dns.Header{Name: "example.com.", Class: dns.ClassINET, TTL: 300},
+						Addr: netip.MustParseAddr("192.0.2.1"),
 					},
 				}
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: aaaaResponse}, nil)
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 				})).Return(&model.Response{Res: aResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -882,7 +880,7 @@ var _ = Describe("DNS64Resolver", func() {
 				Expect(err).Should(Succeed())
 				Expect(resp.RType).Should(Equal(model.ResponseTypeSYNTHESIZED))
 				Expect(resp.Res.Answer).Should(HaveLen(1))
-				Expect(resp.Res.Answer[0].(*dnsv1.AAAA).AAAA.String()).Should(Equal("64:ff9b::c000:201"))
+				Expect(resp.Res.Answer[0].(*dns.AAAA).AAAA.String()).Should(Equal("64:ff9b::c000:201"))
 			})
 		})
 
@@ -906,28 +904,28 @@ var _ = Describe("DNS64Resolver", func() {
 			It("should synthesize AAAA from custom A records", func() {
 				// This simulates CustomDNSResolver returning a custom A record
 				// and DNS64 synthesizing AAAA from it
-				request := util.NewMsgWithQuestion("custom.local.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("custom.local.", dns.TypeAAAA)
 
 				// Mock: CustomDNS returns no AAAA
-				emptyAAAAResponse := new(dnsv1.Msg)
-				emptyAAAAResponse.SetReply(request)
+				emptyAAAAResponse := new(dns.Msg)
+				model.SetReply(emptyAAAAResponse, request)
 
 				// Mock: CustomDNS returns custom A record
-				customAResponse := new(dnsv1.Msg)
-				customAResponse.SetReply(request)
-				customAResponse.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "custom.local.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 3600},
-						A:   net.ParseIP("10.0.0.1"), // Custom local IP
+				customAResponse := new(dns.Msg)
+				model.SetReply(customAResponse, request)
+				customAResponse.Answer = []dns.RR{
+					&dns.A{
+						Hdr:  dns.Header{Name: "custom.local.", Class: dns.ClassINET, TTL: 3600},
+						Addr: netip.MustParseAddr("10.0.0.1"), // Custom local IP
 					},
 				}
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: emptyAAAAResponse}, nil)
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 				})).Return(&model.Response{Res: customAResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -937,7 +935,7 @@ var _ = Describe("DNS64Resolver", func() {
 				Expect(resp.Res.Answer).Should(HaveLen(1))
 
 				// Verify synthesized AAAA contains embedded 10.0.0.1
-				aaaa := resp.Res.Answer[0].(*dnsv1.AAAA)
+				aaaa := resp.Res.Answer[0].(*dns.AAAA)
 				Expect(aaaa.AAAA.String()).Should(Equal("64:ff9b::a00:1"))
 			})
 		})
@@ -946,29 +944,29 @@ var _ = Describe("DNS64Resolver", func() {
 			It("should not synthesize for blocked domains", func() {
 				// This simulates BlockingResolver returning NXDOMAIN for blocked domain
 				// DNS64 queries for A records and gets NXDOMAIN, then returns NXDOMAIN
-				request := util.NewMsgWithQuestion("blocked.example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("blocked.example.com.", dns.TypeAAAA)
 
 				// Mock: BlockingResolver returns empty AAAA response (no AAAA records)
-				emptyAAAAResponse := new(dnsv1.Msg)
-				emptyAAAAResponse.SetReply(request)
+				emptyAAAAResponse := new(dns.Msg)
+				model.SetReply(emptyAAAAResponse, request)
 
 				// Mock: BlockingResolver returns NXDOMAIN for A query
-				blockedAResponse := new(dnsv1.Msg)
-				blockedAResponse.SetReply(request)
-				blockedAResponse.Rcode = dnsv1.RcodeNameError
+				blockedAResponse := new(dns.Msg)
+				model.SetReply(blockedAResponse, request)
+				blockedAResponse.Rcode = dns.RcodeNameError
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: emptyAAAAResponse}, nil)
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 				})).Return(&model.Response{Res: blockedAResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
 
 				Expect(err).Should(Succeed())
-				Expect(resp.Res.Rcode).Should(Equal(dnsv1.RcodeNameError))
+				Expect(resp.Res.Rcode).Should(Equal(uint16(dns.RcodeNameError)))
 				Expect(resp.Reason).Should(Equal("NXDOMAIN"))
 			})
 		})
@@ -979,26 +977,26 @@ var _ = Describe("DNS64Resolver", func() {
 				// The actual caching is done by CachingResolver, but this tests that
 				// synthesized responses have proper TTL for caching
 
-				request := util.NewMsgWithQuestion("cacheable.example.com.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("cacheable.example.com.", dns.TypeAAAA)
 
-				emptyAAAAResponse := new(dnsv1.Msg)
-				emptyAAAAResponse.SetReply(request)
+				emptyAAAAResponse := new(dns.Msg)
+				model.SetReply(emptyAAAAResponse, request)
 
-				aResponse := new(dnsv1.Msg)
-				aResponse.SetReply(request)
-				aResponse.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "cacheable.example.com.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 1800},
-						A:   net.ParseIP("192.0.2.100"),
+				aResponse := new(dns.Msg)
+				model.SetReply(aResponse, request)
+				aResponse.Answer = []dns.RR{
+					&dns.A{
+						Hdr:  dns.Header{Name: "cacheable.example.com.", Class: dns.ClassINET, TTL: 1800},
+						Addr: netip.MustParseAddr("192.0.2.100"),
 					},
 				}
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: emptyAAAAResponse}, nil)
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 				})).Return(&model.Response{Res: aResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -1007,11 +1005,11 @@ var _ = Describe("DNS64Resolver", func() {
 				Expect(resp.RType).Should(Equal(model.ResponseTypeSYNTHESIZED))
 
 				// Verify synthesized AAAA has proper TTL (should match A record TTL)
-				aaaa := resp.Res.Answer[0].(*dnsv1.AAAA)
-				Expect(aaaa.Hdr.Ttl).Should(Equal(uint32(1800)))
+				aaaa := resp.Res.Answer[0].(*dns.AAAA)
+				Expect(aaaa.Hdr.TTL).Should(Equal(uint32(1800)))
 
 				// Verify response is cacheable (has positive TTL)
-				Expect(aaaa.Hdr.Ttl).Should(BeNumerically(">", 0))
+				Expect(aaaa.Hdr.TTL).Should(BeNumerically(">", 0))
 			})
 		})
 
@@ -1019,27 +1017,27 @@ var _ = Describe("DNS64Resolver", func() {
 			It("should synthesize from conditional upstream A records", func() {
 				// This simulates DNS64 synthesizing from A records retrieved via
 				// conditional upstream (e.g., corporate DNS for *.corp domain)
-				request := util.NewMsgWithQuestion("app.corp.", dnsv1.Type(dnsv1.TypeAAAA))
+				request := util.NewMsgWithQuestion("app.corp.", dns.TypeAAAA)
 
-				emptyAAAAResponse := new(dnsv1.Msg)
-				emptyAAAAResponse.SetReply(request)
+				emptyAAAAResponse := new(dns.Msg)
+				model.SetReply(emptyAAAAResponse, request)
 
 				// Mock: Conditional upstream returns A record for corporate domain
-				corpAResponse := new(dnsv1.Msg)
-				corpAResponse.SetReply(request)
-				corpAResponse.Answer = []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{Name: "app.corp.", Rrtype: dnsv1.TypeA, Class: dnsv1.ClassINET, Ttl: 600},
-						A:   net.ParseIP("172.16.0.10"), // Private corporate IP
+				corpAResponse := new(dns.Msg)
+				model.SetReply(corpAResponse, request)
+				corpAResponse.Answer = []dns.RR{
+					&dns.A{
+						Hdr:  dns.Header{Name: "app.corp.", Class: dns.ClassINET, TTL: 600},
+						Addr: netip.MustParseAddr("172.16.0.10"), // Private corporate IP
 					},
 				}
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeAAAA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeAAAA
 				})).Return(&model.Response{Res: emptyAAAAResponse}, nil)
 
 				m.On("Resolve", mock.MatchedBy(func(req *model.Request) bool {
-					return req.Req.Question[0].Qtype == dnsv1.TypeA
+					return dns.RRToType(req.Req.Question[0]) == dns.TypeA
 				})).Return(&model.Response{Res: corpAResponse}, nil)
 
 				resp, err := sut.Resolve(ctx, &model.Request{Req: request})
@@ -1048,7 +1046,7 @@ var _ = Describe("DNS64Resolver", func() {
 				Expect(resp.RType).Should(Equal(model.ResponseTypeSYNTHESIZED))
 
 				// Verify synthesized AAAA from corporate private IP
-				aaaa := resp.Res.Answer[0].(*dnsv1.AAAA)
+				aaaa := resp.Res.Answer[0].(*dns.AAAA)
 				Expect(aaaa.AAAA.String()).Should(Equal("64:ff9b::ac10:a"))
 			})
 		})
@@ -1057,7 +1055,7 @@ var _ = Describe("DNS64Resolver", func() {
 
 var _ = Describe("embedIPv4InIPv6", func() {
 	It("should handle all prefix lengths correctly", func() {
-		ipv4 := net.ParseIP("192.0.2.1")
+		ipv4 := netip.MustParseAddr("192.0.2.1")
 
 		// Test all valid prefix lengths
 		testCases := []struct {
@@ -1075,15 +1073,15 @@ var _ = Describe("embedIPv4InIPv6", func() {
 		for _, tc := range testCases {
 			prefix := netip.MustParsePrefix(tc.prefix)
 			result := embedIPv4InIPv6(ipv4, prefix)
-			Expect(result).ShouldNot(BeNil(), "Embedding should succeed for prefix length /%d", tc.prefixLen)
+			Expect(result.IsValid()).Should(BeTrue(), "Embedding should succeed for prefix length /%d", tc.prefixLen)
 
 			// Verify result is IPv6
-			Expect(result.To4()).Should(BeNil())
-			Expect(result.To16()).ShouldNot(BeNil())
+			Expect(result.Is6()).Should(BeTrue())
+			Expect(result.Is4In6()).Should(BeFalse())
 
 			// Verify byte 8 is zero for non-/96 prefixes (RFC 6052 requirement)
 			if tc.prefixLen != 96 {
-				Expect(result.To16()[8]).Should(Equal(byte(0)), "Byte 8 (reserved/u bit) must be 0 for /%d prefix", tc.prefixLen)
+				Expect(result.As16()[8]).Should(Equal(byte(0)), "Byte 8 (reserved/u bit) must be 0 for /%d prefix", tc.prefixLen)
 			}
 		}
 	})

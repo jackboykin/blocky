@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"net"
 	"net/netip"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 	"github.com/0xERR0R/blocky/stats"
 	"github.com/0xERR0R/blocky/util"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -62,7 +61,7 @@ var _ = Describe("Client identity for queries answered at the head of the chain"
 	}
 
 	DescribeTable("records the client name, not the client IP",
-		func(ctx context.Context, adapt func(cfg *config.Config), question string, qType dnsv1.Type,
+		func(ctx context.Context, adapt func(cfg *config.Config), question string, qType uint16,
 			expectedRType model.ResponseType,
 		) {
 			srv := newServer(ctx, adapt)
@@ -80,14 +79,14 @@ var _ = Describe("Client identity for queries answered at the head of the chain"
 		},
 		Entry("query type filtered by the filtering resolver",
 			func(cfg *config.Config) {
-				cfg.Filtering = config.Filtering{QueryTypes: config.NewQTypeSet(dnsv1.Type(dnsv1.TypeAAAA))}
+				cfg.Filtering = config.Filtering{QueryTypes: config.NewQTypeSet(dns.TypeAAAA)}
 			},
-			"example.com.", dnsv1.Type(dnsv1.TypeAAAA), model.ResponseTypeFILTERED),
+			"example.com.", dns.TypeAAAA, model.ResponseTypeFILTERED),
 		Entry("non-FQDN query rejected by the fqdnOnly resolver",
 			func(cfg *config.Config) {
 				cfg.FQDNOnly = config.FQDNOnly{Enable: true}
 			},
-			"example.", dnsv1.Type(dnsv1.TypeA), model.ResponseTypeNOTFQDN),
+			"example.", dns.TypeA, model.ResponseTypeNOTFQDN),
 	)
 
 	// The rate limiter deliberately stays above the client-name lookup so that its bucket
@@ -98,7 +97,7 @@ var _ = Describe("Client identity for queries answered at the head of the chain"
 			cfg.RateLimit = config.RateLimit{Enable: true, Rate: 1, Burst: 1, IPv4Prefix: 32, IPv6Prefix: 64}
 			// answered locally, so the query that passes the limiter needs no upstream
 			cfg.CustomDNS = config.CustomDNS{
-				Mapping: config.CustomDNSMapping{"example.com": {&dnsv1.A{A: net.ParseIP("192.168.1.99")}}},
+				Mapping: config.CustomDNSMapping{"example.com": {&dns.A{Addr: netip.MustParseAddr("192.168.1.99")}}},
 			}
 		})
 
@@ -106,7 +105,7 @@ var _ = Describe("Client identity for queries answered at the head of the chain"
 		for range 2 {
 			_, _ = srv.queryResolver.Resolve(ctx, &model.Request{
 				ClientIP:  clientIP,
-				Req:       util.NewMsgWithQuestion("example.com.", dnsv1.Type(dnsv1.TypeA)),
+				Req:       util.NewMsgWithQuestion("example.com.", dns.TypeA),
 				RequestTS: time.Now(),
 			})
 		}

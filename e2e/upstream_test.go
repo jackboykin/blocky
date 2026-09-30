@@ -3,9 +3,9 @@ package e2e
 import (
 	"context"
 
+	"codeberg.org/miekg/dns"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -134,7 +134,7 @@ var _ = Describe("Upstream resolver configuration tests", func() {
 
 				resp, err := doDNSRequest(ctx, blocky, msg)
 				Expect(err).Should(Succeed())
-				Expect(resp.Rcode).Should(Equal(dnsv1.RcodeServerFailure))
+				Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeServerFailure)))
 			})
 		})
 	})
@@ -175,10 +175,10 @@ var _ = Describe("Upstream resolver configuration tests", func() {
 						msg := util.NewMsgWithQuestion("random.com.", A)
 						resp, err := doDNSRequest(ctx, blocky, msg)
 						Expect(err).Should(Succeed())
-						Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
+						Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeSuccess)))
 						Expect(resp.Answer).Should(HaveLen(1))
 
-						aRecord, ok := resp.Answer[0].(*dnsv1.A)
+						aRecord, ok := resp.Answer[0].(*dns.A)
 						Expect(ok).Should(BeTrue())
 						// Should get response from working upstreams (1.1.1.1 or 2.2.2.2)
 						ip := aRecord.A.String()
@@ -309,10 +309,10 @@ var _ = Describe("Upstream resolver configuration tests", func() {
 					Expect(err).Should(Succeed())
 
 					// Response should be successful (from moka1 or moka3)
-					if resp.Rcode == dnsv1.RcodeSuccess {
+					if resp.Rcode == dns.RcodeSuccess {
 						successCount++
 						Expect(resp.Answer).Should(HaveLen(1))
-						aRecord, ok := resp.Answer[0].(*dnsv1.A)
+						aRecord, ok := resp.Answer[0].(*dns.A)
 						Expect(ok).Should(BeTrue())
 						// Should be either 1.1.1.1 or 3.3.3.3, never from the failing server
 						ip := aRecord.A.String()
@@ -413,10 +413,10 @@ var _ = Describe("Upstream resolver configuration tests", func() {
 						msg := util.NewMsgWithQuestion("mixed-test.com.", A)
 						resp, err := doDNSRequest(ctx, blocky, msg)
 						Expect(err).Should(Succeed())
-						Expect(resp.Rcode).Should(Equal(dnsv1.RcodeSuccess))
+						Expect(resp.Rcode).Should(Equal(uint16(dns.RcodeSuccess)))
 						Expect(resp.Answer).Should(HaveLen(1))
 
-						aRecord, ok := resp.Answer[0].(*dnsv1.A)
+						aRecord, ok := resp.Answer[0].(*dns.A)
 						Expect(ok).Should(BeTrue())
 						ip := aRecord.A.String()
 

@@ -14,7 +14,9 @@ import (
 
 	"github.com/0xERR0R/blocky/log"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
+	"codeberg.org/miekg/dns/rdata"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,18 +50,18 @@ func Obfuscate(in string) string {
 
 // AnswerToString creates a user-friendly representation of an answer.
 // The result is NOT obfuscated; callers that emit it to logs must wrap with Obfuscate.
-func AnswerToString(answer []dnsv1.RR) string {
+func AnswerToString(answer []dns.RR) string {
 	answers := make([]string, len(answer))
 
 	for i, record := range answer {
 		switch v := record.(type) {
-		case *dnsv1.A:
-			answers[i] = fmt.Sprintf("A (%s)", v.A)
-		case *dnsv1.AAAA:
-			answers[i] = fmt.Sprintf("AAAA (%s)", v.AAAA)
-		case *dnsv1.CNAME:
+		case *dns.A:
+			answers[i] = fmt.Sprintf("A (%s)", v.Addr)
+		case *dns.AAAA:
+			answers[i] = fmt.Sprintf("AAAA (%s)", v.Addr)
+		case *dns.CNAME:
 			answers[i] = fmt.Sprintf("CNAME (%s)", v.Target)
-		case *dnsv1.PTR:
+		case *dns.PTR:
 			answers[i] = fmt.Sprintf("PTR (%s)", v.Ptr)
 		default:
 			answers[i] = record.String()
@@ -70,77 +72,96 @@ func AnswerToString(answer []dnsv1.RR) string {
 }
 
 // QuestionToString creates a user-friendly representation of a question
-func QuestionToString(questions []dnsv1.Question) string {
+func QuestionToString(questions []dns.RR) string {
 	result := make([]string, len(questions))
 	for i, question := range questions {
-		result[i] = fmt.Sprintf("%s (%s)", dnsv1.TypeToString[question.Qtype], question.Name)
+		result[i] = fmt.Sprintf("%s (%s)", dnsutil.TypeToString(dns.RRToType(question)), question.Header().Name)
 	}
 
 	return Obfuscate(strings.Join(result, ", "))
 }
 
-// CreateAnswerFromQuestion creates new answer from a question
-func CreateAnswerFromQuestion(question dnsv1.Question, ip netip.Addr, remainingTTL uint32) (dnsv1.RR, error) {
-	h := CreateHeader(question, remainingTTL)
+// NewQuestion creates the question section entry for name and qType. Unlike dns.NewMsg it
+// accepts types the dns package has no struct for, the way it unpacks them: as RFC3597.
+func NewQuestion(name string, qType uint16) dns.RR {
+	hdr := dns.Header{Name: name, Class: dns.ClassINET}
 
-	switch question.Qtype {
-	case dnsv1.TypeA:
-		a := new(dnsv1.A)
-		a.A = IPFromAddr(ip)
-		a.Hdr = h
-
-		return a, nil
-	case dnsv1.TypeAAAA:
-		a := new(dnsv1.AAAA)
-		a.AAAA = IPFromAddr(ip)
-		a.Hdr = h
-
-		return a, nil
+	newFn, ok := dns.TypeToRR[qType]
+	if !ok {
+		return &dns.RFC3597{Hdr: hdr, RRType: qType}
 	}
 
-	log.Log().Errorf("Using fallback for unsupported query type %s", dnsv1.TypeToString[question.Qtype])
+	rr := newFn()
+	*rr.Header() = hdr
 
-	rr, err := dnsv1.NewRR(fmt.Sprintf("%s %d %s %s %s",
-		question.Name, remainingTTL, "IN", dnsv1.TypeToString[question.Qtype], ip))
+	return rr
+}
+
+// CreateAnswerFromQuestion creates new answer from a question
+func CreateAnswerFromQuestion(question dns.RR, ip netip.Addr, remainingTTL uint32) (dns.RR, error) {
+	h := CreateHeader(question, remainingTTL)
+	qType := dns.RRToType(question)
+
+	switch qType {
+	case dns.TypeA:
+		return &dns.A{Hdr: h, Addr: ip}, nil
+	case dns.TypeAAAA:
+		return &dns.AAAA{Hdr: h, Addr: ip}, nil
+	}
+
+	log.Log().Errorf("Using fallback for unsupported query type %s", dnsutil.TypeToString(qType))
+
+	rr, err := newRR(fmt.Sprintf("%s %d %s %s %s",
+		h.Name, remainingTTL, "IN", dnsutil.TypeToString(qType), ip))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create DNS RR for type %s: %w", dnsv1.TypeToString[question.Qtype], err)
+		return nil, fmt.Errorf("failed to create DNS RR for type %s: %w", dnsutil.TypeToString(qType), err)
+	}
+
+	return rr, nil
+}
+
+// newRR parses the record s like dns.New, and also refuses an owner name that can't be packed,
+// which dns.New leaves to packing.
+func newRR(s string) (dns.RR, error) {
+	rr, err := dns.New(s)
+	if err != nil {
+		return nil, err
+	}
+
+	if name := rr.Header().Name; !dnsutil.IsName(name) {
+		return nil, fmt.Errorf("invalid owner name %q", name)
 	}
 
 	return rr, nil
 }
 
 // CreateHeader creates DNS header for passed question
-func CreateHeader(question dnsv1.Question, remainingTTL uint32) dnsv1.RR_Header {
-	return dnsv1.RR_Header{Name: question.Name, Rrtype: question.Qtype, Class: dnsv1.ClassINET, Ttl: remainingTTL}
+func CreateHeader(question dns.RR, remainingTTL uint32) dns.Header {
+	return dns.Header{Name: question.Header().Name, Class: dns.ClassINET, TTL: remainingTTL}
 }
 
 // CreateSOAForNegativeResponse creates an SOA record for NXDOMAIN responses
 // per RFC 2308. The TTL and MINTTL are both set to blockTTL to ensure
 // proper negative caching behavior.
-func CreateSOAForNegativeResponse(question dnsv1.Question, blockTTL uint32) *dnsv1.SOA {
-	// Use the queried domain as the zone name
-	zoneName := dnsv1.Fqdn(question.Name)
-
-	return &dnsv1.SOA{
-		Hdr: dnsv1.RR_Header{
-			Name:   zoneName,
-			Rrtype: dnsv1.TypeSOA,
-			Class:  dnsv1.ClassINET,
-			Ttl:    blockTTL,
+func CreateSOAForNegativeResponse(question dns.RR, blockTTL uint32) *dns.SOA {
+	return &dns.SOA{
+		// Use the queried domain as the zone name
+		Hdr: dns.Header{Name: dnsutil.Fqdn(question.Header().Name), Class: dns.ClassINET, TTL: blockTTL},
+		SOA: rdata.SOA{
+			Ns:      "blocky.local.",            // Name server
+			Mbox:    "hostmaster.blocky.local.", // Mailbox (admin contact)
+			Serial:  1,                          // Serial number
+			Refresh: soaRefresh,                 // 24 hours
+			Retry:   soaRetry,                   // 2 hours
+			Expire:  soaExpire,                  // 7 days
+			Minttl:  blockTTL,                   // Negative caching TTL (RFC 2308)
 		},
-		Ns:      "blocky.local.",            // Name server
-		Mbox:    "hostmaster.blocky.local.", // Mailbox (admin contact)
-		Serial:  1,                          // Serial number
-		Refresh: soaRefresh,                 // 24 hours
-		Retry:   soaRetry,                   // 2 hours
-		Expire:  soaExpire,                  // 7 days
-		Minttl:  blockTTL,                   // Negative caching TTL (RFC 2308)
 	}
 }
 
 // ExtractDomain returns domain string from the question
-func ExtractDomain(question dnsv1.Question) string {
-	return ExtractDomainOnly(question.Name)
+func ExtractDomain(question dns.RR) string {
+	return ExtractDomainOnly(question.Header().Name)
 }
 
 // ExtractDomainOnly extracts domain from the DNS query
@@ -149,22 +170,26 @@ func ExtractDomainOnly(in string) string {
 }
 
 // NewMsgWithQuestion creates new DNS message with question
-func NewMsgWithQuestion(question string, qType dnsv1.Type) *dnsv1.Msg {
-	msg := new(dnsv1.Msg)
-	msg.SetQuestion(dnsv1.Fqdn(question), uint16(qType))
+func NewMsgWithQuestion(question string, qType uint16) *dns.Msg {
+	msg := new(dns.Msg)
+	msg.ID = dns.ID()
+	msg.RecursionDesired = true
+	msg.Question = []dns.RR{NewQuestion(dnsutil.Fqdn(question), qType)}
 
 	return msg
 }
 
 // NewMsgWithAnswer creates new DNS message with answer
-func NewMsgWithAnswer(domain string, ttl uint, dnsType dnsv1.Type, address string) (*dnsv1.Msg, error) {
-	rr, err := dnsv1.NewRR(fmt.Sprintf("%s\t%d\tIN\t%s\t%s", domain, ttl, dnsType, address))
+func NewMsgWithAnswer(domain string, ttl uint, dnsType uint16, address string) (*dns.Msg, error) {
+	typeName := dnsutil.TypeToString(dnsType)
+
+	rr, err := newRR(fmt.Sprintf("%s\t%d\tIN\t%s\t%s", domain, ttl, typeName, address))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create DNS RR for domain '%s' (type %s): %w", domain, dnsType, err)
+		return nil, fmt.Errorf("failed to create DNS RR for domain '%s' (type %s): %w", domain, typeName, err)
 	}
 
-	msg := new(dnsv1.Msg)
-	msg.Answer = []dnsv1.RR{rr}
+	msg := new(dns.Msg)
+	msg.Answer = []dns.RR{rr}
 
 	return msg, nil
 }
@@ -220,21 +245,21 @@ func FatalOnError(message string, err error) {
 }
 
 // GenerateCacheKey return cacheKey by query type/domain
-func GenerateCacheKey(qType dnsv1.Type, qName string) string {
+func GenerateCacheKey(qType uint16, qName string) string {
 	const qTypeLength = 2
 	b := make([]byte, qTypeLength+len(qName))
 
-	binary.BigEndian.PutUint16(b, uint16(qType))
+	binary.BigEndian.PutUint16(b, qType)
 	copy(b[2:], strings.ToLower(qName))
 
 	return string(b)
 }
 
 // ExtractCacheKey return query type/domain from cacheKey
-func ExtractCacheKey(key string) (qType dnsv1.Type, qName string) {
+func ExtractCacheKey(key string) (qType uint16, qName string) {
 	b := []byte(key)
 
-	qType = dnsv1.Type(binary.BigEndian.Uint16(b))
+	qType = binary.BigEndian.Uint16(b)
 	qName = string(b[2:])
 
 	return qType, qName
@@ -258,7 +283,7 @@ func ClientNameMatchesGroupName(group, clientName string) bool {
 }
 
 // ExtractRecords extracts all records of type T from a DNS message's Answer section
-func ExtractRecords[T dnsv1.RR](msg *dnsv1.Msg) []T {
+func ExtractRecords[T dns.RR](msg *dns.Msg) []T {
 	var records []T
 	for _, rr := range msg.Answer {
 		if record, ok := rr.(T); ok {
@@ -270,7 +295,7 @@ func ExtractRecords[T dnsv1.RR](msg *dnsv1.Msg) []T {
 }
 
 // ExtractRecordsFromSlice extracts all records of type T from a DNS RR slice
-func ExtractRecordsFromSlice[T dnsv1.RR](rrs []dnsv1.RR) []T {
+func ExtractRecordsFromSlice[T dns.RR](rrs []dns.RR) []T {
 	var records []T
 	for _, rr := range rrs {
 		if record, ok := rr.(T); ok {

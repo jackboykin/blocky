@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 
+	"codeberg.org/miekg/dns"
 	"github.com/go-chi/chi/v5"
 	dnsv1 "github.com/miekg/dns"
 	"github.com/pires/go-proxyproto"
@@ -576,12 +577,8 @@ func (s *Server) registerDNSHandlers(ctx context.Context) {
 	for _, server := range s.dnsServers {
 		//nolint:forcetypeassert // handler is always *dns.ServeMux; set during server construction
 		handler := server.Handler.(*dnsv1.ServeMux)
-		handler.HandleFunc(".", func(w dnsv1.ResponseWriter, m *dnsv1.Msg) {
-			s.OnRequest(ctx, w, m)
-		})
-		handler.HandleFunc("healthcheck.blocky", func(w dnsv1.ResponseWriter, m *dnsv1.Msg) {
-			s.OnHealthCheck(ctx, w, m)
-		})
+		handler.HandleFunc(".", v1Handler(ctx, s.OnRequest))
+		handler.HandleFunc("healthcheck.blocky", v1Handler(ctx, s.OnHealthCheck))
 	}
 }
 
@@ -729,7 +726,7 @@ func extractClientIDFromHost(hostName string) string {
 func newRequest(
 	ctx context.Context,
 	clientIP netip.Addr, clientID string,
-	protocol model.RequestProtocol, request *dnsv1.Msg,
+	protocol model.RequestProtocol, request *dns.Msg,
 ) (context.Context, *model.Request) {
 	ctx, logger := log.CtxWithFields(ctx, logrus.Fields{
 		"req_id":    uuid.New().String(),
@@ -738,7 +735,7 @@ func newRequest(
 	})
 
 	logger.WithFields(logrus.Fields{
-		"client_request_id": request.Id,
+		"client_request_id": request.ID,
 		"client_id":         clientID,
 		"protocol":          protocol,
 	}).Trace("new incoming request")
@@ -754,7 +751,7 @@ func newRequest(
 	return ctx, &req
 }
 
-func newRequestFromDNS(ctx context.Context, rw dnsv1.ResponseWriter, msg *dnsv1.Msg) (context.Context, *model.Request) {
+func newRequestFromDNS(ctx context.Context, rw dnsv1.ResponseWriter, msg *dns.Msg) (context.Context, *model.Request) {
 	var (
 		clientIP netip.Addr
 		protocol model.RequestProtocol
@@ -772,7 +769,7 @@ func newRequestFromDNS(ctx context.Context, rw dnsv1.ResponseWriter, msg *dnsv1.
 	return newRequest(ctx, clientIP, clientID, protocol, msg)
 }
 
-func newRequestFromHTTP(ctx context.Context, req *http.Request, msg *dnsv1.Msg) (context.Context, *model.Request) {
+func newRequestFromHTTP(ctx context.Context, req *http.Request, msg *dns.Msg) (context.Context, *model.Request) {
 	protocol := model.RequestProtocolTCP
 	clientIP := util.HTTPClientIP(req)
 
@@ -785,14 +782,14 @@ func newRequestFromHTTP(ctx context.Context, req *http.Request, msg *dnsv1.Msg) 
 }
 
 // OnRequest will be executed if a new DNS request is received
-func (s *Server) OnRequest(ctx context.Context, w dnsv1.ResponseWriter, msg *dnsv1.Msg) {
+func (s *Server) OnRequest(ctx context.Context, w dnsv1.ResponseWriter, msg *dns.Msg) {
 	ctx, request := newRequestFromDNS(ctx, w, msg)
 
-	s.handleReq(ctx, request, w)
+	s.handleReq(ctx, request, v1Writer{w})
 }
 
 type msgWriter interface {
-	WriteMsg(msg *dnsv1.Msg) error
+	WriteMsg(msg *dns.Msg) error
 }
 
 func (s *Server) handleReq(ctx context.Context, request *model.Request, w msgWriter) {
@@ -802,8 +799,8 @@ func (s *Server) handleReq(ctx context.Context, request *model.Request, w msgWri
 		return
 	case err != nil:
 		log.FromCtx(ctx).Error("error on processing request:", err)
-		m := new(dnsv1.Msg)
-		m.SetRcode(request.Req, dnsv1.RcodeServerFailure)
+		m := new(dns.Msg)
+		model.SetRcode(m, request.Req, dns.RcodeServerFailure)
 		err := w.WriteMsg(m)
 		util.LogOnError(ctx, "can't write message: ", err)
 	default:
@@ -836,12 +833,19 @@ func (s *Server) resolve(ctx context.Context, request *model.Request) (response 
 	// (`parallel_best` picks at random), which can't validate it either and may answer BADCOOKIE.
 	// The OPT record itself is kept, since it still carries the DO bit and the buffer size the
 	// client advertised.
-	util.RemoveEdns0OptionKeepRecord[*dnsv1.EDNS0_COOKIE](request.Req)
+	util.RemoveEdns0OptionKeepRecord[*dns.COOKIE](request.Req)
+
+	// dig +subnet=0 sends an ECS option with family 0, which codeberg.org/miekg/dns reads but
+	// can't pack, so the query couldn't be forwarded. Its /0 source prefix asks that no client
+	// address be used (RFC 7871 section 7.1.2), which means the same in any family.
+	if so := util.GetEdns0Option[*dns.SUBNET](request.Req); so != nil && so.Family == 0 && so.Netmask == 0 {
+		so.Family = 1 // IPv4
+	}
 
 	switch {
 	case len(request.Req.Question) == 0:
-		m := new(dnsv1.Msg)
-		m.SetRcode(request.Req, dnsv1.RcodeFormatError)
+		m := new(dns.Msg)
+		model.SetRcode(m, request.Req, dns.RcodeFormatError)
 
 		log.FromCtx(ctx).Error("query has no questions")
 
@@ -865,12 +869,12 @@ func (s *Server) resolve(ctx context.Context, request *model.Request) (response 
 }
 
 // OnHealthCheck Handler for docker health check. Just returns OK code without delegating to resolver chain
-func (s *Server) OnHealthCheck(ctx context.Context, w dnsv1.ResponseWriter, request *dnsv1.Msg) {
-	resp := new(dnsv1.Msg)
-	resp.SetReply(request)
-	resp.Rcode = dnsv1.RcodeSuccess
+func (s *Server) OnHealthCheck(ctx context.Context, w dnsv1.ResponseWriter, request *dns.Msg) {
+	resp := new(dns.Msg)
+	model.SetReply(resp, request)
+	resp.Rcode = dns.RcodeSuccess
 
-	err := w.WriteMsg(resp)
+	err := v1Writer{w}.WriteMsg(resp)
 	util.LogOnError(ctx, "can't write message: ", err)
 }
 

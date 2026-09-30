@@ -2,11 +2,11 @@ package e2e
 
 import (
 	"context"
-	"net"
+	"net/netip"
 
+	"codeberg.org/miekg/dns"
 	. "github.com/0xERR0R/blocky/helpertest"
 	"github.com/0xERR0R/blocky/util"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/testcontainers/testcontainers-go"
@@ -14,25 +14,15 @@ import (
 
 // addECSOption adds a full-prefix EDNS0 CLIENT-SUBNET option (the only form the ECS e2e
 // tests need) to the given DNS message.
-func addECSOption(msg *dnsv1.Msg, ip net.IP) {
-	o := new(dnsv1.OPT)
-	o.Hdr.Name = "."
-	o.Hdr.Rrtype = dnsv1.TypeOPT
-
-	e := new(dnsv1.EDNS0_SUBNET)
-	if ip.To4() != nil {
-		e.Family = 1                      // IPv4
-		e.SourceNetmask = net.IPv4len * 8 // /32
+func addECSOption(msg *dns.Msg, ip netip.Addr) {
+	e := &dns.SUBNET{Address: ip, Netmask: uint8(ip.BitLen())} // full prefix
+	if ip.Is4() {
+		e.Family = 1 // IPv4
 	} else {
-		e.Family = 2                      // IPv6
-		e.SourceNetmask = net.IPv6len * 8 // /128
+		e.Family = 2 // IPv6
 	}
 
-	e.SourceScope = 0
-	e.Address = ip
-
-	o.Option = append(o.Option, e)
-	msg.Extra = append(msg.Extra, o)
+	msg.Pseudo = append(msg.Pseudo, e)
 }
 
 var _ = Describe("EDNS Client Subnet (ECS)", func() {
@@ -68,7 +58,7 @@ var _ = Describe("EDNS Client Subnet (ECS)", func() {
 
 			It("should resolve queries when ECS option is present", func(ctx context.Context) {
 				msg := util.NewMsgWithQuestion("example.com.", A)
-				addECSOption(msg, net.ParseIP("10.0.0.1"))
+				addECSOption(msg, netip.MustParseAddr("10.0.0.1"))
 
 				Expect(doDNSRequest(ctx, blocky, msg)).
 					Should(
@@ -102,7 +92,7 @@ var _ = Describe("EDNS Client Subnet (ECS)", func() {
 
 			It("should resolve queries with ECS forwarding enabled", func(ctx context.Context) {
 				msg := util.NewMsgWithQuestion("example.com.", A)
-				addECSOption(msg, net.ParseIP("10.1.2.3"))
+				addECSOption(msg, netip.MustParseAddr("10.1.2.3"))
 
 				Expect(doDNSRequest(ctx, blocky, msg)).
 					Should(
@@ -137,7 +127,7 @@ var _ = Describe("EDNS Client Subnet (ECS)", func() {
 
 			It("should resolve queries with custom ECS masks configured", func(ctx context.Context) {
 				msg := util.NewMsgWithQuestion("example.com.", A)
-				addECSOption(msg, net.ParseIP("10.1.2.3"))
+				addECSOption(msg, netip.MustParseAddr("10.1.2.3"))
 
 				Expect(doDNSRequest(ctx, blocky, msg)).
 					Should(

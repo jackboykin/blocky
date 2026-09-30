@@ -10,7 +10,8 @@ import (
 	"slices"
 	"strings"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
 )
 
 // validationCacheKey scopes a cached validation result to the originating client's view
@@ -19,7 +20,7 @@ import (
 // established for one view (conditional-forwarding branch, split-horizon, or upstream group)
 // must not be reused for another. Requests without a client context share the empty scope.
 func validationCacheKey(ctx context.Context, domain string) string {
-	domain = dnsv1.Fqdn(domain)
+	domain = dnsutil.Fqdn(domain)
 
 	cc, ok := clientContextFrom(ctx)
 	if !ok {
@@ -69,7 +70,7 @@ func (v *Validator) setCachedValidation(ctx context.Context, domain string, resu
 // walkChainOfTrust walks the chain of trust from root to target domain
 func (v *Validator) walkChainOfTrust(ctx context.Context, domain string) ValidationResult {
 	// Normalize the domain name
-	domain = dnsv1.Fqdn(domain)
+	domain = dnsutil.Fqdn(domain)
 
 	// Check cache first
 	if cached, found := v.getCachedValidation(ctx, domain); found {
@@ -79,7 +80,7 @@ func (v *Validator) walkChainOfTrust(ctx context.Context, domain string) Validat
 	}
 
 	// Split domain into labels
-	labels := dnsv1.SplitDomainName(domain)
+	labels := splitName(domain)
 
 	// Check chain depth limit to prevent DoS attacks with deeply nested domains
 	// RFC does not specify a limit, but we add one for security
@@ -165,7 +166,7 @@ func (v *Validator) validateDomainLevel(ctx context.Context, domain string) Vali
 
 	// Query DS records for the child domain from the parent zone
 	// Note: The DS query name is the child domain, but the response comes from parent's authority
-	ctx, dsResponse, err := v.queryRecords(ctx, domain, dnsv1.TypeDS)
+	ctx, dsResponse, err := v.queryRecords(ctx, domain, dns.TypeDS)
 	if err != nil {
 		v.logger.Warnf("Failed to query DS for %s: %v", domain, err)
 
@@ -179,7 +180,7 @@ func (v *Validator) validateDomainLevel(ctx context.Context, domain string) Vali
 	}
 
 	// Query DNSKEY records for current domain (need full response for RRSIGs)
-	_, dnskeyResponse, err := v.queryRecords(ctx, domain, dnsv1.TypeDNSKEY)
+	_, dnskeyResponse, err := v.queryRecords(ctx, domain, dns.TypeDNSKEY)
 	if err != nil {
 		v.logger.Warnf("Failed to query DNSKEY for %s: %v", domain, err)
 
@@ -187,7 +188,7 @@ func (v *Validator) validateDomainLevel(ctx context.Context, domain string) Vali
 	}
 
 	// Extract DNSKEY records from response
-	keys, err := extractTypedRecords[*dnsv1.DNSKEY](dnskeyResponse.Answer)
+	keys, err := extractTypedRecords[*dns.DNSKEY](dnskeyResponse.Answer)
 	if err != nil {
 		v.logger.Warnf("Failed to extract DNSKEY records for %s: %v", domain, err)
 
@@ -218,7 +219,7 @@ func (v *Validator) validateDomainLevel(ctx context.Context, domain string) Vali
 }
 
 // validateDNSKEY validates a DNSKEY against a DS record from parent zone
-func (v *Validator) validateDNSKEY(dnskey *dnsv1.DNSKEY, parentDS *dnsv1.DS) error {
+func (v *Validator) validateDNSKEY(dnskey *dns.DNSKEY, parentDS *dns.DS) error {
 	// RFC 4034 §5.2: DS Algorithm field MUST match DNSKEY Algorithm field
 	if dnskey.Algorithm != parentDS.Algorithm {
 		return fmt.Errorf("algorithm mismatch: DNSKEY uses %d, DS expects %d",
@@ -243,18 +244,18 @@ func (v *Validator) validateDNSKEY(dnskey *dnsv1.DNSKEY, parentDS *dnsv1.DS) err
 // This is a convenience wrapper around findAndValidateKSK for callers that only need a bool result
 //
 //nolint:unparam // domain parameter used for logging, test usage pattern is acceptable
-func (v *Validator) validateAnyDNSKEY(keys []*dnsv1.DNSKEY, dsRecords []*dnsv1.DS, domain string) bool {
+func (v *Validator) validateAnyDNSKEY(keys []*dns.DNSKEY, dsRecords []*dns.DS, domain string) bool {
 	return v.findAndValidateKSK(keys, dsRecords, domain) != nil
 }
 
 // findAndValidateKSK validates DNSKEYs against DS records and returns the first validated KSK
 // This function is similar to validateAnyDNSKEY but returns the validated key instead of bool
-func (v *Validator) findAndValidateKSK(keys []*dnsv1.DNSKEY, dsRecords []*dnsv1.DS, domain string) *dnsv1.DNSKEY {
+func (v *Validator) findAndValidateKSK(keys []*dns.DNSKEY, dsRecords []*dns.DS, domain string) *dns.DNSKEY {
 	const REVOKE = 0x0080 // RFC 5011 §7: REVOKE flag (bit 8)
 
 	for _, key := range keys {
 		// Per RFC 4034 §2.1.1: Only validate keys with the ZONE flag (bit 7) set
-		if key.Flags&dnsv1.ZONE == 0 {
+		if key.Flags&dns.FlagZONE == 0 {
 			continue
 		}
 
@@ -279,17 +280,17 @@ func (v *Validator) findAndValidateKSK(keys []*dnsv1.DNSKEY, dsRecords []*dnsv1.
 // verifyDNSKEYRRset verifies the DNSKEY RRset using a validated KSK
 // Per RFC 4035 §5.2: The DNSKEY RRset MUST be self-signed by a key in the set
 // This validates all keys in the RRset, including ZSKs with different algorithms
-func (v *Validator) verifyDNSKEYRRset(answer []dnsv1.RR, validatedKSK *dnsv1.DNSKEY, domain string) error {
+func (v *Validator) verifyDNSKEYRRset(answer []dns.RR, validatedKSK *dns.DNSKEY, domain string) error {
 	// Extract DNSKEY records and RRSIGs from the answer section
-	var dnskeyRecords []dnsv1.RR
-	var rrsigs []*dnsv1.RRSIG
+	var dnskeyRecords []dns.RR
+	var rrsigs []*dns.RRSIG
 
 	for _, rr := range answer {
 		switch r := rr.(type) {
-		case *dnsv1.DNSKEY:
+		case *dns.DNSKEY:
 			dnskeyRecords = append(dnskeyRecords, r)
-		case *dnsv1.RRSIG:
-			if r.TypeCovered == dnsv1.TypeDNSKEY {
+		case *dns.RRSIG:
+			if r.TypeCovered == dns.TypeDNSKEY {
 				rrsigs = append(rrsigs, r)
 			}
 		}
@@ -305,8 +306,8 @@ func (v *Validator) verifyDNSKEYRRset(answer []dnsv1.RR, validatedKSK *dnsv1.DNS
 
 	// Find RRSIG that matches the validated KSK
 	// Per RFC 4035 §2.2: For DNSKEY RRsets, the signer must equal the owner
-	var matchingRRSIG *dnsv1.RRSIG
-	domainFQDN := dnsv1.Fqdn(domain)
+	var matchingRRSIG *dns.RRSIG
+	domainFQDN := dnsutil.Fqdn(domain)
 
 	for _, sig := range rrsigs {
 		// Match by KeyTag, Algorithm, AND SignerName for security
@@ -405,7 +406,7 @@ func (v *Validator) verifyDomainAgainstTrustAnchor(ctx context.Context, domain s
 	// Trust anchors are DNSKEY records - validate by matching key content
 	for _, key := range keys {
 		// Only consider keys with the Zone Key flag set
-		if key.Flags&dnsv1.ZONE == 0 {
+		if key.Flags&dns.FlagZONE == 0 {
 			continue
 		}
 
@@ -436,7 +437,7 @@ func (v *Validator) verifyDomainAgainstTrustAnchor(ctx context.Context, domain s
 // getParentDomain returns the parent domain of the given domain
 // Returns empty string if the domain is root or has no parent
 func (v *Validator) getParentDomain(domain string) string {
-	domain = dnsv1.Fqdn(domain)
+	domain = dnsutil.Fqdn(domain)
 
 	// Root has no parent
 	if domain == "." {
@@ -444,7 +445,7 @@ func (v *Validator) getParentDomain(domain string) string {
 	}
 
 	// Split domain into labels
-	labels := dnsv1.SplitDomainName(domain)
+	labels := splitName(domain)
 	if len(labels) <= 1 {
 		// TLD, parent is root
 		return "."
@@ -452,14 +453,14 @@ func (v *Validator) getParentDomain(domain string) string {
 
 	// Build parent domain from all labels except the first
 	parentLabels := labels[1:]
-	parent := dnsv1.Fqdn(strings.Join(parentLabels, "."))
+	parent := dnsutil.Fqdn(strings.Join(parentLabels, "."))
 
 	return parent
 }
 
 // validateDSRecordSignature validates a DS record RRSIG using the parent zone's DNSKEY
 func (v *Validator) validateDSRecordSignature(
-	ctx context.Context, domain, parentDomain string, dsRRset []dnsv1.RR, dsRRSIG *dnsv1.RRSIG,
+	ctx context.Context, domain, parentDomain string, dsRRset []dns.RR, dsRRSIG *dns.RRSIG,
 ) ValidationResult {
 	// Get parent zone's DNSKEY to validate the DS RRSIG
 	_, parentKeys, err := v.queryDNSKEY(ctx, parentDomain)
@@ -470,7 +471,7 @@ func (v *Validator) validateDSRecordSignature(
 	}
 
 	// Find the key that matches the DS RRSIG's key tag
-	var matchingParentKey *dnsv1.DNSKEY
+	var matchingParentKey *dns.DNSKEY
 	for _, key := range parentKeys {
 		if key.KeyTag() == dsRRSIG.KeyTag {
 			matchingParentKey = key
@@ -501,10 +502,10 @@ func (v *Validator) validateDSRecordSignature(
 // extractAndValidateDSRecords extracts DS records from a response and validates their RRSIG
 // Per RFC 4035 §5.2: "The DS RRset MUST be signed by the parent zone's DNSKEY"
 func (v *Validator) extractAndValidateDSRecords(
-	ctx context.Context, domain, parentDomain string, dsResponse *dnsv1.Msg,
-) ([]*dnsv1.DS, ValidationResult) {
+	ctx context.Context, domain, parentDomain string, dsResponse *dns.Msg,
+) ([]*dns.DS, ValidationResult) {
 	// Extract DS records (may be in answer or authority section)
-	dsRecords, err := extractTypedRecords[*dnsv1.DS](dsResponse.Answer, dsResponse.Ns)
+	dsRecords, err := extractTypedRecords[*dns.DS](dsResponse.Answer, dsResponse.Ns)
 	if err != nil {
 		// No DS records found - check for authenticated denial of existence
 		return v.handleDSAbsence(domain, dsResponse)
@@ -532,7 +533,7 @@ func (v *Validator) extractAndValidateDSRecords(
 // Per RFC 4035 §5.2: DS absent can mean:
 // 1. Unsigned delegation (Insecure) - proven by NSEC/NSEC3
 // 2. Missing proof (Indeterminate) - no DS and no NSEC/NSEC3
-func (v *Validator) handleDSAbsence(domain string, dsResponse *dnsv1.Msg) ([]*dnsv1.DS, ValidationResult) {
+func (v *Validator) handleDSAbsence(domain string, dsResponse *dns.Msg) ([]*dns.DS, ValidationResult) {
 	// Check for NSEC/NSEC3 records proving DS doesn't exist
 	hasNSEC := len(extractNSECRecords(dsResponse.Ns)) > 0
 	hasNSEC3 := len(extractNSEC3Records(dsResponse.Ns)) > 0
@@ -561,13 +562,9 @@ func (v *Validator) handleDSAbsence(domain string, dsResponse *dnsv1.Msg) ([]*dn
 }
 
 // validateDSAbsenceProof validates NSEC or NSEC3 proof that DS doesn't exist
-func (v *Validator) validateDSAbsenceProof(domain string, dsResponse *dnsv1.Msg, hasNSEC bool) ValidationResult {
+func (v *Validator) validateDSAbsenceProof(domain string, dsResponse *dns.Msg, hasNSEC bool) ValidationResult {
 	// Create a synthetic question for DS query validation
-	dsQuestion := dnsv1.Question{
-		Name:   domain,
-		Qtype:  dnsv1.TypeDS,
-		Qclass: dnsv1.ClassINET,
-	}
+	dsQuestion := &dns.DS{Hdr: dns.Header{Name: domain, Class: dns.ClassINET}}
 
 	if hasNSEC {
 		// Validate NSEC proof of DS absence (NODATA proof)
@@ -585,7 +582,7 @@ func (v *Validator) validateDSAbsenceProof(domain string, dsResponse *dnsv1.Msg,
 			return ValidationResultBogus
 		}
 
-		return v.validateNSECNODATA(nsecRecords, domain, dnsv1.TypeDS)
+		return v.validateNSECNODATA(nsecRecords, domain, dns.TypeDS)
 	}
 
 	// Validate NSEC3 proof of DS absence (NODATA proof)
@@ -597,10 +594,10 @@ func (v *Validator) validateDSAbsenceProof(domain string, dsResponse *dnsv1.Msg,
 // assertsInsecureDelegation). This distinguishes a genuine unsigned delegation from an ordinary
 // name inside a signed zone or the apex of a signed zone, neither of which may be treated as an
 // insecure delegation when proving DS absence.
-func (v *Validator) nsecProvesInsecureDelegation(nsecRecords []*dnsv1.NSEC, domain string) bool {
-	domain = dnsv1.Fqdn(domain)
+func (v *Validator) nsecProvesInsecureDelegation(nsecRecords []*dns.NSEC, domain string) bool {
+	domain = dnsutil.Fqdn(domain)
 	for _, nsec := range nsecRecords {
-		if dnsv1.Fqdn(nsec.Header().Name) != domain {
+		if dnsutil.Fqdn(nsec.Header().Name) != domain {
 			continue
 		}
 
@@ -611,11 +608,11 @@ func (v *Validator) nsecProvesInsecureDelegation(nsecRecords []*dnsv1.NSEC, doma
 }
 
 // findDSRRSIG finds the RRSIG for DS records in the response
-func (v *Validator) findDSRRSIG(dsResponse *dnsv1.Msg, domain string) *dnsv1.RRSIG {
+func (v *Validator) findDSRRSIG(dsResponse *dns.Msg, domain string) *dns.RRSIG {
 	dsSignatures := extractRRSIGs(append(dsResponse.Answer, dsResponse.Ns...))
 
 	for _, sig := range dsSignatures {
-		if sig.TypeCovered == dnsv1.TypeDS {
+		if sig.TypeCovered == dns.TypeDS {
 			return sig
 		}
 	}
@@ -626,8 +623,8 @@ func (v *Validator) findDSRRSIG(dsResponse *dnsv1.Msg, domain string) *dnsv1.RRS
 }
 
 // convertDSToRRset converts DS records to a generic RR slice for signature verification
-func convertDSToRRset(dsRecords []*dnsv1.DS) []dnsv1.RR {
-	dsRRset := make([]dnsv1.RR, 0, len(dsRecords))
+func convertDSToRRset(dsRecords []*dns.DS) []dns.RR {
+	dsRRset := make([]dns.RR, 0, len(dsRecords))
 	for _, ds := range dsRecords {
 		dsRRset = append(dsRRset, ds)
 	}
@@ -636,7 +633,7 @@ func convertDSToRRset(dsRecords []*dnsv1.DS) []dnsv1.RR {
 }
 
 // extractTypedRecords extracts records of a specific type from RR slices using Go generics
-func extractTypedRecords[T dnsv1.RR](rrs ...[]dnsv1.RR) ([]T, error) {
+func extractTypedRecords[T dns.RR](rrs ...[]dns.RR) ([]T, error) {
 	var results []T
 	for _, rrList := range rrs {
 		for _, rr := range rrList {

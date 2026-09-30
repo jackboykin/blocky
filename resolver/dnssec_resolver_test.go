@@ -215,7 +215,7 @@ var _ = Describe("DNSSECResolver", func() {
 					Inception:   uint32(time.Now().Add(-72 * time.Hour).Unix()),
 					KeyTag:      12345,
 					SignerName:  "example.com.",
-					Signature:   "invalid",
+					Signature:   "aW52YWxpZA==", // base64 of "invalid"
 				})
 
 				// Mock empty DNSKEY response (missing DNSKEY = Bogus per RFC 4035)

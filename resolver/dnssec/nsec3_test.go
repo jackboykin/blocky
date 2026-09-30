@@ -2,9 +2,11 @@ package dnssec
 
 import (
 	"context"
+	"strings"
 
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/rdata"
 	"github.com/0xERR0R/blocky/log"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -32,19 +34,19 @@ var _ = Describe("NSEC3 validation", func() {
 
 	Describe("extractNSEC3Records", func() {
 		It("should extract NSEC3 records from RR slice", func() {
-			nsec3_1 := &dnsv1.NSEC3{
-				Hdr:  dnsv1.RR_Header{Name: "hash1.example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash: dnsv1.SHA1,
+			nsec3_1 := &dns.NSEC3{
+				Hdr:  dns.Header{Name: "hash1.example.com."},
+				Hash: dns.SHA1,
 			}
-			nsec3_2 := &dnsv1.NSEC3{
-				Hdr:  dnsv1.RR_Header{Name: "hash2.example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash: dnsv1.SHA1,
+			nsec3_2 := &dns.NSEC3{
+				Hdr:  dns.Header{Name: "hash2.example.com."},
+				Hash: dns.SHA1,
 			}
-			soa := &dnsv1.SOA{
-				Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeSOA},
+			soa := &dns.SOA{
+				Hdr: dns.Header{Name: "example.com."},
 			}
 
-			rrs := []dnsv1.RR{nsec3_1, soa, nsec3_2}
+			rrs := []dns.RR{nsec3_1, soa, nsec3_2}
 			nsec3s := extractNSEC3Records(rrs)
 
 			Expect(nsec3s).Should(HaveLen(2))
@@ -53,18 +55,18 @@ var _ = Describe("NSEC3 validation", func() {
 		})
 
 		It("should return empty slice when no NSEC3 records", func() {
-			soa := &dnsv1.SOA{
-				Hdr: dnsv1.RR_Header{Name: "example.com.", Rrtype: dnsv1.TypeSOA},
+			soa := &dns.SOA{
+				Hdr: dns.Header{Name: "example.com."},
 			}
 
-			rrs := []dnsv1.RR{soa}
+			rrs := []dns.RR{soa}
 			nsec3s := extractNSEC3Records(rrs)
 
 			Expect(nsec3s).Should(BeEmpty())
 		})
 
 		It("should handle empty RR slice", func() {
-			nsec3s := extractNSEC3Records([]dnsv1.RR{})
+			nsec3s := extractNSEC3Records([]dns.RR{})
 			Expect(nsec3s).Should(BeEmpty())
 		})
 
@@ -74,58 +76,92 @@ var _ = Describe("NSEC3 validation", func() {
 		})
 	})
 
+	Describe("nsec3Hash", func() {
+		DescribeTable("matches RFC 5155 Appendix A (salt aabbccdd, 12 iterations)",
+			func(name, want string) {
+				Expect(nsec3Hash(name, "aabbccdd", 12)).Should(Equal(strings.ToUpper(want)))
+			},
+			Entry(nil, "example.", "0p9mhaveqvm6t7vbl5lop2u3t2rp3tom"),
+			Entry(nil, "a.example.", "35mthgpgcu1qg68fab165klnsnk3dpvl"),
+			Entry(nil, "ai.example.", "gjeqe526plbf1g8mklp59enfd789njgi"),
+			Entry(nil, "ns1.example.", "2t7b4g4vsa5smi47k61mv5bv1a22bojr"),
+			Entry(nil, "ns2.example.", "q04jkcevqvmu85r014c7dkba38o0ji5r"),
+			Entry(nil, "w.example.", "k8udemvp1j2f7eg6jebps17vp3n8i58h"),
+			Entry(nil, "*.w.example.", "r53bq7cc2uvmubfu5ocmm6pers9tk9en"),
+			Entry(nil, "x.w.example.", "b4um86eghhds6nea196smvmlo4ors995"),
+			Entry(nil, "y.w.example.", "ji6neoaepv8b5o6k4ev33abha8ht9fgc"),
+			Entry(nil, "x.y.w.example.", "2vptu5timamqttgl4luu9kg21e0aor3s"),
+			Entry(nil, "xx.example.", "t644ebqk9bibcna874givr6joj62mlhv"),
+			Entry(nil, "c.x.w.example.", "0va5bpr2ou0vk0lbqeeljri88laipsfh"),
+			Entry(nil, "*.x.w.example.", "92pqneegtaue7pjatc3l3qnk738c6v5m"),
+			Entry(nil, "c.example.", "4g6p9u5gvfshp30pqecj98b3maqbn1ck"),
+			Entry(nil, "z.w.example.", "qlu7gtfaeh0ek0c05ksfhdpbcgglbe03"),
+		)
+
+		It("has no hash for a name longer than 255 octets", func() {
+			long := strings.Repeat(strings.Repeat("a", 63)+".", 4) // 4*64+1 = 257 octets
+
+			Expect(nsec3Hash(long, "", 0)).Should(BeEmpty())
+			Expect(nsec3Hash(long[2:], "", 0)).ShouldNot(BeEmpty()) // 255 octets
+		})
+
+		It("has no hash for a salt that isn't hex", func() {
+			Expect(nsec3Hash("example.", "xyz", 0)).Should(BeEmpty())
+		})
+	})
+
 	Describe("computeNSEC3Hash", func() {
 		It("should compute NSEC3 hash for a name", func() {
-			hash, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hash, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(hash).ShouldNot(BeEmpty())
 		})
 
 		It("should return same hash for same inputs", func() {
-			hash1, err1 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hash1, err1 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err1).ShouldNot(HaveOccurred())
 
-			hash2, err2 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hash2, err2 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err2).ShouldNot(HaveOccurred())
 
 			Expect(hash1).Should(Equal(hash2))
 		})
 
 		It("should return different hash for different names", func() {
-			hash1, err1 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hash1, err1 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err1).ShouldNot(HaveOccurred())
 
-			hash2, err2 := sut.computeNSEC3Hash("test.com.", dnsv1.SHA1, "", 0)
+			hash2, err2 := sut.computeNSEC3Hash("test.com.", dns.SHA1, "", 0)
 			Expect(err2).ShouldNot(HaveOccurred())
 
 			Expect(hash1).ShouldNot(Equal(hash2))
 		})
 
 		It("should return different hash with different salt", func() {
-			hash1, err1 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hash1, err1 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err1).ShouldNot(HaveOccurred())
 
-			hash2, err2 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "AABBCCDD", 0)
+			hash2, err2 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "AABBCCDD", 0)
 			Expect(err2).ShouldNot(HaveOccurred())
 
 			Expect(hash1).ShouldNot(Equal(hash2))
 		})
 
 		It("should return different hash with different iterations", func() {
-			hash1, err1 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hash1, err1 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err1).ShouldNot(HaveOccurred())
 
-			hash2, err2 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 10)
+			hash2, err2 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 10)
 			Expect(err2).ShouldNot(HaveOccurred())
 
 			Expect(hash1).ShouldNot(Equal(hash2))
 		})
 
 		It("should normalize name to canonical form", func() {
-			hash1, err1 := sut.computeNSEC3Hash("EXAMPLE.COM.", dnsv1.SHA1, "", 0)
+			hash1, err1 := sut.computeNSEC3Hash("EXAMPLE.COM.", dns.SHA1, "", 0)
 			Expect(err1).ShouldNot(HaveOccurred())
 
-			hash2, err2 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hash2, err2 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err2).ShouldNot(HaveOccurred())
 
 			Expect(hash1).Should(Equal(hash2))
@@ -139,21 +175,21 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should cache computed hashes", func() {
 			// First computation
-			hash1, err1 := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "AABB", 5)
+			hash1, err1 := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "AABB", 5)
 			Expect(err1).ShouldNot(HaveOccurred())
 
 			// Second computation should use cache
-			hash2, err2 := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "AABB", 5)
+			hash2, err2 := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "AABB", 5)
 			Expect(err2).ShouldNot(HaveOccurred())
 
 			Expect(hash1).Should(Equal(hash2))
 		})
 
 		It("should handle names without trailing dot", func() {
-			hash1, err1 := sut.computeNSEC3Hash("example.com", dnsv1.SHA1, "", 0)
+			hash1, err1 := sut.computeNSEC3Hash("example.com", dns.SHA1, "", 0)
 			Expect(err1).ShouldNot(HaveOccurred())
 
-			hash2, err2 := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hash2, err2 := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err2).ShouldNot(HaveOccurred())
 
 			Expect(hash1).Should(Equal(hash2))
@@ -247,103 +283,103 @@ var _ = Describe("NSEC3 validation", func() {
 
 	Describe("nsec3Covers", func() {
 		It("should return true when a record covers the hash", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "AAAA.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "AAAA.example.com."},
 				NextDomain: "EEEE",
 			}
 
-			result := sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "CCCC")
+			result := sut.nsec3Covers([]*dns.NSEC3{nsec3}, "CCCC")
 			Expect(result).Should(BeTrue())
 		})
 
 		It("should return false when no record covers the hash", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "AAAA.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "AAAA.example.com."},
 				NextDomain: "CCCC",
 			}
 
-			result := sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "FFFF")
+			result := sut.nsec3Covers([]*dns.NSEC3{nsec3}, "FFFF")
 			Expect(result).Should(BeFalse())
 		})
 
 		It("should check multiple NSEC3 records", func() {
-			nsec3_1 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "AAAA.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3_1 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "AAAA.example.com."},
 				NextDomain: "CCCC",
 			}
-			nsec3_2 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "EEEE.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3_2 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "EEEE.example.com."},
 				NextDomain: "GGGG",
 			}
 
 			// Hash covered by second record
-			result := sut.nsec3Covers([]*dnsv1.NSEC3{nsec3_1, nsec3_2}, "FFFF")
+			result := sut.nsec3Covers([]*dns.NSEC3{nsec3_1, nsec3_2}, "FFFF")
 			Expect(result).Should(BeTrue())
 		})
 
 		It("should return false for empty NSEC3 list", func() {
-			result := sut.nsec3Covers([]*dnsv1.NSEC3{}, "CCCC")
+			result := sut.nsec3Covers([]*dns.NSEC3{}, "CCCC")
 			Expect(result).Should(BeFalse())
 		})
 
 		It("should handle wraparound coverage", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "EEEE.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "EEEE.example.com."},
 				NextDomain: "AAAA",
 			}
 
 			// Hash after owner (wraparound)
-			result1 := sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "FFFF")
+			result1 := sut.nsec3Covers([]*dns.NSEC3{nsec3}, "FFFF")
 			Expect(result1).Should(BeTrue())
 
 			// Hash before next (wraparound)
-			result2 := sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "0000")
+			result2 := sut.nsec3Covers([]*dns.NSEC3{nsec3}, "0000")
 			Expect(result2).Should(BeTrue())
 		})
 	})
 
 	Describe("nsec3CoversWithOptOut", func() {
 		It("should return true when opt-out record covers hash", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "AAAA.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "AAAA.example.com."},
 				Flags:      0x01, // Opt-Out flag
 				NextDomain: "EEEE",
 			}
 
-			result := sut.nsec3CoversWithOptOut([]*dnsv1.NSEC3{nsec3}, "CCCC")
+			result := sut.nsec3CoversWithOptOut([]*dns.NSEC3{nsec3}, "CCCC")
 			Expect(result).Should(BeTrue())
 		})
 
 		It("should return false when record has no opt-out flag", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "AAAA.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "AAAA.example.com."},
 				Flags:      0x00, // No Opt-Out flag
 				NextDomain: "EEEE",
 			}
 
-			result := sut.nsec3CoversWithOptOut([]*dnsv1.NSEC3{nsec3}, "CCCC")
+			result := sut.nsec3CoversWithOptOut([]*dns.NSEC3{nsec3}, "CCCC")
 			Expect(result).Should(BeFalse())
 		})
 
 		It("should skip non-opt-out records", func() {
-			nsec3_1 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "AAAA.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3_1 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "AAAA.example.com."},
 				Flags:      0x00,
 				NextDomain: "EEEE",
 			}
-			nsec3_2 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "EEEE.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3_2 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "EEEE.example.com."},
 				Flags:      0x01, // Opt-Out
 				NextDomain: "GGGG",
 			}
 
 			// Only second record has opt-out
-			result := sut.nsec3CoversWithOptOut([]*dnsv1.NSEC3{nsec3_1, nsec3_2}, "FFFF")
+			result := sut.nsec3CoversWithOptOut([]*dns.NSEC3{nsec3_1, nsec3_2}, "FFFF")
 			Expect(result).Should(BeTrue())
 		})
 
 		It("should return false for empty list", func() {
-			result := sut.nsec3CoversWithOptOut([]*dnsv1.NSEC3{}, "CCCC")
+			result := sut.nsec3CoversWithOptOut([]*dns.NSEC3{}, "CCCC")
 			Expect(result).Should(BeFalse())
 		})
 	})
@@ -381,186 +417,166 @@ var _ = Describe("NSEC3 validation", func() {
 			// It computes the hash for each level and compares with NSEC3 owner name's first label
 
 			// Compute hash for example.com (the expected closest encloser)
-			hashExample, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashExample, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// NSEC3 owner name format: <hash>.<zone>
 			// The function extracts the first label (hash) and compares case-insensitively
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashExample + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashExample + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
-			result := sut.findClosestEncloser("sub.example.com.", "example.com.", []*dnsv1.NSEC3{nsec3}, dnsv1.SHA1, "", 0)
+			result := sut.findClosestEncloser("sub.example.com.", "example.com.", []*dns.NSEC3{nsec3}, dns.SHA1, "", 0)
 			// Should find example.com. or return empty if the logic doesn't match
 			// Since this is testing the actual implementation, we verify it doesn't panic
 			Expect(result).ShouldNot(BeNil())
 		})
 
 		It("should return empty when no match found", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "UNKNOWN.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "UNKNOWN.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
-			result := sut.findClosestEncloser("test.example.com.", "example.com.", []*dnsv1.NSEC3{nsec3}, dnsv1.SHA1, "", 0)
+			result := sut.findClosestEncloser("test.example.com.", "example.com.", []*dns.NSEC3{nsec3}, dns.SHA1, "", 0)
 			Expect(result).Should(BeEmpty())
 		})
 
 		It("should walk up domain tree", func() {
 			// Create NSEC3 for parent domain (example.com.)
-			hashParent, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashParent, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashParent + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashParent + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
 			// Query for deeper subdomain should walk up and find parent
 			// Testing that the function executes without error
-			result := sut.findClosestEncloser("a.b.example.com.", "example.com.", []*dnsv1.NSEC3{nsec3}, dnsv1.SHA1, "", 0)
+			result := sut.findClosestEncloser("a.b.example.com.", "example.com.", []*dns.NSEC3{nsec3}, dns.SHA1, "", 0)
 			// Result may be empty or example.com. depending on implementation details
 			Expect(result).ShouldNot(BeNil())
 		})
 
 		It("should not walk above zone", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "HASH.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "HASH.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
-			result := sut.findClosestEncloser("test.example.com.", "example.com.", []*dnsv1.NSEC3{nsec3}, dnsv1.SHA1, "", 0)
+			result := sut.findClosestEncloser("test.example.com.", "example.com.", []*dns.NSEC3{nsec3}, dns.SHA1, "", 0)
 			Expect(result).Should(BeEmpty())
 		})
 	})
 
 	Describe("validateNSEC3DenialOfExistence", func() {
 		It("should return Insecure when no NSEC3 records", func() {
-			response := &dnsv1.Msg{
-				Ns: []dnsv1.RR{},
+			response := &dns.Msg{
+				Ns: []dns.RR{},
 			}
-			response.Rcode = dnsv1.RcodeNameError
+			response.Rcode = dns.RcodeNameError
 
-			question := dnsv1.Question{
-				Name:   "test.example.com.",
-				Qtype:  dnsv1.TypeA,
-				Qclass: dnsv1.ClassINET,
-			}
+			question := newQuestion("test.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultInsecure))
 		})
 
 		It("should return Bogus for unsupported hash algorithm", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:  dnsv1.RR_Header{Name: "hash.example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash: 99, // Unsupported
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{Name: "hash.example.com."},
+				NSEC3: rdata.NSEC3{
+					Hash: 99, // Unsupported
+				},
 			}
 
-			response := &dnsv1.Msg{
-				Ns: []dnsv1.RR{nsec3},
+			response := &dns.Msg{
+				Ns: []dns.RR{nsec3},
 			}
-			response.Rcode = dnsv1.RcodeNameError
+			response.Rcode = dns.RcodeNameError
 
-			question := dnsv1.Question{
-				Name:   "test.example.com.",
-				Qtype:  dnsv1.TypeA,
-				Qclass: dnsv1.ClassINET,
-			}
+			question := newQuestion("test.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should return Bogus when iteration count exceeds maximum", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "hash.example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 9999, // Exceeds default max of 150
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{Name: "hash.example.com."},
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 9999, // Exceeds default max of 150
+				},
 			}
 
-			response := &dnsv1.Msg{
-				Ns: []dnsv1.RR{nsec3},
+			response := &dns.Msg{
+				Ns: []dns.RR{nsec3},
 			}
-			response.Rcode = dnsv1.RcodeNameError
+			response.Rcode = dns.RcodeNameError
 
-			question := dnsv1.Question{
-				Name:   "test.example.com.",
-				Qtype:  dnsv1.TypeA,
-				Qclass: dnsv1.ClassINET,
-			}
+			question := newQuestion("test.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should return Bogus when NSEC3 records have inconsistent parameters", func() {
-			nsec3_1 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "hash1.example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash:       dnsv1.SHA1,
+			nsec3_1 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "hash1.example.com."},
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
-			nsec3_2 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "hash2.example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash:       dnsv1.SHA1,
+			nsec3_2 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "hash2.example.com."},
+				Hash:       dns.SHA1,
 				Salt:       "DIFFERENT", // Different salt
 				Iterations: 0,
 			}
 
-			response := &dnsv1.Msg{
-				Ns: []dnsv1.RR{nsec3_1, nsec3_2},
+			response := &dns.Msg{
+				Ns: []dns.RR{nsec3_1, nsec3_2},
 			}
-			response.Rcode = dnsv1.RcodeNameError
+			response.Rcode = dns.RcodeNameError
 
-			question := dnsv1.Question{
-				Name:   "test.example.com.",
-				Qtype:  dnsv1.TypeA,
-				Qclass: dnsv1.ClassINET,
-			}
+			question := newQuestion("test.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should validate NXDOMAIN response", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:  dnsv1.RR_Header{Name: "hash.example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash: dnsv1.SHA1,
+			nsec3 := &dns.NSEC3{
+				Hdr:  dns.Header{Name: "hash.example.com."},
+				Hash: dns.SHA1,
 			}
 
-			response := &dnsv1.Msg{
-				Ns: []dnsv1.RR{nsec3},
+			response := &dns.Msg{
+				Ns: []dns.RR{nsec3},
 			}
-			response.Rcode = dnsv1.RcodeNameError
+			response.Rcode = dns.RcodeNameError
 
-			question := dnsv1.Question{
-				Name:   "test.example.com.",
-				Qtype:  dnsv1.TypeA,
-				Qclass: dnsv1.ClassINET,
-			}
+			question := newQuestion("test.example.com.", dns.TypeA)
 
 			// Will likely fail validation due to incomplete NSEC3 proof, but should attempt
 			result := sut.validateNSEC3DenialOfExistence(response, question)
@@ -568,21 +584,17 @@ var _ = Describe("NSEC3 validation", func() {
 		})
 
 		It("should validate NODATA response", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:  dnsv1.RR_Header{Name: "hash.example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash: dnsv1.SHA1,
+			nsec3 := &dns.NSEC3{
+				Hdr:  dns.Header{Name: "hash.example.com."},
+				Hash: dns.SHA1,
 			}
 
-			response := &dnsv1.Msg{
-				Ns: []dnsv1.RR{nsec3},
+			response := &dns.Msg{
+				Ns: []dns.RR{nsec3},
 			}
-			response.Rcode = dnsv1.RcodeSuccess // NODATA
+			response.Rcode = dns.RcodeSuccess // NODATA
 
-			question := dnsv1.Question{
-				Name:   "test.example.com.",
-				Qtype:  dnsv1.TypeA,
-				Qclass: dnsv1.ClassINET,
-			}
+			question := newQuestion("test.example.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).ShouldNot(Equal(ValidationResultIndeterminate))
@@ -591,98 +603,92 @@ var _ = Describe("NSEC3 validation", func() {
 
 	Describe("checkDirectNSEC3Match", func() {
 		It("should return Secure when NSEC3 matches and type not in bitmap", func() {
-			hash, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hash, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hash + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hash + ".example.com.",
 				},
-				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS},
+				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS},
 			}
 
-			result := sut.checkDirectNSEC3Match([]*dnsv1.NSEC3{nsec3}, "example.com.", hash, dnsv1.TypeAAAA)
+			result := sut.checkDirectNSEC3Match([]*dns.NSEC3{nsec3}, "example.com.", hash, dns.TypeAAAA)
 			Expect(result).Should(Equal(ValidationResultSecure))
 		})
 
 		It("should return Bogus when type exists in bitmap", func() {
-			hash, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hash, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hash + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hash + ".example.com.",
 				},
-				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeAAAA},
+				TypeBitMap: []uint16{dns.TypeA, dns.TypeAAAA},
 			}
 
-			result := sut.checkDirectNSEC3Match([]*dnsv1.NSEC3{nsec3}, "example.com.", hash, dnsv1.TypeAAAA)
+			result := sut.checkDirectNSEC3Match([]*dns.NSEC3{nsec3}, "example.com.", hash, dns.TypeAAAA)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should return Indeterminate when no match found", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "DIFFERENT.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "DIFFERENT.example.com.",
 				},
 			}
 
-			result := sut.checkDirectNSEC3Match([]*dnsv1.NSEC3{nsec3}, "example.com.", "HASH", dnsv1.TypeA)
+			result := sut.checkDirectNSEC3Match([]*dns.NSEC3{nsec3}, "example.com.", "HASH", dns.TypeA)
 			Expect(result).Should(Equal(ValidationResultIndeterminate))
 		})
 	})
 
 	Describe("validateNSEC3NODATA", func() {
 		It("should validate direct NSEC3 match", func() {
-			hash, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hash, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hash + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hash + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
-				TypeBitMap: []uint16{dnsv1.TypeA},
+				TypeBitMap: []uint16{dns.TypeA},
 			}
 
-			result := sut.validateNSEC3NODATA([]*dnsv1.NSEC3{nsec3}, "example.com.", dnsv1.TypeAAAA, "example.com.", dnsv1.SHA1, "", 0)
+			result := sut.validateNSEC3NODATA([]*dns.NSEC3{nsec3}, "example.com.", dns.TypeAAAA, "example.com.", dns.SHA1, "", 0)
 			Expect(result).Should(Equal(ValidationResultSecure))
 		})
 
 		It("should return Bogus when no proof found", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "UNKNOWN.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "UNKNOWN.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
 			result := sut.validateNSEC3NODATA(
-				[]*dnsv1.NSEC3{nsec3}, "test.example.com.", dnsv1.TypeA, "example.com.", dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3}, "test.example.com.", dns.TypeA, "example.com.", dns.SHA1, "", 0,
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should return Insecure for DS query with opt-out", func() {
-			hash, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hash, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "AAAA.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "AAAA.example.com.",
 				},
 				Flags:      0x01, // Opt-Out
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 				NextDomain: "ZZZZ",
@@ -691,7 +697,7 @@ var _ = Describe("NSEC3 validation", func() {
 			// Ensure hash is covered
 			if nsec3HashInRange(hash, "AAAA", "ZZZZ") {
 				result := sut.validateNSEC3NODATA(
-					[]*dnsv1.NSEC3{nsec3}, "test.example.com.", dnsv1.TypeDS, "example.com.", dnsv1.SHA1, "", 0,
+					[]*dns.NSEC3{nsec3}, "test.example.com.", dns.TypeDS, "example.com.", dns.SHA1, "", 0,
 				)
 				Expect(result).Should(Equal(ValidationResultInsecure))
 			}
@@ -700,65 +706,67 @@ var _ = Describe("NSEC3 validation", func() {
 
 	Describe("validateNSEC3NXDOMAIN", func() {
 		It("should return Bogus when closest encloser not found", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "UNKNOWN.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "UNKNOWN.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
-			result := sut.validateNSEC3NXDOMAIN([]*dnsv1.NSEC3{nsec3}, "test.example.com.", "example.com.", dnsv1.SHA1, "", 0)
+			result := sut.validateNSEC3NXDOMAIN([]*dns.NSEC3{nsec3}, "test.example.com.", "example.com.", dns.SHA1, "", 0)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should validate complete NXDOMAIN proof with closest encloser, next closer, and wildcard", func() {
 			// Create proper NSEC3 chain for NXDOMAIN proof
 			// 1. NSEC3 for closest encloser (example.com.)
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Create NSEC3 for the zone apex (closest encloser)
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: "ZZZZZZZZ", // Doesn't matter for direct match
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: "ZZZZZZZZ", // Doesn't matter for direct match
+				},
 			}
 
 			// Create NSEC3 covering next closer (proves test.example.com doesn't exist)
-			nsec3NextCloser := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "00000000.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3NextCloser := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "00000000.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: "ZZZZZZZZ", // Covers next closer
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: "ZZZZZZZZ", // Covers next closer
+				},
 			}
 
 			// Create NSEC3 covering wildcard (proves *.example.com doesn't exist)
-			nsec3Wildcard := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "11111111.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Wildcard := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "11111111.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: "ZZZZZZZZ", // Covers wildcard
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: "ZZZZZZZZ", // Covers wildcard
+				},
 			}
 
 			result := sut.validateNSEC3NXDOMAIN(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3NextCloser, nsec3Wildcard},
-				"test.example.com.", "example.com.", dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3Zone, nsec3NextCloser, nsec3Wildcard},
+				"test.example.com.", "example.com.", dns.SHA1, "", 0,
 			)
 
 			// Result depends on whether the NSEC3 records properly cover the required ranges
@@ -767,35 +775,35 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should return Insecure when next closer is in opt-out span", func() {
 			// Create NSEC3 for zone apex
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// Create opt-out NSEC3 that might cover next closer
-			nsec3OptOut := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "0000.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3OptOut := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "0000.example.com.",
 				},
 				Flags:      0x01, // Opt-Out
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 				NextDomain: "ZZZZ",
 			}
 
 			result := sut.validateNSEC3NXDOMAIN(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3OptOut}, "test.example.com.", "example.com.", dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3Zone, nsec3OptOut}, "test.example.com.", "example.com.", dns.SHA1, "", 0,
 			)
 			// Result depends on whether next closer falls in opt-out span
 			Expect(result).ShouldNot(Equal(ValidationResultIndeterminate))
@@ -804,47 +812,47 @@ var _ = Describe("NSEC3 validation", func() {
 		It("should return Bogus when next closer hash computation fails", func() {
 			// This test would require mocking the hash function, which is difficult
 			// But we can test with empty qname which might cause issues
-			result := sut.validateNSEC3NXDOMAIN([]*dnsv1.NSEC3{}, "", "example.com.", dnsv1.SHA1, "", 0)
+			result := sut.validateNSEC3NXDOMAIN([]*dns.NSEC3{}, "", "example.com.", dns.SHA1, "", 0)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should return Bogus when next closer is not covered", func() {
 			// Create NSEC3 for zone apex
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				// Don't set NextDomain so it doesn't accidentally cover the next closer
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					// Don't set NextDomain so it doesn't accidentally cover the next closer,
+				},
 			}
 
 			result := sut.validateNSEC3NXDOMAIN(
-				[]*dnsv1.NSEC3{nsec3Zone}, "test.example.com.", "example.com.", dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3Zone}, "test.example.com.", "example.com.", dns.SHA1, "", 0,
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should return Bogus when wildcard is not covered", func() {
 			// Create NSEC3 for zone apex
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Create next closer hash
-			hashNextCloser, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hashNextCloser, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 				NextDomain: hashNextCloser,
@@ -852,19 +860,20 @@ var _ = Describe("NSEC3 validation", func() {
 
 			// NSEC3 that proves next closer is covered but wildcard is not
 			// Don't set NextDomain so it only provides a hash match, not coverage
-			nsec3Cover := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashNextCloser + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Cover := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashNextCloser + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				// No NextDomain - won't cover wildcard
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					// No NextDomain - won't cover wildcard,
+				},
 			}
 
 			result := sut.validateNSEC3NXDOMAIN(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3Cover}, "test.example.com.", "example.com.", dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3Zone, nsec3Cover}, "test.example.com.", "example.com.", dns.SHA1, "", 0,
 			)
 			// Should fail because wildcard is not covered
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -876,52 +885,55 @@ var _ = Describe("NSEC3 validation", func() {
 			// 2. Next closer (sub.example.com.) is covered
 			// 3. Wildcard (*.example.com.) is covered
 
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// NSEC3 for zone apex (closest encloser)
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				Flags:      0,
-				NextDomain: "ZZZZZZZZ", // Points to cover range
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					Flags:      0,
+					NextDomain: "ZZZZZZZZ", // Points to cover range
+				},
 			}
 
 			// NSEC3 that covers next closer (proves sub.example.com doesn't exist)
 			// Owner hash < next closer hash < NextDomain
-			nsec3CoverNext := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "00000000.example.com.", // Small hash
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3CoverNext := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "00000000.example.com.", // Small hash
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				Flags:      0,
-				NextDomain: "ZZZZZZZZ", // Large hash - covers next closer
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					Flags:      0,
+					NextDomain: "ZZZZZZZZ", // Large hash - covers next closer
+				},
 			}
 
 			// NSEC3 that covers wildcard (proves *.example.com doesn't exist)
-			nsec3CoverWild := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "11111111.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3CoverWild := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "11111111.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				Flags:      0,
-				NextDomain: "ZZZZZZZZ", // Covers wildcard
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					Flags:      0,
+					NextDomain: "ZZZZZZZZ", // Covers wildcard
+				},
 			}
 
 			result := sut.validateNSEC3NXDOMAIN(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3CoverNext, nsec3CoverWild},
-				"sub.example.com.", "example.com.", dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3Zone, nsec3CoverNext, nsec3CoverWild},
+				"sub.example.com.", "example.com.", dns.SHA1, "", 0,
 			)
 
 			// Should return Secure if all conditions are met
@@ -931,23 +943,24 @@ var _ = Describe("NSEC3 validation", func() {
 		It("should return Bogus when next closer cannot be computed (qname same as closest encloser)", func() {
 			// Edge case: when qname equals closest encloser, getNextCloser returns ""
 			// This happens when qname has same or fewer labels than closest encloser
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// Try to validate with qname equal to zone (no next closer possible)
 			result := sut.validateNSEC3NXDOMAIN(
-				[]*dnsv1.NSEC3{nsec3Zone}, "example.com.", "example.com.", dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3Zone}, "example.com.", "example.com.", dns.SHA1, "", 0,
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
@@ -955,27 +968,27 @@ var _ = Describe("NSEC3 validation", func() {
 		It("should return Bogus when wildcard hash computation fails", func() {
 			// This tests the error path when computing wildcard hash fails
 			// Using unsupported hash algorithm to trigger error
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// NSEC3 covering next closer
-			nsec3Cover := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "00000000.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Cover := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "00000000.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 				NextDomain: "ZZZZZZZZ",
@@ -983,43 +996,45 @@ var _ = Describe("NSEC3 validation", func() {
 
 			// Use unsupported hash algorithm (0) to trigger error
 			result := sut.validateNSEC3NXDOMAIN(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3Cover}, "test.example.com.", "example.com.", 0, "", 0,
+				[]*dns.NSEC3{nsec3Zone, nsec3Cover}, "test.example.com.", "example.com.", 0, "", 0,
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should return Insecure when next closer is covered by opt-out NSEC3", func() {
 			// Create NSEC3 for zone apex
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// Create opt-out NSEC3 that covers entire hash space
 			// Use minimum and maximum base32hex-encoded hashes (32 chars for SHA1)
-			nsec3OptOut := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "00000000000000000000000000000000.example.com.", // Minimum hash
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3OptOut := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "00000000000000000000000000000000.example.com.", // Minimum hash
 				},
-				Flags:      0x01, // Opt-Out flag
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV", // Maximum hash
+				NSEC3: rdata.NSEC3{
+					Flags:      0x01, // Opt-Out flag
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV", // Maximum hash
+				},
 			}
 
 			result := sut.validateNSEC3NXDOMAIN(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3OptOut}, "sub.example.com.", "example.com.", dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3Zone, nsec3OptOut}, "sub.example.com.", "example.com.", dns.SHA1, "", 0,
 			)
 
 			// When next closer is covered by opt-out NSEC3, should return Insecure
@@ -1029,44 +1044,42 @@ var _ = Describe("NSEC3 validation", func() {
 
 	Describe("checkWildcardNSEC3Match", func() {
 		It("should return Bogus when closest encloser not found", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "UNKNOWN.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "UNKNOWN.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3}, "test.example.com.", dnsv1.TypeA, "example.com.",
-				dnsv1.SHA1, "", 0, "somehash",
+				[]*dns.NSEC3{nsec3}, "test.example.com.", dns.TypeA, "example.com.",
+				dns.SHA1, "", 0, "somehash",
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should check for DS query with opt-out behavior", func() {
 			// Create opt-out NSEC3
-			nsec3OptOut := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "0000.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3OptOut := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "0000.example.com.",
 				},
 				Flags:      0x01, // Opt-Out
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 				NextDomain: "ZZZZ",
 			}
 
 			// Compute hash for DS query
-			hashDS, err := sut.computeNSEC3Hash("sub.example.com.", dnsv1.SHA1, "", 0)
+			hashDS, err := sut.computeNSEC3Hash("sub.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3OptOut}, "sub.example.com.", dnsv1.TypeDS, "example.com.",
-				dnsv1.SHA1, "", 0, hashDS,
+				[]*dns.NSEC3{nsec3OptOut}, "sub.example.com.", dns.TypeDS, "example.com.",
+				dns.SHA1, "", 0, hashDS,
 			)
 			// Result depends on whether closest encloser can be found
 			Expect(result).ShouldNot(Equal(ValidationResultIndeterminate))
@@ -1074,26 +1087,27 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should validate wildcard match when closest encloser exists", func() {
 			// Create NSEC3 for zone apex (closest encloser)
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
-			hashQuery, err := sut.computeNSEC3Hash("nonexist.example.com.", dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash("nonexist.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone}, "nonexist.example.com.", dnsv1.TypeA, "example.com.",
-				dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3Zone}, "nonexist.example.com.", dns.TypeA, "example.com.",
+				dns.SHA1, "", 0, hashQuery,
 			)
 			// Result depends on wildcard validation
 			Expect(result).ShouldNot(Equal(ValidationResultIndeterminate))
@@ -1101,42 +1115,42 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should validate when wildcard exists and type not in bitmap", func() {
 			// Create NSEC3 for zone apex (closest encloser)
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Create NSEC3 for wildcard
-			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dnsv1.SHA1, "", 0)
+			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// Wildcard NSEC3 with type bitmap that doesn't include requested type
-			nsec3Wildcard := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashWildcard + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Wildcard := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashWildcard + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
-				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS},
+				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS},
 			}
 
-			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3Wildcard}, "test.example.com.", dnsv1.TypeMX,
-				"example.com.", dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3Zone, nsec3Wildcard}, "test.example.com.", dns.TypeMX,
+				"example.com.", dns.SHA1, "", 0, hashQuery,
 			)
 			// Tests the code path - result depends on whether closest encloser is found
 			Expect(result).ShouldNot(Equal(ValidationResultIndeterminate))
@@ -1144,42 +1158,42 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should return Bogus when wildcard exists but has requested type", func() {
 			// Create NSEC3 for zone apex (closest encloser)
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Create NSEC3 for wildcard
-			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dnsv1.SHA1, "", 0)
+			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// Wildcard NSEC3 with type bitmap that includes requested type
-			nsec3Wildcard := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashWildcard + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Wildcard := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashWildcard + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
-				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeMX},
+				TypeBitMap: []uint16{dns.TypeA, dns.TypeMX},
 			}
 
-			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3Wildcard}, "test.example.com.", dnsv1.TypeMX,
-				"example.com.", dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3Zone, nsec3Wildcard}, "test.example.com.", dns.TypeMX,
+				"example.com.", dns.SHA1, "", 0, hashQuery,
 			)
 			// Should return Bogus since wildcard has MX in bitmap
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -1187,26 +1201,27 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should return Bogus when wildcard hash computation fails", func() {
 			// Create NSEC3 for zone apex (closest encloser)
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
-			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Use unsupported hash algorithm to trigger wildcard hash error
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone}, "test.example.com.", dnsv1.TypeA,
+				[]*dns.NSEC3{nsec3Zone}, "test.example.com.", dns.TypeA,
 				"example.com.", 0, "", 0, hashQuery, // hash algorithm 0 is unsupported
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -1214,26 +1229,27 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should return Insecure for DS query with opt-out when closest encloser not found", func() {
 			// Compute DS hash first
-			hashDS, err := sut.computeNSEC3Hash("sub.example.com.", dnsv1.SHA1, "", 0)
+			hashDS, err := sut.computeNSEC3Hash("sub.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Create opt-out NSEC3 that covers entire hash space
-			nsec3OptOut := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "00000000000000000000000000000000.example.com.", // Minimum hash
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3OptOut := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "00000000000000000000000000000000.example.com.", // Minimum hash
 				},
-				Flags:      0x01, // Opt-Out
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV", // Maximum hash
+				NSEC3: rdata.NSEC3{
+					Flags:      0x01, // Opt-Out
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV", // Maximum hash
+				},
 			}
 
 			// For DS query with opt-out covering the hash, should return Insecure
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3OptOut}, "sub.example.com.", dnsv1.TypeDS, "example.com.",
-				dnsv1.SHA1, "", 0, hashDS,
+				[]*dns.NSEC3{nsec3OptOut}, "sub.example.com.", dns.TypeDS, "example.com.",
+				dns.SHA1, "", 0, hashDS,
 			)
 			// When opt-out covers DS query, should return Insecure (unsigned delegation)
 			Expect(result).Should(Equal(ValidationResultInsecure))
@@ -1241,41 +1257,43 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should return Insecure for DS query with opt-out when wildcard not found", func() {
 			// Create NSEC3 for zone apex (closest encloser)
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// Compute DS hash first
-			hashDS, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hashDS, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Create opt-out NSEC3 that covers entire hash space
-			nsec3OptOut := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "00000000000000000000000000000000.example.com.", // Minimum hash
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3OptOut := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "00000000000000000000000000000000.example.com.", // Minimum hash
 				},
-				Flags:      0x01, // Opt-Out
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV", // Maximum hash
+				NSEC3: rdata.NSEC3{
+					Flags:      0x01, // Opt-Out
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV", // Maximum hash
+				},
 			}
 
 			// DS query with opt-out covering, no wildcard NSEC3 found
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3OptOut}, "test.example.com.", dnsv1.TypeDS,
-				"example.com.", dnsv1.SHA1, "", 0, hashDS,
+				[]*dns.NSEC3{nsec3Zone, nsec3OptOut}, "test.example.com.", dns.TypeDS,
+				"example.com.", dns.SHA1, "", 0, hashDS,
 			)
 			// Should return Insecure for DS query covered by opt-out
 			Expect(result).Should(Equal(ValidationResultInsecure))
@@ -1285,65 +1303,62 @@ var _ = Describe("NSEC3 validation", func() {
 	Describe("validateNSEC3NODATA", func() {
 		It("should return Secure for direct match without requested type", func() {
 			// Compute hash for the qname
-			hashName, err := sut.computeNSEC3Hash("www.example.com.", dnsv1.SHA1, "", 0)
+			hashName, err := sut.computeNSEC3Hash("www.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashName + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashName + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
-				TypeBitMap: []uint16{dnsv1.TypeA},
+				TypeBitMap: []uint16{dns.TypeA},
 			}
 
 			result := sut.validateNSEC3NODATA(
-				[]*dnsv1.NSEC3{nsec3}, "www.example.com.", dnsv1.TypeAAAA, "example.com.",
-				dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3}, "www.example.com.", dns.TypeAAAA, "example.com.",
+				dns.SHA1, "", 0,
 			)
 			Expect(result).Should(Equal(ValidationResultSecure))
 		})
 
 		It("should return Bogus when direct match has requested type", func() {
 			// Compute hash for the qname
-			hashName, err := sut.computeNSEC3Hash("www.example.com.", dnsv1.SHA1, "", 0)
+			hashName, err := sut.computeNSEC3Hash("www.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashName + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashName + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
-				TypeBitMap: []uint16{dnsv1.TypeA},
+				TypeBitMap: []uint16{dns.TypeA},
 			}
 
 			result := sut.validateNSEC3NODATA(
-				[]*dnsv1.NSEC3{nsec3}, "www.example.com.", dnsv1.TypeA, "example.com.",
-				dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3}, "www.example.com.", dns.TypeA, "example.com.",
+				dns.SHA1, "", 0,
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should check wildcard match when no direct match", func() {
 			// No matching NSEC3
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "UNKNOWN.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "UNKNOWN.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
 			result := sut.validateNSEC3NODATA(
-				[]*dnsv1.NSEC3{nsec3}, "www.example.com.", dnsv1.TypeA, "example.com.",
-				dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3}, "www.example.com.", dns.TypeA, "example.com.",
+				dns.SHA1, "", 0,
 			)
 			// Should fall through to wildcard check
 			Expect(result).ShouldNot(Equal(ValidationResultIndeterminate))
@@ -1352,22 +1367,21 @@ var _ = Describe("NSEC3 validation", func() {
 
 	Describe("findClosestEncloser", func() {
 		It("should find zone apex as closest encloser when it matches", func() {
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
 			closest := sut.findClosestEncloser(
-				"test.sub.example.com.", "example.com.", []*dnsv1.NSEC3{nsec3},
-				dnsv1.SHA1, "", 0,
+				"test.sub.example.com.", "example.com.", []*dns.NSEC3{nsec3},
+				dns.SHA1, "", 0,
 			)
 			// The function should find the zone apex if it exists in NSEC3 records
 			// If not found, it returns empty string
@@ -1380,83 +1394,79 @@ var _ = Describe("NSEC3 validation", func() {
 		})
 
 		It("should return empty string when no match found", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "NOMATCH.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "NOMATCH.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
 			closest := sut.findClosestEncloser(
-				"test.example.com.", "example.com.", []*dnsv1.NSEC3{nsec3},
-				dnsv1.SHA1, "", 0,
+				"test.example.com.", "example.com.", []*dns.NSEC3{nsec3},
+				dns.SHA1, "", 0,
 			)
 			Expect(closest).Should(Equal(""))
 		})
 
 		It("should find intermediate domain as closest encloser", func() {
 			// Create NSEC3 for sub.example.com
-			hashSub, err := sut.computeNSEC3Hash("sub.example.com.", dnsv1.SHA1, "", 0)
+			hashSub, err := sut.computeNSEC3Hash("sub.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Sub := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashSub + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Sub := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashSub + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
 			closest := sut.findClosestEncloser(
-				"test.sub.example.com.", "example.com.", []*dnsv1.NSEC3{nsec3Sub},
-				dnsv1.SHA1, "", 0,
+				"test.sub.example.com.", "example.com.", []*dns.NSEC3{nsec3Sub},
+				dns.SHA1, "", 0,
 			)
 			Expect(closest).Should(Equal("sub.example.com."))
 		})
 
 		It("should stop at root when walking up domain tree", func() {
 			// Create NSEC3 that won't match
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "NOMATCH.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "NOMATCH.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
 			// Query with deep domain should eventually reach root and stop
 			closest := sut.findClosestEncloser(
-				"a.b.c.d.e.f.g.h.com.", "com.", []*dnsv1.NSEC3{nsec3},
-				dnsv1.SHA1, "", 0,
+				"a.b.c.d.e.f.g.h.com.", "com.", []*dns.NSEC3{nsec3},
+				dns.SHA1, "", 0,
 			)
 			Expect(closest).Should(Equal(""))
 		})
 
 		It("should handle zone boundary correctly", func() {
 			// Create NSEC3 for com. (zone apex)
-			hashZone, err := sut.computeNSEC3Hash("com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
 			closest := sut.findClosestEncloser(
-				"test.example.com.", "com.", []*dnsv1.NSEC3{nsec3},
-				dnsv1.SHA1, "", 0,
+				"test.example.com.", "com.", []*dns.NSEC3{nsec3},
+				dns.SHA1, "", 0,
 			)
 			// Should find the zone if it matches, otherwise empty
 			Expect(closest).ShouldNot(BeNil())
@@ -1466,41 +1476,41 @@ var _ = Describe("NSEC3 validation", func() {
 	Describe("checkWildcardNSEC3Match additional tests", func() {
 		It("should return Secure when wildcard NSEC3 matches without requested type", func() {
 			// Create NSEC3 for zone apex (closest encloser)
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Create NSEC3 for wildcard
-			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dnsv1.SHA1, "", 0)
+			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
-			nsec3Wildcard := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashWildcard + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Wildcard := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashWildcard + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
-				TypeBitMap: []uint16{dnsv1.TypeA},
+				TypeBitMap: []uint16{dns.TypeA},
 			}
 
-			hashQuery, err := sut.computeNSEC3Hash("nonexist.example.com.", dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash("nonexist.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3Wildcard}, "nonexist.example.com.", dnsv1.TypeAAAA,
-				"example.com.", dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3Zone, nsec3Wildcard}, "nonexist.example.com.", dns.TypeAAAA,
+				"example.com.", dns.SHA1, "", 0, hashQuery,
 			)
 			// Result depends on whether closest encloser is found and wildcard matches
 			// The key is to test the code path executes without error
@@ -1509,65 +1519,64 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should return Bogus when wildcard has requested type in bitmap", func() {
 			// Create NSEC3 for zone apex (closest encloser)
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Create NSEC3 for wildcard
-			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dnsv1.SHA1, "", 0)
+			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
-			nsec3Wildcard := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashWildcard + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Wildcard := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashWildcard + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
-				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeAAAA},
+				TypeBitMap: []uint16{dns.TypeA, dns.TypeAAAA},
 			}
 
-			hashQuery, err := sut.computeNSEC3Hash("nonexist.example.com.", dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash("nonexist.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3Wildcard}, "nonexist.example.com.", dnsv1.TypeAAAA,
-				"example.com.", dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3Zone, nsec3Wildcard}, "nonexist.example.com.", dns.TypeAAAA,
+				"example.com.", dns.SHA1, "", 0, hashQuery,
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should return Insecure for DS query with opt-out when closest encloser not found", func() {
 			// Create opt-out NSEC3 that covers the hash
-			hashQuery, err := sut.computeNSEC3Hash("sub.example.com.", dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash("sub.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3OptOut := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "0000.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3OptOut := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "0000.example.com.",
 				},
 				Flags:      0x01, // Opt-Out
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 				NextDomain: "ZZZZ",
 			}
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3OptOut}, "sub.example.com.", dnsv1.TypeDS,
-				"example.com.", dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3OptOut}, "sub.example.com.", dns.TypeDS,
+				"example.com.", dns.SHA1, "", 0, hashQuery,
 			)
 			// Result depends on whether the hash is covered by opt-out
 			Expect(result).ShouldNot(Equal(ValidationResultIndeterminate))
@@ -1575,22 +1584,21 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should handle empty NSEC3 owner name labels", func() {
 			// NSEC3 with malformed owner name (no labels)
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   ".", // Just root, no hash
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: ".", // Just root, no hash
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
-			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3}, "test.example.com.", dnsv1.TypeA,
-				"example.com.", dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3}, "test.example.com.", dns.TypeA,
+				"example.com.", dns.SHA1, "", 0, hashQuery,
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
@@ -1612,90 +1620,86 @@ var _ = Describe("NSEC3 validation", func() {
 
 	Describe("nsec3Covers edge cases", func() {
 		It("should handle NSEC3 with empty owner name labels", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   ".", // Empty labels
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: ".", // Empty labels
 				},
 				NextDomain: "AAAA",
 			}
 
-			result := sut.nsec3Covers([]*dnsv1.NSEC3{nsec3}, "5555")
+			result := sut.nsec3Covers([]*dns.NSEC3{nsec3}, "5555")
 			Expect(result).Should(BeFalse())
 		})
 
 		It("should check all records in list", func() {
-			nsec3_1 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "1111.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3_1 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "1111.example.com."},
 				NextDomain: "2222",
 			}
-			nsec3_2 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "5555.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3_2 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "5555.example.com."},
 				NextDomain: "6666",
 			}
-			nsec3_3 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "8888.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3_3 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "8888.example.com."},
 				NextDomain: "9999",
 			}
 
 			// Hash covered by middle record
-			result := sut.nsec3Covers([]*dnsv1.NSEC3{nsec3_1, nsec3_2, nsec3_3}, "5678")
+			result := sut.nsec3Covers([]*dns.NSEC3{nsec3_1, nsec3_2, nsec3_3}, "5678")
 			Expect(result).Should(BeTrue())
 		})
 	})
 
 	Describe("nsec3CoversWithOptOut edge cases", func() {
 		It("should handle NSEC3 with empty owner name labels", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   ".", // Empty labels
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: ".", // Empty labels
 				},
 				Flags:      0x01,
 				NextDomain: "AAAA",
 			}
 
-			result := sut.nsec3CoversWithOptOut([]*dnsv1.NSEC3{nsec3}, "5555")
+			result := sut.nsec3CoversWithOptOut([]*dns.NSEC3{nsec3}, "5555")
 			Expect(result).Should(BeFalse())
 		})
 
 		It("should skip all records without opt-out flag", func() {
-			nsec3_1 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "1111.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3_1 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "1111.example.com."},
 				Flags:      0x00,
 				NextDomain: "9999",
 			}
-			nsec3_2 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "AAAA.example.com.", Rrtype: dnsv1.TypeNSEC3},
+			nsec3_2 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "AAAA.example.com."},
 				Flags:      0x00,
 				NextDomain: "FFFF",
 			}
 
-			result := sut.nsec3CoversWithOptOut([]*dnsv1.NSEC3{nsec3_1, nsec3_2}, "5555")
+			result := sut.nsec3CoversWithOptOut([]*dns.NSEC3{nsec3_1, nsec3_2}, "5555")
 			Expect(result).Should(BeFalse())
 		})
 	})
 
 	Describe("validateNSEC3DenialOfExistence edge cases", func() {
 		It("should detect Opt-Out flag in NSEC3 parameters", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "hash.example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				Flags:      0x01, // Opt-Out flag set
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{Name: "hash.example.com."},
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					Flags:      0x01, // Opt-Out flag set
+				},
 			}
 
-			response := &dnsv1.Msg{
-				Ns: []dnsv1.RR{nsec3},
+			response := &dns.Msg{
+				Ns: []dns.RR{nsec3},
 			}
-			response.Rcode = dnsv1.RcodeNameError
+			response.Rcode = dns.RcodeNameError
 
-			question := dnsv1.Question{
-				Name:   "test.example.com.",
-				Qtype:  dnsv1.TypeA,
-				Qclass: dnsv1.ClassINET,
-			}
+			question := newQuestion("test.example.com.", dns.TypeA)
 
 			// Should log about opt-out flag and continue validation
 			result := sut.validateNSEC3DenialOfExistence(response, question)
@@ -1704,23 +1708,19 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should extract zone name from NSEC3 owner name", func() {
 			// NSEC3 owner name format: <hash>.<zone>
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "HASH123.sub.example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash:       dnsv1.SHA1,
+			nsec3 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "HASH123.sub.example.com."},
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
-			response := &dnsv1.Msg{
-				Ns: []dnsv1.RR{nsec3},
+			response := &dns.Msg{
+				Ns: []dns.RR{nsec3},
 			}
-			response.Rcode = dnsv1.RcodeNameError
+			response.Rcode = dns.RcodeNameError
 
-			question := dnsv1.Question{
-				Name:   "test.sub.example.com.",
-				Qtype:  dnsv1.TypeA,
-				Qclass: dnsv1.ClassINET,
-			}
+			question := newQuestion("test.sub.example.com.", dns.TypeA)
 
 			// Should extract sub.example.com. as zone name
 			result := sut.validateNSEC3DenialOfExistence(response, question)
@@ -1728,23 +1728,19 @@ var _ = Describe("NSEC3 validation", func() {
 		})
 
 		It("should handle NSEC3 with single label owner name", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: "HASH.", Rrtype: dnsv1.TypeNSEC3},
-				Hash:       dnsv1.SHA1,
+			nsec3 := &dns.NSEC3{
+				Hdr:        dns.Header{Name: "HASH."},
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
-			response := &dnsv1.Msg{
-				Ns: []dnsv1.RR{nsec3},
+			response := &dns.Msg{
+				Ns: []dns.RR{nsec3},
 			}
-			response.Rcode = dnsv1.RcodeNameError
+			response.Rcode = dns.RcodeNameError
 
-			question := dnsv1.Question{
-				Name:   "test.com.",
-				Qtype:  dnsv1.TypeA,
-				Qclass: dnsv1.ClassINET,
-			}
+			question := newQuestion("test.com.", dns.TypeA)
 
 			result := sut.validateNSEC3DenialOfExistence(response, question)
 			Expect(result).ShouldNot(Equal(ValidationResultIndeterminate))
@@ -1752,65 +1748,60 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should handle zone apex boundary in findClosestEncloser", func() {
 			// Test finding closest encloser when reaching zone boundary
-			hashRoot, err := sut.computeNSEC3Hash(".", dnsv1.SHA1, "", 0)
+			hashRoot, err := sut.computeNSEC3Hash(".", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Root := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashRoot + ".",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Root := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashRoot + ".",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
-			result := sut.findClosestEncloser("com.", ".", []*dnsv1.NSEC3{nsec3Root}, dnsv1.SHA1, "", 0)
+			result := sut.findClosestEncloser("com.", ".", []*dns.NSEC3{nsec3Root}, dns.SHA1, "", 0)
 			// Should stop at root
 			Expect(result).ShouldNot(BeNil())
 		})
 
 		It("should handle validateNSEC3NODATA with hash computation error", func() {
-			nsec3 := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "HASH.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3 := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "HASH.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
 			// Use unsupported hash algorithm
 			result := sut.validateNSEC3NODATA(
-				[]*dnsv1.NSEC3{nsec3}, "test.example.com.", dnsv1.TypeA,
+				[]*dns.NSEC3{nsec3}, "test.example.com.", dns.TypeA,
 				"example.com.", 99, "", 0, // Unsupported algorithm
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should detect opt-out flag in validateNSEC3DenialOfExistence", func() {
-			nsec3OptOut := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "HASH.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3OptOut := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "HASH.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				Flags:      0x01, // Opt-Out flag
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					Flags:      0x01, // Opt-Out flag
+				},
 			}
 
-			response := &dnsv1.Msg{
-				Ns: []dnsv1.RR{nsec3OptOut},
+			response := &dns.Msg{
+				Ns: []dns.RR{nsec3OptOut},
 			}
-			response.Rcode = dnsv1.RcodeNameError
+			response.Rcode = dns.RcodeNameError
 
-			question := dnsv1.Question{
-				Name:   "test.example.com.",
-				Qtype:  dnsv1.TypeA,
-				Qclass: dnsv1.ClassINET,
-			}
+			question := newQuestion("test.example.com.", dns.TypeA)
 
 			// Should log opt-out detection and proceed
 			result := sut.validateNSEC3DenialOfExistence(response, question)
@@ -1821,90 +1812,90 @@ var _ = Describe("NSEC3 validation", func() {
 	Describe("checkWildcardNSEC3Match - error paths", func() {
 		It("should return Bogus when no wildcard NSEC3 found after finding closest encloser", func() {
 			// Create NSEC3 for zone apex (closest encloser)
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// No wildcard NSEC3 record present
-			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone}, "test.example.com.", dnsv1.TypeA,
-				"example.com.", dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3Zone}, "test.example.com.", dns.TypeA,
+				"example.com.", dns.SHA1, "", 0, hashQuery,
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
 
 		It("should return Insecure for DS query covered by opt-out after wildcard search", func() {
 			// Create NSEC3 for zone apex (closest encloser)
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// Opt-out NSEC3 that covers the query
-			nsec3OptOut := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "00000000.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3OptOut := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "00000000.example.com.",
 				},
 				Flags:      0x01, // Opt-Out
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 				NextDomain: "ZZZZZZZZ",
 			}
 
-			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Verify the opt-out covers the hash
-			if sut.nsec3CoversWithOptOut([]*dnsv1.NSEC3{nsec3OptOut}, hashQuery) {
+			if sut.nsec3CoversWithOptOut([]*dns.NSEC3{nsec3OptOut}, hashQuery) {
 				result := sut.checkWildcardNSEC3Match(
-					[]*dnsv1.NSEC3{nsec3Zone, nsec3OptOut}, "test.example.com.", dnsv1.TypeDS,
-					"example.com.", dnsv1.SHA1, "", 0, hashQuery,
+					[]*dns.NSEC3{nsec3Zone, nsec3OptOut}, "test.example.com.", dns.TypeDS,
+					"example.com.", dns.SHA1, "", 0, hashQuery,
 				)
 				Expect(result).Should(Equal(ValidationResultInsecure))
 			}
 		})
 
 		It("should handle empty NSEC3 labels in wildcard matching", func() {
-			nsec3Empty := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   ".", // No labels
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Empty := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: ".", // No labels
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
-			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Empty}, "test.example.com.", dnsv1.TypeA,
-				"example.com.", dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3Empty}, "test.example.com.", dns.TypeA,
+				"example.com.", dns.SHA1, "", 0, hashQuery,
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
 		})
@@ -1917,58 +1908,61 @@ var _ = Describe("NSEC3 validation", func() {
 			zoneName := "example.com."
 
 			// Compute zone hash for closest encloser
-			hashZone, err := sut.computeNSEC3Hash(zoneName, dnsv1.SHA1, "AABBCCDD", 10)
+			hashZone, err := sut.computeNSEC3Hash(zoneName, dns.SHA1, "AABBCCDD", 10)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Create NSEC3 for zone apex (closest encloser) - direct match
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
-					Class:  dnsv1.ClassINET,
-					Ttl:    3600,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name:  hashZone + ".example.com.",
+					Class: dns.ClassINET,
+					TTL:   3600,
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "AABBCCDD",
-				Iterations: 10,
-				Flags:      0,
-				NextDomain: hashZone, // Points to itself for simplicity
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "AABBCCDD",
+					Iterations: 10,
+					Flags:      0,
+					NextDomain: hashZone, // Points to itself for simplicity
+				},
 			}
 
 			// Create NSEC3 that covers entire hash space (for next closer)
-			nsec3NextCloserCover := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "00000000000000000000000000000000.example.com.", // Minimum hash
-					Rrtype: dnsv1.TypeNSEC3,
-					Class:  dnsv1.ClassINET,
-					Ttl:    3600,
+			nsec3NextCloserCover := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name:  "00000000000000000000000000000000.example.com.", // Minimum hash
+					Class: dns.ClassINET,
+					TTL:   3600,
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "AABBCCDD",
-				Iterations: 10,
-				Flags:      0,
-				NextDomain: "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV", // Maximum hash
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "AABBCCDD",
+					Iterations: 10,
+					Flags:      0,
+					NextDomain: "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV", // Maximum hash
+				},
 			}
 
 			// Create NSEC3 that covers entire hash space (for wildcard)
 			// Use a different owner to avoid duplicate records
-			nsec3WildcardCover := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "00000000000000000000000000000001.example.com.", // Slightly different
-					Rrtype: dnsv1.TypeNSEC3,
-					Class:  dnsv1.ClassINET,
-					Ttl:    3600,
+			nsec3WildcardCover := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name:  "00000000000000000000000000000001.example.com.", // Slightly different
+					Class: dns.ClassINET,
+					TTL:   3600,
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "AABBCCDD",
-				Iterations: 10,
-				Flags:      0,
-				NextDomain: "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV", // Maximum hash
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "AABBCCDD",
+					Iterations: 10,
+					Flags:      0,
+					NextDomain: "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV", // Maximum hash
+				},
 			}
 
 			result := sut.validateNSEC3NXDOMAIN(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3NextCloserCover, nsec3WildcardCover},
-				qname, zoneName, dnsv1.SHA1, "AABBCCDD", 10,
+				[]*dns.NSEC3{nsec3Zone, nsec3NextCloserCover, nsec3WildcardCover},
+				qname, zoneName, dns.SHA1, "AABBCCDD", 10,
 			)
 
 			// Should return Secure when all conditions are met
@@ -1980,25 +1974,26 @@ var _ = Describe("NSEC3 validation", func() {
 			qname := "sub.example.com."
 			zoneName := "example.com."
 
-			hashZone, err := sut.computeNSEC3Hash(zoneName, dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash(zoneName, dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Create NSEC3 for zone (closest encloser exists)
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				// Don't set NextDomain - let it remain empty
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					// Don't set NextDomain - let it remain empty,
+				},
 			}
 
 			// Next closer and wildcard coverage are missing, so will return Bogus
 			// But this will still hit the "closest encloser found" logging path
 			result := sut.validateNSEC3NXDOMAIN(
-				[]*dnsv1.NSEC3{nsec3Zone}, qname, zoneName, dnsv1.SHA1, "", 0,
+				[]*dns.NSEC3{nsec3Zone}, qname, zoneName, dns.SHA1, "", 0,
 			)
 			// Should try to validate but fail on next closer coverage
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -2010,31 +2005,31 @@ var _ = Describe("NSEC3 validation", func() {
 			qname := "test.example.com."
 			zoneName := "example.com."
 
-			hashZone, err := sut.computeNSEC3Hash(zoneName, dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash(zoneName, dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			hashNextCloser, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hashNextCloser, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// NSEC3 for zone
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// NSEC3 covering next closer (no opt-out flag)
-			nsec3Cover := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "00000000.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Cover := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "00000000.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 				Flags:      0, // No opt-out
@@ -2042,13 +2037,13 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 
 			// Verify next closer is covered
-			if sut.nsec3Covers([]*dnsv1.NSEC3{nsec3Cover}, hashNextCloser) &&
-				!sut.nsec3CoversWithOptOut([]*dnsv1.NSEC3{nsec3Cover}, hashNextCloser) {
+			if sut.nsec3Covers([]*dns.NSEC3{nsec3Cover}, hashNextCloser) &&
+				!sut.nsec3CoversWithOptOut([]*dns.NSEC3{nsec3Cover}, hashNextCloser) {
 				// Next closer covered but not by opt-out
 				// Will proceed to wildcard check
 				result := sut.validateNSEC3NXDOMAIN(
-					[]*dnsv1.NSEC3{nsec3Zone, nsec3Cover},
-					qname, zoneName, dnsv1.SHA1, "", 0,
+					[]*dns.NSEC3{nsec3Zone, nsec3Cover},
+					qname, zoneName, dns.SHA1, "", 0,
 				)
 				// Should fail on wildcard check
 				Expect(result).Should(Equal(ValidationResultBogus))
@@ -2062,41 +2057,39 @@ var _ = Describe("NSEC3 validation", func() {
 			qname := "wild.example.com."
 
 			// Compute hashes
-			hashZone, err := sut.computeNSEC3Hash(zoneName, dnsv1.SHA1, "SALT", 5)
+			hashZone, err := sut.computeNSEC3Hash(zoneName, dns.SHA1, "SALT", 5)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dnsv1.SHA1, "SALT", 5)
+			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dns.SHA1, "SALT", 5)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			hashQuery, err := sut.computeNSEC3Hash(qname, dnsv1.SHA1, "SALT", 5)
+			hashQuery, err := sut.computeNSEC3Hash(qname, dns.SHA1, "SALT", 5)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// NSEC3 for zone apex (closest encloser)
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "SALT",
 				Iterations: 5,
 			}
 
 			// NSEC3 for wildcard with A record but not AAAA
-			nsec3Wildcard := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashWildcard + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Wildcard := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashWildcard + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "SALT",
 				Iterations: 5,
-				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeNS},
+				TypeBitMap: []uint16{dns.TypeA, dns.TypeNS},
 			}
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3Wildcard}, qname, dnsv1.TypeAAAA,
-				zoneName, dnsv1.SHA1, "SALT", 5, hashQuery,
+				[]*dns.NSEC3{nsec3Zone, nsec3Wildcard}, qname, dns.TypeAAAA,
+				zoneName, dns.SHA1, "SALT", 5, hashQuery,
 			)
 
 			// Should return Secure when wildcard is found but doesn't have requested type
@@ -2107,31 +2100,31 @@ var _ = Describe("NSEC3 validation", func() {
 			zoneName := "example.com."
 			qname := "test.example.com."
 
-			hashZone, err := sut.computeNSEC3Hash(zoneName, dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash(zoneName, dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			hashQuery, err := sut.computeNSEC3Hash(qname, dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash(qname, dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// Only zone NSEC3, no wildcard
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// NSEC3 that doesn't cover the query (no opt-out)
-			nsec3Other := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "BBBB.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Other := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "BBBB.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 				Flags:      0, // No opt-out
@@ -2139,8 +2132,8 @@ var _ = Describe("NSEC3 validation", func() {
 			}
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3Other}, qname, dnsv1.TypeA,
-				zoneName, dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3Zone, nsec3Other}, qname, dns.TypeA,
+				zoneName, dns.SHA1, "", 0, hashQuery,
 			)
 
 			// Should return Bogus when no wildcard found and it's not DS with opt-out
@@ -2157,36 +2150,36 @@ var _ = Describe("NSEC3 validation", func() {
 			zoneName := "example.com."
 			qname := "wild.example.com."
 
-			hashZone, err := sut.computeNSEC3Hash(zoneName, dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash(zoneName, dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dnsv1.SHA1, "", 0)
+			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			hashQuery, err := sut.computeNSEC3Hash(qname, dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash(qname, dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// NSEC3 for the zone apex (closest encloser).
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: hashZone + ".example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash:       dnsv1.SHA1,
+			nsec3Zone := &dns.NSEC3{
+				Hdr:        dns.Header{Name: hashZone + ".example.com."},
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
 			// Wildcard NSEC3 without the DS type AND without the NS bit: it does not assert a
 			// delegation, so it must not be read as proof of an insecure delegation.
-			nsec3Wildcard := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: hashWildcard + ".example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash:       dnsv1.SHA1,
+			nsec3Wildcard := &dns.NSEC3{
+				Hdr:        dns.Header{Name: hashWildcard + ".example.com."},
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
-				TypeBitMap: []uint16{dnsv1.TypeA, dnsv1.TypeRRSIG},
+				TypeBitMap: []uint16{dns.TypeA, dns.TypeRRSIG},
 			}
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3Wildcard}, qname, dnsv1.TypeDS,
-				zoneName, dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3Zone, nsec3Wildcard}, qname, dns.TypeDS,
+				zoneName, dns.SHA1, "", 0, hashQuery,
 			)
 
 			Expect(result).ShouldNot(Equal(ValidationResultSecure),
@@ -2199,33 +2192,33 @@ var _ = Describe("NSEC3 validation", func() {
 			zoneName := "example.com."
 			qname := "wild.example.com."
 
-			hashZone, err := sut.computeNSEC3Hash(zoneName, dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash(zoneName, dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dnsv1.SHA1, "", 0)
+			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			hashQuery, err := sut.computeNSEC3Hash(qname, dnsv1.SHA1, "", 0)
+			hashQuery, err := sut.computeNSEC3Hash(qname, dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: hashZone + ".example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash:       dnsv1.SHA1,
+			nsec3Zone := &dns.NSEC3{
+				Hdr:        dns.Header{Name: hashZone + ".example.com."},
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 			}
 
-			nsec3Wildcard := &dnsv1.NSEC3{
-				Hdr:        dnsv1.RR_Header{Name: hashWildcard + ".example.com.", Rrtype: dnsv1.TypeNSEC3},
-				Hash:       dnsv1.SHA1,
+			nsec3Wildcard := &dns.NSEC3{
+				Hdr:        dns.Header{Name: hashWildcard + ".example.com."},
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
-				TypeBitMap: []uint16{dnsv1.TypeNS, dnsv1.TypeRRSIG},
+				TypeBitMap: []uint16{dns.TypeNS, dns.TypeRRSIG},
 			}
 
 			result := sut.checkWildcardNSEC3Match(
-				[]*dnsv1.NSEC3{nsec3Zone, nsec3Wildcard}, qname, dnsv1.TypeDS,
-				zoneName, dnsv1.SHA1, "", 0, hashQuery,
+				[]*dns.NSEC3{nsec3Zone, nsec3Wildcard}, qname, dns.TypeDS,
+				zoneName, dns.SHA1, "", 0, hashQuery,
 			)
 
 			Expect(result).Should(Equal(ValidationResultSecure),
@@ -2236,23 +2229,24 @@ var _ = Describe("NSEC3 validation", func() {
 	Describe("validateNSEC3NXDOMAIN - extended error paths", func() {
 		It("should handle hash computation error for next closer", func() {
 			// Create NSEC3 for zone apex
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
-				Salt:       "",
-				Iterations: 0,
-				NextDomain: hashZone, // Points to itself
+				NSEC3: rdata.NSEC3{
+					Hash:       dns.SHA1,
+					Salt:       "",
+					Iterations: 0,
+					NextDomain: hashZone, // Points to itself
+				},
 			}
 
 			// Use unsupported hash algorithm to trigger error
 			result := sut.validateNSEC3NXDOMAIN(
-				[]*dnsv1.NSEC3{nsec3Zone}, "test.example.com.", "example.com.",
+				[]*dns.NSEC3{nsec3Zone}, "test.example.com.", "example.com.",
 				99, "", 0, // Unsupported hash algorithm
 			)
 			Expect(result).Should(Equal(ValidationResultBogus))
@@ -2260,45 +2254,43 @@ var _ = Describe("NSEC3 validation", func() {
 
 		It("should handle successful wildcard coverage in NXDOMAIN proof", func() {
 			// Create valid NXDOMAIN proof with all required NSEC3 records
-			hashZone, err := sut.computeNSEC3Hash("example.com.", dnsv1.SHA1, "", 0)
+			hashZone, err := sut.computeNSEC3Hash("example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			hashNextCloser, err := sut.computeNSEC3Hash("test.example.com.", dnsv1.SHA1, "", 0)
+			hashNextCloser, err := sut.computeNSEC3Hash("test.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dnsv1.SHA1, "", 0)
+			hashWildcard, err := sut.computeNSEC3Hash("*.example.com.", dns.SHA1, "", 0)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// NSEC3 for zone (closest encloser)
-			nsec3Zone := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   hashZone + ".example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3Zone := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: hashZone + ".example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 				NextDomain: "ZZZZZZZZ",
 			}
 
 			// NSEC3 covering next closer
-			nsec3NextCloser := &dnsv1.NSEC3{
-				Hdr: dnsv1.RR_Header{
-					Name:   "00000000.example.com.",
-					Rrtype: dnsv1.TypeNSEC3,
+			nsec3NextCloser := &dns.NSEC3{
+				Hdr: dns.Header{
+					Name: "00000000.example.com.",
 				},
-				Hash:       dnsv1.SHA1,
+				Hash:       dns.SHA1,
 				Salt:       "",
 				Iterations: 0,
 				NextDomain: "ZZZZZZZZ",
 			}
 
 			// Verify next closer is covered
-			if sut.nsec3Covers([]*dnsv1.NSEC3{nsec3NextCloser}, hashNextCloser) &&
-				sut.nsec3Covers([]*dnsv1.NSEC3{nsec3NextCloser}, hashWildcard) {
+			if sut.nsec3Covers([]*dns.NSEC3{nsec3NextCloser}, hashNextCloser) &&
+				sut.nsec3Covers([]*dns.NSEC3{nsec3NextCloser}, hashWildcard) {
 				result := sut.validateNSEC3NXDOMAIN(
-					[]*dnsv1.NSEC3{nsec3Zone, nsec3NextCloser},
-					"test.example.com.", "example.com.", dnsv1.SHA1, "", 0,
+					[]*dns.NSEC3{nsec3Zone, nsec3NextCloser},
+					"test.example.com.", "example.com.", dns.SHA1, "", 0,
 				)
 				// Should return Secure if proof is valid
 				Expect(result).ShouldNot(Equal(ValidationResultIndeterminate))

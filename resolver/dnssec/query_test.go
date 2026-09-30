@@ -3,10 +3,11 @@ package dnssec
 import (
 	"context"
 	"errors"
+	"net/netip"
 
+	"codeberg.org/miekg/dns"
 	"github.com/0xERR0R/blocky/log"
 	"github.com/0xERR0R/blocky/model"
-	dnsv1 "github.com/miekg/dns"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -97,16 +98,15 @@ var _ = Describe("Query functions", func() {
 		It("should query upstream with DNSSEC enabled", func() {
 			ctx := context.WithValue(context.Background(), queryBudgetKey{}, 10)
 
-			expectedResponse := &dnsv1.Msg{
-				Answer: []dnsv1.RR{
-					&dnsv1.A{
-						Hdr: dnsv1.RR_Header{
-							Name:   "example.com.",
-							Rrtype: dnsv1.TypeA,
-							Class:  dnsv1.ClassINET,
-							Ttl:    300,
+			expectedResponse := &dns.Msg{
+				Answer: []dns.RR{
+					&dns.A{
+						Hdr: dns.Header{
+							Name:  "example.com.",
+							Class: dns.ClassINET,
+							TTL:   300,
 						},
-						A: []byte{192, 0, 2, 1},
+						Addr: netip.AddrFrom4([4]byte{192, 0, 2, 1}),
 					},
 				},
 			}
@@ -120,14 +120,20 @@ var _ = Describe("Query functions", func() {
 				// Verify question
 				Expect(req.Req.Question).Should(HaveLen(1))
 				Expect(req.Req.Question[0].Name).Should(Equal("example.com."))
-				Expect(req.Req.Question[0].Qtype).Should(Equal(dnsv1.TypeA))
+				Expect(req.Req.Question[0].Qtype).Should(Equal(dns.TypeA))
 
-				return &model.Response{Res: expectedResponse}, nil
+				return &model.Response{Res: toV1(expectedResponse)}, nil
 			}
 
-			newCtx, response, err := sut.queryRecords(ctx, "example.com", dnsv1.TypeA)
+			newCtx, response, err := sut.queryRecords(ctx, "example.com", dns.TypeA)
 			Expect(err).Should(Succeed())
-			Expect(response).Should(Equal(expectedResponse))
+			// The response crossed the v1 boundary, so it's a copy: compare it part by part.
+			Expect(response.MsgHeader).Should(Equal(expectedResponse.MsgHeader))
+			Expect(response.Answer).Should(Equal(expectedResponse.Answer))
+			Expect(response.Question).Should(BeEmpty())
+			Expect(response.Ns).Should(BeEmpty())
+			Expect(response.Extra).Should(BeEmpty())
+			Expect(response.Pseudo).Should(BeEmpty())
 
 			// Verify budget was decremented
 			budget := newCtx.Value(queryBudgetKey{}).(int)
@@ -140,17 +146,17 @@ var _ = Describe("Query functions", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				Expect(req.Req.Question[0].Name).Should(Equal("example.com."))
 
-				return &model.Response{Res: &dnsv1.Msg{}}, nil
+				return &model.Response{Res: toV1(&dns.Msg{})}, nil
 			}
 
-			_, _, err := sut.queryRecords(ctx, "example.com", dnsv1.TypeA)
+			_, _, err := sut.queryRecords(ctx, "example.com", dns.TypeA)
 			Expect(err).Should(Succeed())
 		})
 
 		It("should fail when budget is exhausted", func() {
 			ctx := context.WithValue(context.Background(), queryBudgetKey{}, 0)
 
-			_, _, err := sut.queryRecords(ctx, "example.com", dnsv1.TypeA)
+			_, _, err := sut.queryRecords(ctx, "example.com", dns.TypeA)
 			Expect(err).Should(HaveOccurred())
 			Expect(err.Error()).Should(ContainSubstring("budget exhausted"))
 		})
@@ -162,7 +168,7 @@ var _ = Describe("Query functions", func() {
 				return nil, errors.New("network error")
 			}
 
-			_, _, err := sut.queryRecords(ctx, "example.com", dnsv1.TypeA)
+			_, _, err := sut.queryRecords(ctx, "example.com", dns.TypeA)
 			Expect(err).Should(HaveOccurred())
 			Expect(err.Error()).Should(ContainSubstring("upstream query failed"))
 		})
@@ -171,20 +177,20 @@ var _ = Describe("Query functions", func() {
 			ctx := context.WithValue(context.Background(), queryBudgetKey{}, 10)
 
 			testCases := []uint16{
-				dnsv1.TypeA,
-				dnsv1.TypeAAAA,
-				dnsv1.TypeDNSKEY,
-				dnsv1.TypeDS,
-				dnsv1.TypeRRSIG,
-				dnsv1.TypeNSEC,
-				dnsv1.TypeNSEC3,
+				dns.TypeA,
+				dns.TypeAAAA,
+				dns.TypeDNSKEY,
+				dns.TypeDS,
+				dns.TypeRRSIG,
+				dns.TypeNSEC,
+				dns.TypeNSEC3,
 			}
 
 			for _, qtype := range testCases {
 				mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 					Expect(req.Req.Question[0].Qtype).Should(Equal(qtype))
 
-					return &model.Response{Res: &dnsv1.Msg{}}, nil
+					return &model.Response{Res: toV1(&dns.Msg{})}, nil
 				}
 
 				_, _, err := sut.queryRecords(ctx, "example.com", qtype)
@@ -198,10 +204,10 @@ var _ = Describe("Query functions", func() {
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				Expect(req.Protocol).Should(Equal(model.RequestProtocolUDP))
 
-				return &model.Response{Res: &dnsv1.Msg{}}, nil
+				return &model.Response{Res: toV1(&dns.Msg{})}, nil
 			}
 
-			_, _, err := sut.queryRecords(ctx, "example.com", dnsv1.TypeA)
+			_, _, err := sut.queryRecords(ctx, "example.com", dns.TypeA)
 			Expect(err).Should(Succeed())
 		})
 	})
@@ -210,26 +216,25 @@ var _ = Describe("Query functions", func() {
 		It("should query and extract DNSKEY records", func() {
 			ctx := context.WithValue(context.Background(), queryBudgetKey{}, 10)
 
-			dnskey := &dnsv1.DNSKEY{
-				Hdr: dnsv1.RR_Header{
-					Name:   "example.com.",
-					Rrtype: dnsv1.TypeDNSKEY,
-					Class:  dnsv1.ClassINET,
-					Ttl:    3600,
+			dnskey := &dns.DNSKEY{
+				Hdr: dns.Header{
+					Name:  "example.com.",
+					Class: dns.ClassINET,
+					TTL:   3600,
 				},
 				Flags:     257,
 				Protocol:  3,
-				Algorithm: dnsv1.ECDSAP256SHA256,
-				PublicKey: "test-key",
+				Algorithm: dns.ECDSAP256SHA256,
+				PublicKey: "dGVzdC1rZXk=",
 			}
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
-				Expect(req.Req.Question[0].Qtype).Should(Equal(dnsv1.TypeDNSKEY))
+				Expect(req.Req.Question[0].Qtype).Should(Equal(dns.TypeDNSKEY))
 
 				return &model.Response{
-					Res: &dnsv1.Msg{
-						Answer: []dnsv1.RR{dnskey},
-					},
+					Res: toV1(&dns.Msg{
+						Answer: []dns.RR{dnskey},
+					}),
 				}, nil
 			}
 
@@ -248,19 +253,18 @@ var _ = Describe("Query functions", func() {
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: &dnsv1.Msg{
-						Answer: []dnsv1.RR{
-							&dnsv1.A{
-								Hdr: dnsv1.RR_Header{
-									Name:   "example.com.",
-									Rrtype: dnsv1.TypeA,
-									Class:  dnsv1.ClassINET,
-									Ttl:    300,
+					Res: toV1(&dns.Msg{
+						Answer: []dns.RR{
+							&dns.A{
+								Hdr: dns.Header{
+									Name:  "example.com.",
+									Class: dns.ClassINET,
+									TTL:   300,
 								},
-								A: []byte{192, 0, 2, 1},
+								Addr: netip.AddrFrom4([4]byte{192, 0, 2, 1}),
 							},
 						},
-					},
+					}),
 				}, nil
 			}
 
@@ -283,37 +287,35 @@ var _ = Describe("Query functions", func() {
 		It("should extract multiple DNSKEY records", func() {
 			ctx := context.WithValue(context.Background(), queryBudgetKey{}, 10)
 
-			dnskey1 := &dnsv1.DNSKEY{
-				Hdr: dnsv1.RR_Header{
-					Name:   "example.com.",
-					Rrtype: dnsv1.TypeDNSKEY,
-					Class:  dnsv1.ClassINET,
-					Ttl:    3600,
+			dnskey1 := &dns.DNSKEY{
+				Hdr: dns.Header{
+					Name:  "example.com.",
+					Class: dns.ClassINET,
+					TTL:   3600,
 				},
 				Flags:     257, // KSK
 				Protocol:  3,
-				Algorithm: dnsv1.ECDSAP256SHA256,
+				Algorithm: dns.ECDSAP256SHA256,
 				PublicKey: "key1",
 			}
 
-			dnskey2 := &dnsv1.DNSKEY{
-				Hdr: dnsv1.RR_Header{
-					Name:   "example.com.",
-					Rrtype: dnsv1.TypeDNSKEY,
-					Class:  dnsv1.ClassINET,
-					Ttl:    3600,
+			dnskey2 := &dns.DNSKEY{
+				Hdr: dns.Header{
+					Name:  "example.com.",
+					Class: dns.ClassINET,
+					TTL:   3600,
 				},
 				Flags:     256, // ZSK
 				Protocol:  3,
-				Algorithm: dnsv1.ECDSAP256SHA256,
+				Algorithm: dns.ECDSAP256SHA256,
 				PublicKey: "key2",
 			}
 
 			mockUpstream.ResolveFn = func(ctx context.Context, req *model.Request) (*model.Response, error) {
 				return &model.Response{
-					Res: &dnsv1.Msg{
-						Answer: []dnsv1.RR{dnskey1, dnskey2},
-					},
+					Res: toV1(&dns.Msg{
+						Answer: []dns.RR{dnskey1, dnskey2},
+					}),
 				}, nil
 			}
 

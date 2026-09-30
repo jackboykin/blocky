@@ -9,20 +9,19 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/0xERR0R/blocky/util"
-
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
 )
 
 // validateNSEC3DenialOfExistence validates NSEC3-based denial of existence per RFC 5155
-func (v *Validator) validateNSEC3DenialOfExistence(response *dnsv1.Msg, question dnsv1.Question) ValidationResult {
-	qname := dnsv1.Fqdn(question.Name)
-	qtype := question.Qtype
+func (v *Validator) validateNSEC3DenialOfExistence(response *dns.Msg, question dns.RR) ValidationResult {
+	qname := dnsutil.Fqdn(question.Header().Name)
+	qtype := dns.RRToType(question)
 
 	// Extract NSEC3 records
-	var nsec3Records []*dnsv1.NSEC3
+	var nsec3Records []*dns.NSEC3
 	for _, rr := range response.Ns {
-		if nsec3, ok := rr.(*dnsv1.NSEC3); ok {
+		if nsec3, ok := rr.(*dns.NSEC3); ok {
 			nsec3Records = append(nsec3Records, nsec3)
 		}
 	}
@@ -64,7 +63,7 @@ func (v *Validator) validateNSEC3DenialOfExistence(response *dnsv1.Msg, question
 	}
 
 	// Only SHA-1 (algorithm 1) is currently standardized for NSEC3
-	if hashAlg != dnsv1.SHA1 {
+	if hashAlg != dns.SHA1 {
 		v.logger.Warnf("Unsupported NSEC3 hash algorithm %d for %s", hashAlg, qname)
 
 		return ValidationResultBogus
@@ -75,14 +74,14 @@ func (v *Validator) validateNSEC3DenialOfExistence(response *dnsv1.Msg, question
 	zoneName := ""
 	if len(nsec3Records) > 0 {
 		ownerName := nsec3Records[0].Hdr.Name
-		labels := dnsv1.SplitDomainName(ownerName)
+		labels := splitName(ownerName)
 		if len(labels) > 1 {
-			zoneName = dnsv1.Fqdn(strings.Join(labels[1:], "."))
+			zoneName = dnsutil.Fqdn(strings.Join(labels[1:], "."))
 		}
 	}
 
 	// RFC 5155 §8: Validate based on response type
-	if response.Rcode == dnsv1.RcodeNameError {
+	if response.Rcode == dns.RcodeNameError {
 		// NXDOMAIN: Need to prove name doesn't exist and no wildcard matches
 		return v.validateNSEC3NXDOMAIN(nsec3Records, qname, zoneName, hashAlg, salt, iterations)
 	}
@@ -92,19 +91,19 @@ func (v *Validator) validateNSEC3DenialOfExistence(response *dnsv1.Msg, question
 }
 
 // extractNSEC3Records extracts NSEC3 records from a list of RRs
-func extractNSEC3Records(rrs []dnsv1.RR) []*dnsv1.NSEC3 {
-	return util.ExtractRecordsFromSlice[*dnsv1.NSEC3](rrs)
+func extractNSEC3Records(rrs []dns.RR) []*dns.NSEC3 {
+	return recordsOf[*dns.NSEC3](rrs)
 }
 
 // computeNSEC3Hash computes the NSEC3 hash per RFC 5155 §5 with caching
 // Caching is important because NSEC3 hash computation is expensive (iterative SHA-1)
 func (v *Validator) computeNSEC3Hash(name string, hashAlg uint8, salt string, iterations uint16) (string, error) {
-	if hashAlg != dnsv1.SHA1 {
+	if hashAlg != dns.SHA1 {
 		return "", fmt.Errorf("unsupported NSEC3 hash algorithm: %d", hashAlg)
 	}
 
 	// Convert name to canonical form for consistent cache keys
-	name = dnsv1.Fqdn(strings.ToLower(name))
+	name = canonicalName(name)
 
 	// Create cache key: name:algorithm:salt:iterations
 	cacheKey := fmt.Sprintf("%s:%d:%s:%d", name, hashAlg, salt, iterations)
@@ -116,8 +115,7 @@ func (v *Validator) computeNSEC3Hash(name string, hashAlg uint8, salt string, it
 		}
 	}
 
-	// Compute hash using the miekg/dns library's built-in NSEC3 hash function
-	hash := dnsv1.HashName(name, hashAlg, iterations, salt)
+	hash := nsec3Hash(name, salt, iterations)
 
 	// Store in cache
 	v.nsec3HashCache.Store(cacheKey, hash)
@@ -125,8 +123,21 @@ func (v *Validator) computeNSEC3Hash(name string, hashAlg uint8, salt string, it
 	return hash, nil
 }
 
+// nsec3Hash returns the RFC 5155 §5 hash of the canonical name, or "" if name or salt
+// can't be encoded.
+func nsec3Hash(name, salt string, iterations uint16) string {
+	// NSEC3Name would hash names past the 255-octet limit (RFC 1035 §2.3.4); the wire
+	// form is one octet longer than the text.
+	const maxNameOctets = 255
+	if len(name)+1 > maxNameOctets {
+		return ""
+	}
+
+	return dnsutil.NSEC3Name(name, salt, iterations)
+}
+
 // validateNSEC3NXDOMAIN validates NSEC3 proof for NXDOMAIN per RFC 5155 §8.5
-func (v *Validator) validateNSEC3NXDOMAIN(nsec3Records []*dnsv1.NSEC3, qname, zoneName string,
+func (v *Validator) validateNSEC3NXDOMAIN(nsec3Records []*dns.NSEC3, qname, zoneName string,
 	hashAlg uint8, salt string, iterations uint16,
 ) ValidationResult {
 	// RFC 5155 §8.5: NXDOMAIN requires:
@@ -196,7 +207,7 @@ func (v *Validator) validateNSEC3NXDOMAIN(nsec3Records []*dnsv1.NSEC3, qname, zo
 }
 
 // validateNSEC3NODATA validates NSEC3 proof for NODATA per RFC 5155 §8.6
-func (v *Validator) validateNSEC3NODATA(nsec3Records []*dnsv1.NSEC3, qname string, qtype uint16,
+func (v *Validator) validateNSEC3NODATA(nsec3Records []*dns.NSEC3, qname string, qtype uint16,
 	zoneName string, hashAlg uint8, salt string, iterations uint16,
 ) ValidationResult {
 	// Compute hash of qname
@@ -218,13 +229,13 @@ func (v *Validator) validateNSEC3NODATA(nsec3Records []*dnsv1.NSEC3, qname strin
 }
 
 // checkDirectNSEC3Match checks if there's a direct NSEC3 match for NODATA
-func (v *Validator) checkDirectNSEC3Match(nsec3Records []*dnsv1.NSEC3, qname, qnameHash string,
+func (v *Validator) checkDirectNSEC3Match(nsec3Records []*dns.NSEC3, qname, qnameHash string,
 	qtype uint16,
 ) ValidationResult {
 	for _, nsec3 := range nsec3Records {
 		// Extract just the hash part (first label of owner name)
 		ownerName := nsec3.Hdr.Name
-		labels := dnsv1.SplitDomainName(ownerName)
+		labels := splitName(ownerName)
 
 		if len(labels) == 0 {
 			continue
@@ -243,7 +254,7 @@ func (v *Validator) checkDirectNSEC3Match(nsec3Records []*dnsv1.NSEC3, qname, qn
 			// if it asserts a delegation - NS bit set, SOA and DS bits clear. An NSEC3 for an
 			// in-zone name (NS clear) or a zone apex (SOA set) must not be read as an unsigned
 			// delegation (GHSA-x845-2f78-7v36 finding 4).
-			if qtype == dnsv1.TypeDS && !nsec3AssertsDelegation(nsec3) {
+			if qtype == dns.TypeDS && !nsec3AssertsDelegation(nsec3) {
 				v.logger.Warnf("NSEC3 DS-absence proof for %s does not assert an insecure delegation "+
 					"(NS bit clear or SOA bit set)", qname)
 
@@ -268,19 +279,19 @@ func (v *Validator) checkDirectNSEC3Match(nsec3Records []*dnsv1.NSEC3, qname, qn
 // It is the shared core of nsec3AssertsDelegation and nsecProvesInsecureDelegation so the
 // rule cannot drift between the NSEC and NSEC3 code paths (GHSA-x845-2f78-7v36 finding 4).
 func assertsInsecureDelegation(typeBitMap []uint16) bool {
-	return slices.Contains(typeBitMap, dnsv1.TypeNS) &&
-		!slices.Contains(typeBitMap, dnsv1.TypeSOA) &&
-		!slices.Contains(typeBitMap, dnsv1.TypeDS)
+	return slices.Contains(typeBitMap, dns.TypeNS) &&
+		!slices.Contains(typeBitMap, dns.TypeSOA) &&
+		!slices.Contains(typeBitMap, dns.TypeDS)
 }
 
 // nsec3AssertsDelegation reports whether an NSEC3 RR asserts an insecure delegation per
 // RFC 5155 §8.9 (see assertsInsecureDelegation).
-func nsec3AssertsDelegation(nsec3 *dnsv1.NSEC3) bool {
+func nsec3AssertsDelegation(nsec3 *dns.NSEC3) bool {
 	return assertsInsecureDelegation(nsec3.TypeBitMap)
 }
 
 // checkWildcardNSEC3Match checks for wildcard NODATA proof
-func (v *Validator) checkWildcardNSEC3Match(nsec3Records []*dnsv1.NSEC3, qname string, qtype uint16,
+func (v *Validator) checkWildcardNSEC3Match(nsec3Records []*dns.NSEC3, qname string, qtype uint16,
 	zoneName string, hashAlg uint8, salt string, iterations uint16, qnameHash string,
 ) ValidationResult {
 	closestEncloser := v.findClosestEncloser(qname, zoneName, nsec3Records, hashAlg, salt, iterations)
@@ -289,7 +300,7 @@ func (v *Validator) checkWildcardNSEC3Match(nsec3Records []*dnsv1.NSEC3, qname s
 
 		// RFC 5155 §6: For DS queries, check if covered by NSEC3 with Opt-Out
 		// If yes, this is an unsigned delegation (Insecure), not Bogus
-		if qtype == dnsv1.TypeDS && v.nsec3CoversWithOptOut(nsec3Records, qnameHash) {
+		if qtype == dns.TypeDS && v.nsec3CoversWithOptOut(nsec3Records, qnameHash) {
 			v.logger.Debugf("DS query for %s covered by NSEC3 Opt-Out - unsigned delegation", qname)
 
 			return ValidationResultInsecure
@@ -308,7 +319,7 @@ func (v *Validator) checkWildcardNSEC3Match(nsec3Records []*dnsv1.NSEC3, qname s
 
 	for _, nsec3 := range nsec3Records {
 		ownerName := nsec3.Hdr.Name
-		labels := dnsv1.SplitDomainName(ownerName)
+		labels := splitName(ownerName)
 
 		if len(labels) > 0 && strings.EqualFold(labels[0], wildcardHash) {
 			// Found wildcard NSEC3 - check type bitmap
@@ -320,7 +331,7 @@ func (v *Validator) checkWildcardNSEC3Match(nsec3Records []*dnsv1.NSEC3, qname s
 			// NODATA proof only proves an insecure delegation when the NSEC3 asserts a
 			// delegation - NS bit set, SOA and DS bits clear. Without it, a missing-DS answer
 			// for an in-zone name is bogus, not insecure (GHSA-x845-2f78-7v36 finding 4).
-			if qtype == dnsv1.TypeDS && !nsec3AssertsDelegation(nsec3) {
+			if qtype == dns.TypeDS && !nsec3AssertsDelegation(nsec3) {
 				v.logger.Warnf("NSEC3 wildcard DS-absence proof for %s does not assert an insecure "+
 					"delegation (NS bit clear or SOA bit set)", qname)
 
@@ -337,7 +348,7 @@ func (v *Validator) checkWildcardNSEC3Match(nsec3Records []*dnsv1.NSEC3, qname s
 
 	// RFC 5155 §6: For DS queries, check if covered by NSEC3 with Opt-Out
 	// If yes, this is an unsigned delegation (Insecure), not Bogus
-	if qtype == dnsv1.TypeDS && v.nsec3CoversWithOptOut(nsec3Records, qnameHash) {
+	if qtype == dns.TypeDS && v.nsec3CoversWithOptOut(nsec3Records, qnameHash) {
 		v.logger.Debugf("DS query for %s covered by NSEC3 Opt-Out - unsigned delegation", qname)
 
 		return ValidationResultInsecure
@@ -347,7 +358,7 @@ func (v *Validator) checkWildcardNSEC3Match(nsec3Records []*dnsv1.NSEC3, qname s
 }
 
 // findClosestEncloser finds the closest encloser for a name per RFC 5155 §8.3
-func (v *Validator) findClosestEncloser(qname, zoneName string, nsec3Records []*dnsv1.NSEC3,
+func (v *Validator) findClosestEncloser(qname, zoneName string, nsec3Records []*dns.NSEC3,
 	hashAlg uint8, salt string, iterations uint16,
 ) string {
 	// Start from qname and walk up the tree until we find a matching NSEC3 record
@@ -361,7 +372,7 @@ func (v *Validator) findClosestEncloser(qname, zoneName string, nsec3Records []*
 		// Check if any NSEC3 record matches this hash
 		for _, nsec3 := range nsec3Records {
 			ownerName := nsec3.Hdr.Name
-			labels := dnsv1.SplitDomainName(ownerName)
+			labels := splitName(ownerName)
 			if len(labels) > 0 && strings.EqualFold(labels[0], nameHash) {
 				// Found matching NSEC3 - this is the closest encloser
 				return name
@@ -376,13 +387,13 @@ func (v *Validator) findClosestEncloser(qname, zoneName string, nsec3Records []*
 		}
 
 		// Move up one label
-		labels := dnsv1.SplitDomainName(name)
+		labels := splitName(name)
 		if len(labels) <= 1 {
 			// Reached zone apex or root
 			break
 		}
 
-		name = dnsv1.Fqdn(strings.Join(labels[1:], "."))
+		name = dnsutil.Fqdn(strings.Join(labels[1:], "."))
 
 		// CRITICAL FIX: Always break at root to prevent infinite loop
 		if name == "." {
@@ -390,7 +401,7 @@ func (v *Validator) findClosestEncloser(qname, zoneName string, nsec3Records []*
 		}
 
 		// Don't go above the zone
-		if zoneName != "" && !dnsv1.IsSubDomain(zoneName, name) {
+		if zoneName != "" && !isSubDomain(zoneName, name) {
 			break
 		}
 	}
@@ -400,8 +411,8 @@ func (v *Validator) findClosestEncloser(qname, zoneName string, nsec3Records []*
 
 // getNextCloser returns the next closer name (one label longer than closest encloser)
 func (v *Validator) getNextCloser(qname, closestEncloser string) string {
-	qnameLabels := dnsv1.SplitDomainName(qname)
-	ceLabels := dnsv1.SplitDomainName(closestEncloser)
+	qnameLabels := splitName(qname)
+	ceLabels := splitName(closestEncloser)
 
 	if len(qnameLabels) <= len(ceLabels) {
 		return ""
@@ -410,7 +421,7 @@ func (v *Validator) getNextCloser(qname, closestEncloser string) string {
 	// Next closer is qname with one more label than closest encloser
 	nextCloserLabels := qnameLabels[len(qnameLabels)-len(ceLabels)-1:]
 
-	return dnsv1.Fqdn(strings.Join(nextCloserLabels, "."))
+	return dnsutil.Fqdn(strings.Join(nextCloserLabels, "."))
 }
 
 // compareNSEC3Hashes compares two NSEC3 hash strings as binary values per RFC 5155.
@@ -474,10 +485,10 @@ func nsec3HashInRange(hash, ownerHash, nextHash string) bool {
 
 // nsec3Covers checks if a hash is covered by any NSEC3 record.
 // Per RFC 5155, hashes are compared as binary values (big-endian) not as strings.
-func (v *Validator) nsec3Covers(nsec3Records []*dnsv1.NSEC3, hash string) bool {
+func (v *Validator) nsec3Covers(nsec3Records []*dns.NSEC3, hash string) bool {
 	for _, nsec3 := range nsec3Records {
 		ownerName := nsec3.Hdr.Name
-		labels := dnsv1.SplitDomainName(ownerName)
+		labels := splitName(ownerName)
 		if len(labels) == 0 {
 			continue
 		}
@@ -497,7 +508,7 @@ func (v *Validator) nsec3Covers(nsec3Records []*dnsv1.NSEC3, hash string) bool {
 // nsec3CoversWithOptOut checks if a hash is covered by an NSEC3 record with Opt-Out flag set.
 // Per RFC 5155 §6: Returns true if the hash falls in an Opt-Out span.
 // Hashes are compared as binary values (big-endian) per RFC 5155.
-func (v *Validator) nsec3CoversWithOptOut(nsec3Records []*dnsv1.NSEC3, hash string) bool {
+func (v *Validator) nsec3CoversWithOptOut(nsec3Records []*dns.NSEC3, hash string) bool {
 	const optOutFlag = 0x01
 
 	for _, nsec3 := range nsec3Records {
@@ -507,7 +518,7 @@ func (v *Validator) nsec3CoversWithOptOut(nsec3Records []*dnsv1.NSEC3, hash stri
 		}
 
 		ownerName := nsec3.Hdr.Name
-		labels := dnsv1.SplitDomainName(ownerName)
+		labels := splitName(ownerName)
 		if len(labels) == 0 {
 			continue
 		}

@@ -3,9 +3,8 @@ package dnssec
 import (
 	"errors"
 	"fmt"
-	"strings"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 )
 
 // rootAnchor represents a root KSK trust anchor with metadata
@@ -60,7 +59,7 @@ func getDefaultRootTrustAnchors() []string {
 
 // TrustAnchor represents a DNSSEC trust anchor (DNSKEY record)
 type TrustAnchor struct {
-	Key *dnsv1.DNSKEY
+	Key *dns.DNSKEY
 }
 
 // TrustAnchorStore manages DNSSEC trust anchors
@@ -106,23 +105,23 @@ func NewTrustAnchorStore(customAnchors []string) (*TrustAnchorStore, error) {
 // AddTrustAnchor adds a trust anchor from a DNSKEY record string.
 func (s *TrustAnchorStore) AddTrustAnchor(anchorStr string) error {
 	// Parse the DNSKEY record
-	rr, err := dnsv1.NewRR(anchorStr)
+	rr, err := dns.New(anchorStr)
 	if err != nil {
 		return fmt.Errorf("failed to parse trust anchor: %w", err)
 	}
 
-	dnskey, ok := rr.(*dnsv1.DNSKEY)
+	dnskey, ok := rr.(*dns.DNSKEY)
 	if !ok {
 		return errors.New("trust anchor is not a DNSKEY record")
 	}
 
 	// Validate that it's a KSK (Secure Entry Point)
-	if dnskey.Flags&dnsv1.SEP == 0 {
+	if dnskey.Flags&dns.FlagSEP == 0 {
 		return errors.New("trust anchor is not a KSK (SEP flag not set)")
 	}
 
 	// Normalize domain name
-	domain := strings.ToLower(dnskey.Header().Name)
+	domain := canonicalName(dnskey.Header().Name)
 
 	// Add to store
 	anchor := &TrustAnchor{
@@ -136,14 +135,14 @@ func (s *TrustAnchorStore) AddTrustAnchor(anchorStr string) error {
 
 // GetTrustAnchors returns trust anchors for a domain
 func (s *TrustAnchorStore) GetTrustAnchors(domain string) []*TrustAnchor {
-	domain = strings.ToLower(dnsv1.Fqdn(domain))
+	domain = canonicalName(domain)
 
 	return s.anchors[domain]
 }
 
 // HasTrustAnchor returns true if the store has a trust anchor for the domain
 func (s *TrustAnchorStore) HasTrustAnchor(domain string) bool {
-	domain = strings.ToLower(dnsv1.Fqdn(domain))
+	domain = canonicalName(domain)
 
 	return len(s.anchors[domain]) > 0
 }

@@ -9,7 +9,9 @@ import (
 	"net/netip"
 
 	"github.com/0xERR0R/blocky/model"
-	dnsv1 "github.com/miekg/dns"
+
+	"codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnsutil"
 )
 
 // queryBudgetKey is the context key for tracking upstream query budget
@@ -71,7 +73,7 @@ func (v *Validator) decrementQueryBudget(ctx context.Context) context.Context {
 // Returns (response, newContext, error) where newContext has decremented budget
 func (v *Validator) queryRecords(
 	ctx context.Context, domain string, qtype uint16,
-) (context.Context, *dnsv1.Msg, error) {
+) (context.Context, *dns.Msg, error) {
 	// Check query budget (DoS protection)
 	if err := v.consumeQueryBudget(ctx); err != nil {
 		v.logger.Warnf("Query budget exhausted while querying %s (type %d): %v", domain, qtype, err)
@@ -79,12 +81,11 @@ func (v *Validator) queryRecords(
 		return ctx, nil, err
 	}
 
-	domain = dnsv1.Fqdn(domain)
+	domain = dnsutil.Fqdn(domain)
 
 	// Create DNS query
-	msg := new(dnsv1.Msg)
-	msg.SetQuestion(domain, qtype)
-	msg.SetEdns0(ednsUDPSize, true) // Set DO bit for DNSSEC
+	msg := dns.NewMsg(domain, qtype)
+	msg.UDPSize, msg.Security = ednsUDPSize, true // Set DO bit for DNSSEC
 	// Set the CD (Checking Disabled) bit so a validating upstream does not pre-filter these
 	// auxiliary DS/DNSKEY lookups: we must validate the RAW records ourselves. Without it an
 	// upstream like 8.8.8.8 returns SERVFAIL for a bogus chain (e.g. dnssec-failed.org), which
@@ -92,10 +93,18 @@ func (v *Validator) queryRecords(
 	// instead of correctly rejected as Bogus. This is what makes validation independent (#1287).
 	msg.CheckingDisabled = true
 
+	// A query or response that doesn't survive conversion is handled like a failed
+	// upstream query: the caller gets an error, and treats it as unavailable data rather
+	// than as proof of anything. See dnsv1.go.
+	msgV1, err := msgToV1(msg)
+	if err != nil {
+		return ctx, nil, fmt.Errorf("converting query: %w", err)
+	}
+
 	// Create model request, preserving the originating client's identity so the
 	// upstream tree selects the same group/view as the user-facing answer.
 	req := &model.Request{
-		Req:      msg,
+		Req:      msgV1,
 		Protocol: model.RequestProtocolUDP,
 	}
 	if cc, ok := clientContextFrom(ctx); ok {
@@ -110,16 +119,21 @@ func (v *Validator) queryRecords(
 		return ctx, nil, fmt.Errorf("upstream query failed: %w", err)
 	}
 
+	res, err := msgToV2(response.Res)
+	if err != nil {
+		return ctx, nil, fmt.Errorf("converting upstream response: %w", err)
+	}
+
 	// Decrement budget after successful query
 	newCtx := v.decrementQueryBudget(ctx)
 
-	return newCtx, response.Res, nil
+	return newCtx, res, nil
 }
 
 // queryDNSKEY queries upstream for DNSKEY records
 // Returns (newContext, dnskeys, error) where newContext has decremented budget
-func (v *Validator) queryDNSKEY(ctx context.Context, domain string) (context.Context, []*dnsv1.DNSKEY, error) {
-	ctx, response, err := v.queryRecords(ctx, domain, dnsv1.TypeDNSKEY)
+func (v *Validator) queryDNSKEY(ctx context.Context, domain string) (context.Context, []*dns.DNSKEY, error) {
+	ctx, response, err := v.queryRecords(ctx, domain, dns.TypeDNSKEY)
 	if err != nil {
 		// The sub-query itself failed (timeout/unreachable upstream/budget). This is a
 		// transient inability to gather validation data, NOT proof of an invalid signature,
@@ -129,7 +143,7 @@ func (v *Validator) queryDNSKEY(ctx context.Context, domain string) (context.Con
 		return ctx, nil, fmt.Errorf("%w: %w", errDNSKEYUnavailable, err)
 	}
 
-	keys, err := extractTypedRecords[*dnsv1.DNSKEY](response.Answer)
+	keys, err := extractTypedRecords[*dns.DNSKEY](response.Answer)
 
 	return ctx, keys, err
 }

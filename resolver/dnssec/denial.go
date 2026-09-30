@@ -6,15 +6,15 @@ package dnssec
 import (
 	"context"
 
-	dnsv1 "github.com/miekg/dns"
+	"codeberg.org/miekg/dns"
 )
 
 // validateDenialOfExistence validates NSEC/NSEC3 records for authenticated denial of existence
 // Per RFC 4035 §5.4 and RFC 5155
 func (v *Validator) validateDenialOfExistence(
 	ctx context.Context,
-	response *dnsv1.Msg,
-	question dnsv1.Question,
+	response *dns.Msg,
+	question dns.RR,
 ) ValidationResult {
 	// Check if we have NSEC3 records (RFC 5155)
 	hasNSEC3 := false
@@ -22,17 +22,17 @@ func (v *Validator) validateDenialOfExistence(
 
 	for _, rr := range response.Ns {
 		switch rr.(type) {
-		case *dnsv1.NSEC3:
+		case *dns.NSEC3:
 			hasNSEC3 = true
-		case *dnsv1.NSEC:
+		case *dns.NSEC:
 			hasNSEC = true
 		}
 	}
 
 	// Validate the authority section RRsets first (must have valid signatures)
-	result := v.validateRRsets(ctx, response.Ns, question.Name, response.Ns, question.Name)
+	result := v.validateRRsets(ctx, response.Ns, question.Header().Name, response.Ns, question.Header().Name)
 	if result != ValidationResultSecure {
-		v.logger.Warnf("Authority section validation failed for denial of existence: %s", question.Name)
+		v.logger.Warnf("Authority section validation failed for denial of existence: %s", question.Header().Name)
 
 		return result
 	}
@@ -45,7 +45,7 @@ func (v *Validator) validateDenialOfExistence(
 	}
 
 	// No NSEC or NSEC3 records found - cannot validate denial of existence
-	v.logger.Warnf("No NSEC/NSEC3 records found for denial of existence: %s", question.Name)
+	v.logger.Warnf("No NSEC/NSEC3 records found for denial of existence: %s", question.Header().Name)
 
 	return ValidationResultInsecure
 }
